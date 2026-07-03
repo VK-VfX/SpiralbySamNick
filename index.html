@@ -12,6 +12,10 @@
     <header class="app-header">
       <h1>SIGNAL STABILIZER</h1>
       <p class="subtitle">tune the oscillator. lock the signal.</p>
+      <button id="levelBtn" class="level-btn" type="button" aria-haspopup="dialog" aria-controls="menuOverlay">
+        <span id="levelBtnText">SIGNAL I &middot; CARRIER WAVE</span>
+        <span class="level-btn-caret" aria-hidden="true">&#9662;</span>
+      </button>
     </header>
 
     <main class="stage">
@@ -58,6 +62,17 @@
     <footer class="app-footer">
       <span>100% offline &middot; no accounts &middot; no network</span>
     </footer>
+
+    <div id="menuOverlay" class="menu-overlay" hidden>
+      <div class="menu-sheet" role="dialog" aria-modal="true" aria-labelledby="menuTitle">
+        <h2 id="menuTitle">SELECT SIGNAL</h2>
+        <ul id="levelList" class="level-list"></ul>
+        <div class="menu-actions">
+          <button id="clearDataBtn" class="menu-btn menu-btn-danger" type="button">CLEAR SAVE DATA</button>
+          <button id="menuCloseBtn" class="menu-btn" type="button">CLOSE</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script src="app.js"></script>

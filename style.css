@@ -64,6 +64,32 @@ body {
   text-transform: lowercase;
 }
 
+.level-btn {
+  margin-top: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--panel-edge);
+  background: var(--panel);
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease;
+}
+
+.level-btn:active {
+  transform: scale(0.97);
+}
+
+.level-btn-caret {
+  color: var(--accent);
+  font-size: 0.6rem;
+}
+
 .stage {
   flex: 1;
   display: flex;
@@ -249,6 +275,139 @@ body {
   color: var(--text-dim);
   opacity: 0.6;
   padding-top: 16px;
+}
+
+/* Level select overlay (native-style bottom sheet) */
+.menu-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(5, 6, 7, 0.72);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.22s ease;
+  z-index: 20;
+}
+
+.menu-overlay.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.menu-overlay[hidden] {
+  display: none;
+}
+
+.menu-sheet {
+  width: 100%;
+  max-width: 480px;
+  max-height: 82vh;
+  max-height: 82dvh;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--panel-edge);
+  border-bottom: none;
+  border-radius: 20px 20px 0 0;
+  padding: 20px 20px calc(20px + env(safe-area-inset-bottom));
+  transform: translateY(16px);
+  transition: transform 0.22s ease;
+}
+
+.menu-overlay.open .menu-sheet {
+  transform: translateY(0);
+}
+
+#menuTitle {
+  margin: 0 0 14px;
+  text-align: center;
+  font-size: 0.85rem;
+  letter-spacing: 0.28em;
+  color: var(--text);
+}
+
+.level-list {
+  list-style: none;
+  margin: 0 0 18px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.level-row {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--panel-edge);
+  background: #101315;
+  color: var(--text);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.level-row-name {
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.level-row-meta {
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+
+.level-row.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(51, 240, 200, 0.25);
+}
+
+.level-row.selected .level-row-name {
+  color: var(--accent);
+}
+
+.level-row:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.menu-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.menu-btn {
+  width: 100%;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--panel-edge);
+  background: transparent;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+}
+
+.menu-btn-danger {
+  color: var(--danger);
+  border-color: rgba(255, 61, 94, 0.35);
+}
+
+.menu-btn-danger.armed {
+  background: rgba(255, 61, 94, 0.12);
+  border-color: var(--danger);
 }
 
 /* Short viewports (landscape phones, small-height devices): compact the
