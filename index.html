@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b0d0e" />
+  <title>Signal Stabilizer</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="app-header">
+      <h1>SIGNAL STABILIZER</h1>
+      <p class="subtitle">tune the oscillator. lock the signal.</p>
+    </header>
+
+    <main class="stage">
+      <div class="status-row">
+        <span class="status-label">STATUS</span>
+        <span id="statusValue" class="status-value">STANDBY</span>
+        <span class="streak-label">STREAK</span>
+        <span id="streakValue" class="streak-value">0</span>
+      </div>
+
+      <div class="indicator-wrap">
+        <div id="indicator" class="indicator">
+          <div class="indicator-core"></div>
+        </div>
+      </div>
+
+      <div class="freq-readout">
+        <span id="freqValue">440</span><span class="freq-unit">Hz</span>
+      </div>
+
+      <div class="slider-wrap">
+        <input
+          type="range"
+          id="freqSlider"
+          class="freq-slider"
+          min="120"
+          max="960"
+          step="1"
+          value="440"
+          aria-label="Oscillator frequency"
+        />
+      </div>
+
+      <button id="tuneBtn" class="tune-btn" type="button" aria-pressed="false">
+        <span id="tuneBtnLabel">TUNE</span>
+      </button>
+
+      <p class="hint">Hold the slider &amp; listen &mdash; the beacon steadies to a slow 1&nbsp;Hz pulse as you approach the hidden target frequency.</p>
+    </main>
+
+    <footer class="app-footer">
+      <span>100% offline &middot; no accounts &middot; no network</span>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
