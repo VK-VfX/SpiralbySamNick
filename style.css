@@ -102,46 +102,23 @@ body {
   text-shadow: 0 0 12px rgba(51, 240, 200, 0.7);
 }
 
-/* Indicator beacon */
-.indicator-wrap {
+/* Beat visualizer */
+.visualizer-wrap {
+  width: 100%;
+  max-width: 280px;
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 160px;
 }
 
-.indicator {
-  width: 132px;
-  height: 132px;
-  border-radius: 50%;
-  border: 2px solid var(--panel-edge);
-  background: var(--panel);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  transition: border-color 0.25s ease, box-shadow 0.25s ease;
-}
-
-.indicator-core {
-  width: 54px;
-  height: 54px;
-  border-radius: 50%;
-  background: var(--accent-dim);
-  opacity: 0.35;
-  transform: scale(0.8);
-  transition: opacity 0.09s ease-out, transform 0.09s ease-out, background 0.2s ease;
-}
-
-.indicator.lit .indicator-core {
-  opacity: 1;
-  transform: scale(1);
-  box-shadow: 0 0 24px 4px var(--flash-color, var(--accent));
-  background: var(--flash-color, var(--accent));
-}
-
-.indicator.active {
-  box-shadow: 0 0 0 1px var(--panel-edge);
+#visualizer {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  display: block;
+  touch-action: none;
+  cursor: pointer;
+  -webkit-touch-callout: none;
+  user-select: none;
 }
 
 /* Frequency readout */

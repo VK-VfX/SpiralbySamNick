@@ -22,10 +22,13 @@
         <span id="streakValue" class="streak-value">0</span>
       </div>
 
-      <div class="indicator-wrap">
-        <div id="indicator" class="indicator">
-          <div class="indicator-core"></div>
-        </div>
+      <div class="visualizer-wrap">
+        <canvas
+          id="visualizer"
+          width="280"
+          height="280"
+          aria-label="Beat visualizer. Tap when the ring fills to the outer edge."
+        ></canvas>
       </div>
 
       <div class="freq-readout">
@@ -49,7 +52,7 @@
         <span id="tuneBtnLabel">TUNE</span>
       </button>
 
-      <p class="hint">Hold the slider &amp; listen &mdash; the beacon steadies to a slow 1&nbsp;Hz pulse as you approach the hidden target frequency.</p>
+      <p class="hint">Tap the ring the instant it fills to the outer edge. Tune the pitch to calm an erratic beat into a steady 1&nbsp;Hz pulse &mdash; that's what makes it hittable.</p>
     </main>
 
     <footer class="app-footer">

@@ -6,7 +6,8 @@
   const tuneBtnLabel = document.getElementById("tuneBtnLabel");
   const freqSlider = document.getElementById("freqSlider");
   const freqValue = document.getElementById("freqValue");
-  const indicator = document.getElementById("indicator");
+  const canvas = document.getElementById("visualizer");
+  const ctx = canvas.getContext("2d");
   const statusValue = document.getElementById("statusValue");
   const streakValue = document.getElementById("streakValue");
 
@@ -19,26 +20,19 @@
   const TONE_GAIN = 0.18;
   const RAMP_SECONDS = 0.05;
 
-  // ---- Game state ----
+  // ---- Tuning state (pitch-matching drives beat difficulty below) ----
   const FREQ_MIN = Number(freqSlider.min);
   const FREQ_MAX = Number(freqSlider.max);
-  const LOCK_TOLERANCE_START = 0.05; // 5% deviation counts as "locked"
-  const LOCK_TOLERANCE_FLOOR = 0.015; // hardest difficulty: 1.5%
-  const LOCK_HOLD_MS = 900; // must stay within tolerance this long
-  const UNSTABLE_RATIO = 0.35; // deviation ratio at/above which the beacon flickers fastest
-
-  const FLASH_INTERVAL_LOCKED = 1000; // 1 Hz / 60 BPM when perfectly tuned
-  const FLASH_INTERVAL_UNSTABLE = 130; // fast flicker when far off
-  const FLASH_LIT_MS = 90;
+  const UNSTABLE_RATIO = 0.35; // deviation ratio at/beyond which the beat is fastest/most erratic
 
   let targetFreq = randomTarget();
-  let lockTolerance = LOCK_TOLERANCE_START;
-  let streak = 0;
-  let lockedSince = null;
-  let flashTimer = null;
 
   function randomTarget() {
     return Math.round(FREQ_MIN + Math.random() * (FREQ_MAX - FREQ_MIN));
+  }
+
+  function deviationRatio(current, target) {
+    return Math.abs(current - target) / target;
   }
 
   // ---- Audio setup ----
@@ -102,75 +96,66 @@
     }
   }
 
-  // ---- Beacon / flash loop ----
-  function deviationRatio(current, target) {
-    return Math.abs(current - target) / target;
-  }
+  // ---- Beat clock ----
+  // Beat period ranges from a fast, erratic 350ms up to a steady 1000ms
+  // (1 Hz / 60 BPM) as the player's slider frequency approaches the hidden
+  // target — pitch accuracy is what makes the beat hittable at all.
+  const BEAT_PERIOD_MIN_MS = 350;
+  const BEAT_PERIOD_MAX_MS = 1000;
 
-  function currentFlashInterval() {
+  function currentBeatPeriodMs() {
     const dev = deviationRatio(Number(freqSlider.value), targetFreq);
     const closeness = 1 - Math.min(dev / UNSTABLE_RATIO, 1);
-    return FLASH_INTERVAL_UNSTABLE + (FLASH_INTERVAL_LOCKED - FLASH_INTERVAL_UNSTABLE) * closeness;
+    return BEAT_PERIOD_MIN_MS + (BEAT_PERIOD_MAX_MS - BEAT_PERIOD_MIN_MS) * closeness;
   }
 
-  function flashColor() {
-    const dev = deviationRatio(Number(freqSlider.value), targetFreq);
-    if (dev <= lockTolerance) return getCss("--accent");
-    if (dev <= UNSTABLE_RATIO * 0.6) return getCss("--amber");
-    return getCss("--danger");
-  }
+  let cycleStart = null; // performance.now() timestamp of the last peak
+  let cyclePeriod = null; // ms duration of the current beat cycle
+  let lastPeakTimestamp = null; // most recent peak that has already occurred
+  let rafId = null;
 
-  function getCss(varName) {
-    return getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
-  }
+  // ---- Tap accuracy ----
+  const ACCURACY_WINDOW_MS = 100;
+  const BURST_DURATION_MS = 350;
 
-  function scheduleFlash() {
-    clearTimeout(flashTimer);
-    if (!audioActive) return;
+  const COLOR_ACCENT = "51,240,200";
+  const COLOR_DANGER = "255,61,94";
+  const COLOR_DIM = "124,138,141";
 
-    indicator.style.setProperty("--flash-color", flashColor());
-    indicator.classList.add("lit");
+  let tapStreak = 0;
+  let burst = null; // { startTime, color } — brief hit/miss feedback ring
+  let statusRevertTimer = null;
 
-    window.setTimeout(() => indicator.classList.remove("lit"), FLASH_LIT_MS);
+  function handleTap(e) {
+    if (!audioActive || cycleStart === null) return;
+    e.preventDefault();
 
-    flashTimer = window.setTimeout(scheduleFlash, currentFlashInterval());
-  }
+    const tapTime = e.timeStamp; // DOMHighResTimeStamp, same epoch as performance.now()
+    const upcomingPeak = cycleStart + cyclePeriod;
+    const candidates = [lastPeakTimestamp, upcomingPeak].filter((t) => t !== null);
+    const nearestPeak = candidates.reduce((best, t) =>
+      Math.abs(tapTime - t) < Math.abs(tapTime - best) ? t : best
+    );
+    const delta = tapTime - nearestPeak; // signed ms: negative = early, positive = late
 
-  function stopFlashing() {
-    clearTimeout(flashTimer);
-    flashTimer = null;
-    indicator.classList.remove("lit", "active");
-  }
-
-  // ---- Lock detection ----
-  function evaluateLock() {
-    if (!audioActive) return;
-    const dev = deviationRatio(Number(freqSlider.value), targetFreq);
-
-    if (dev <= lockTolerance) {
-      if (lockedSince === null) lockedSince = performance.now();
-      const held = performance.now() - lockedSince;
-      setStatus("LOCKING", "amber");
-      if (held >= LOCK_HOLD_MS) {
-        onSignalStabilized();
-      }
+    if (Math.abs(delta) <= ACCURACY_WINDOW_MS) {
+      tapStreak += 1;
+      burst = { startTime: tapTime, color: COLOR_ACCENT };
+      flashStatus("PERFECT ALIGNMENT", "locked");
     } else {
-      lockedSince = null;
-      setStatus(dev >= UNSTABLE_RATIO ? "UNSTABLE" : "TUNING", dev >= UNSTABLE_RATIO ? "danger" : null);
+      tapStreak = 0;
+      burst = { startTime: tapTime, color: COLOR_DANGER };
+      flashStatus("SIGNAL DRIFT", "danger");
     }
+    streakValue.textContent = String(tapStreak);
   }
 
-  function onSignalStabilized() {
-    streak += 1;
-    streakValue.textContent = String(streak);
-    setStatus("STABILIZED", "locked");
-    lockTolerance = Math.max(LOCK_TOLERANCE_FLOOR, lockTolerance * 0.92);
-    lockedSince = null;
-
-    window.setTimeout(() => {
-      targetFreq = randomTarget();
-      if (audioActive) setStatus("TUNING");
-    }, 1200);
+  function flashStatus(text, mode) {
+    setStatus(text, mode);
+    clearTimeout(statusRevertTimer);
+    statusRevertTimer = window.setTimeout(() => {
+      if (audioActive) setStatus("LISTENING");
+    }, 650);
   }
 
   function setStatus(text, mode) {
@@ -180,15 +165,87 @@
     if (mode === "locked") statusValue.classList.add("locked");
   }
 
-  // ---- Main loop (drives lock evaluation independently of slider events) ----
-  let evalTimer = null;
-  function startEvalLoop() {
-    stopEvalLoop();
-    evalTimer = window.setInterval(evaluateLock, 100);
+  // ---- Canvas rendering ----
+  function setupCanvas() {
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = canvas.clientWidth * dpr;
+    canvas.height = canvas.clientHeight * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
-  function stopEvalLoop() {
-    clearInterval(evalTimer);
-    evalTimer = null;
+
+  function draw(now, phase) {
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    const cx = w / 2;
+    const cy = h / 2;
+    const maxR = (Math.min(w, h) / 2) * 0.82;
+
+    ctx.clearRect(0, 0, w, h);
+
+    // Static target ring
+    ctx.beginPath();
+    ctx.arc(cx, cy, maxR, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(${COLOR_DIM},0.35)`;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Animated ring approaching the target, peaking exactly on the beat
+    const eased = Math.pow(phase, 0.6);
+    const r = Math.max(4, maxR * eased);
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = `rgba(${COLOR_ACCENT},${0.25 + 0.75 * eased})`;
+    ctx.stroke();
+
+    // Center core, swelling slightly as it approaches the peak
+    const coreR = 16 + 10 * eased;
+    ctx.beginPath();
+    ctx.arc(cx, cy, coreR, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${COLOR_ACCENT},${0.2 + 0.5 * eased})`;
+    ctx.fill();
+
+    // Hit/miss feedback burst
+    if (burst) {
+      const age = now - burst.startTime;
+      if (age >= 0 && age < BURST_DURATION_MS) {
+        const t = age / BURST_DURATION_MS;
+        ctx.beginPath();
+        ctx.arc(cx, cy, maxR + t * 22, 0, Math.PI * 2);
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = `rgba(${burst.color},${1 - t})`;
+        ctx.stroke();
+      } else if (age >= BURST_DURATION_MS) {
+        burst = null;
+      }
+    }
+  }
+
+  function renderIdle() {
+    draw(performance.now(), 0);
+  }
+
+  function renderFrame(now) {
+    if (!audioActive) return;
+
+    if (cycleStart === null) {
+      cycleStart = now;
+      cyclePeriod = currentBeatPeriodMs();
+    }
+
+    let elapsed = now - cycleStart;
+    let iterations = 0;
+    while (elapsed >= cyclePeriod && iterations < 10) {
+      lastPeakTimestamp = cycleStart + cyclePeriod;
+      cycleStart = lastPeakTimestamp;
+      cyclePeriod = currentBeatPeriodMs();
+      elapsed = now - cycleStart;
+      iterations += 1;
+    }
+
+    const phase = cyclePeriod > 0 ? Math.min(elapsed / cyclePeriod, 1) : 0;
+    draw(now, phase);
+    rafId = requestAnimationFrame(renderFrame);
   }
 
   // ---- UI wiring ----
@@ -201,24 +258,36 @@
     setToneFrequency(Number(freqSlider.value));
   });
 
+  canvas.addEventListener("pointerdown", handleTap);
+
   tuneBtn.addEventListener("click", () => {
     if (!audioActive) {
       ensureAudioContext();
+      targetFreq = randomTarget();
       startTone(Number(freqSlider.value));
-      indicator.classList.add("active");
+
       tuneBtn.setAttribute("aria-pressed", "true");
       tuneBtnLabel.textContent = "STOP";
-      setStatus("TUNING");
-      lockedSince = null;
-      scheduleFlash();
-      startEvalLoop();
+      setStatus("LISTENING");
+
+      tapStreak = 0;
+      streakValue.textContent = "0";
+      cycleStart = null;
+      cyclePeriod = null;
+      lastPeakTimestamp = null;
+      burst = null;
+
+      rafId = requestAnimationFrame(renderFrame);
     } else {
       stopTone();
-      stopFlashing();
-      stopEvalLoop();
+      cancelAnimationFrame(rafId);
+      rafId = null;
+      clearTimeout(statusRevertTimer);
+
       tuneBtn.setAttribute("aria-pressed", "false");
       tuneBtnLabel.textContent = "TUNE";
       setStatus("STANDBY");
+      renderIdle();
     }
   });
 
@@ -230,5 +299,12 @@
     }
   });
 
+  window.addEventListener("resize", () => {
+    setupCanvas();
+    if (!audioActive) renderIdle();
+  });
+
   updateFreqDisplay();
+  setupCanvas();
+  renderIdle();
 })();
