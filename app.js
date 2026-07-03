@@ -15,10 +15,22 @@
   let audioCtx = null;
   let oscillator = null;
   let masterGain = null;
+  let fifthOsc = null;
+  let octaveOsc = null;
+  let harmonyGain = null;
   let audioActive = false;
 
   const TONE_GAIN = 0.18;
   const RAMP_SECONDS = 0.05;
+
+  // A quiet fifth + octave layer, anchored to the hidden target frequency,
+  // that fades in and resolves from a detuned shimmer into pure just-
+  // intonation the longer the player's perfect-tap streak runs.
+  const HARMONY_GAIN_MAX = 0.09;
+  const CHORD_STREAK_CAP = 8;
+  const HARMONY_MAX_DETUNE_CENTS = 40;
+  const MAIN_MAX_DETUNE_CENTS = 12;
+  const CHORD_RAMP_SECONDS = 0.15;
 
   // ---- Tuning state (pitch-matching drives beat difficulty below) ----
   const FREQ_MIN = Number(freqSlider.min);
@@ -48,7 +60,8 @@
   }
 
   // Creates (or recreates) a live sine oscillator routed through a gain node
-  // used purely as a click-free volume envelope.
+  // used purely as a click-free volume envelope, plus a quiet fifth+octave
+  // harmony layer anchored to the hidden target frequency for the chord swell.
   function startTone(frequencyHz) {
     const ctx = ensureAudioContext();
 
@@ -59,8 +72,27 @@
     oscillator = ctx.createOscillator();
     oscillator.type = "sine";
     oscillator.frequency.value = frequencyHz;
+    oscillator.detune.value = MAIN_MAX_DETUNE_CENTS;
     oscillator.connect(masterGain);
     oscillator.start();
+
+    harmonyGain = ctx.createGain();
+    harmonyGain.gain.value = 0;
+    harmonyGain.connect(ctx.destination);
+
+    fifthOsc = ctx.createOscillator();
+    fifthOsc.type = "sine";
+    fifthOsc.frequency.value = targetFreq * 1.5; // perfect fifth above the target
+    fifthOsc.detune.value = HARMONY_MAX_DETUNE_CENTS;
+    fifthOsc.connect(harmonyGain);
+    fifthOsc.start();
+
+    octaveOsc = ctx.createOscillator();
+    octaveOsc.type = "sine";
+    octaveOsc.frequency.value = targetFreq * 2; // octave above the target
+    octaveOsc.detune.value = -HARMONY_MAX_DETUNE_CENTS;
+    octaveOsc.connect(harmonyGain);
+    octaveOsc.start();
 
     const now = ctx.currentTime;
     masterGain.gain.setTargetAtTime(TONE_GAIN, now, RAMP_SECONDS);
@@ -68,12 +100,8 @@
     audioActive = true;
   }
 
-  function stopTone() {
-    if (!oscillator || !masterGain || !audioCtx) return;
-    const now = audioCtx.currentTime;
-    const osc = oscillator;
-    const gain = masterGain;
-
+  function fadeAndStop(osc, gain, now) {
+    if (!osc || !gain) return;
     gain.gain.setTargetAtTime(0, now, RAMP_SECONDS);
     window.setTimeout(() => {
       try {
@@ -84,9 +112,35 @@
       osc.disconnect();
       gain.disconnect();
     }, RAMP_SECONDS * 1000 * 6);
+  }
+
+  // octaveOsc shares harmonyGain's fade with fifthOsc, so it just needs its
+  // own delayed stop/disconnect once that fade completes.
+  function stopOscOnly(osc) {
+    if (!osc) return;
+    window.setTimeout(() => {
+      try {
+        osc.stop();
+      } catch (err) {
+        /* already stopped */
+      }
+      osc.disconnect();
+    }, RAMP_SECONDS * 1000 * 6);
+  }
+
+  function stopTone() {
+    if (!audioCtx) return;
+    const now = audioCtx.currentTime;
+
+    fadeAndStop(oscillator, masterGain, now);
+    fadeAndStop(fifthOsc, harmonyGain, now);
+    stopOscOnly(octaveOsc);
 
     oscillator = null;
     masterGain = null;
+    fifthOsc = null;
+    octaveOsc = null;
+    harmonyGain = null;
     audioActive = false;
   }
 
@@ -94,6 +148,20 @@
     if (oscillator && audioCtx) {
       oscillator.frequency.setTargetAtTime(hz, audioCtx.currentTime, 0.02);
     }
+  }
+
+  // Smoothly resolves the harmony layer's detune (dissonant -> pure) and
+  // gain (silent -> audible), plus the main tone's own shimmer, based on how
+  // close the player is to a full chord-reward streak.
+  function updateChordForStreak(streak) {
+    if (!audioCtx || !harmonyGain || !fifthOsc || !octaveOsc || !oscillator) return;
+    const closeness = Math.min(streak / CHORD_STREAK_CAP, 1);
+    const now = audioCtx.currentTime;
+
+    harmonyGain.gain.setTargetAtTime(closeness * HARMONY_GAIN_MAX, now, CHORD_RAMP_SECONDS);
+    fifthOsc.detune.setTargetAtTime(HARMONY_MAX_DETUNE_CENTS * (1 - closeness), now, CHORD_RAMP_SECONDS);
+    octaveOsc.detune.setTargetAtTime(-HARMONY_MAX_DETUNE_CENTS * (1 - closeness), now, CHORD_RAMP_SECONDS);
+    oscillator.detune.setTargetAtTime(MAIN_MAX_DETUNE_CENTS * (1 - closeness), now, CHORD_RAMP_SECONDS);
   }
 
   // ---- Beat clock ----
@@ -126,6 +194,20 @@
   let burst = null; // { startTime, color } — brief hit/miss feedback ring
   let statusRevertTimer = null;
 
+  // ---- Haptics ----
+  const supportsVibration = "vibrate" in navigator;
+  const VIBRATE_PERFECT_MS = 20;
+  const VIBRATE_DRIFT_PATTERN = [40, 60, 40]; // buzz, pause, buzz
+
+  function vibrate(pattern) {
+    if (!supportsVibration) return;
+    try {
+      navigator.vibrate(pattern);
+    } catch (err) {
+      /* vibration not permitted in this context; ignore */
+    }
+  }
+
   function handleTap(e) {
     if (!audioActive || cycleStart === null) return;
     e.preventDefault();
@@ -142,12 +224,15 @@
       tapStreak += 1;
       burst = { startTime: tapTime, color: COLOR_ACCENT };
       flashStatus("PERFECT ALIGNMENT", "locked");
+      vibrate(VIBRATE_PERFECT_MS);
     } else {
       tapStreak = 0;
       burst = { startTime: tapTime, color: COLOR_DANGER };
       flashStatus("SIGNAL DRIFT", "danger");
+      vibrate(VIBRATE_DRIFT_PATTERN);
     }
     streakValue.textContent = String(tapStreak);
+    updateChordForStreak(tapStreak);
   }
 
   function flashStatus(text, mode) {
@@ -166,19 +251,34 @@
   }
 
   // ---- Canvas rendering ----
+  // Metrics are cached on resize rather than read from canvas.clientWidth/
+  // Height every animation frame, so the 60fps rAF loop never forces a
+  // synchronous layout read on mobile.
+  let vizW = 0;
+  let vizH = 0;
+  let vizCX = 0;
+  let vizCY = 0;
+  let vizMaxR = 0;
+
   function setupCanvas() {
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = canvas.clientWidth * dpr;
-    canvas.height = canvas.clientHeight * dpr;
+    vizW = canvas.clientWidth;
+    vizH = canvas.clientHeight;
+    canvas.width = vizW * dpr;
+    canvas.height = vizH * dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    vizCX = vizW / 2;
+    vizCY = vizH / 2;
+    vizMaxR = (Math.min(vizW, vizH) / 2) * 0.82;
   }
 
   function draw(now, phase) {
-    const w = canvas.clientWidth;
-    const h = canvas.clientHeight;
-    const cx = w / 2;
-    const cy = h / 2;
-    const maxR = (Math.min(w, h) / 2) * 0.82;
+    const w = vizW;
+    const h = vizH;
+    const cx = vizCX;
+    const cy = vizCY;
+    const maxR = vizMaxR;
 
     ctx.clearRect(0, 0, w, h);
 
@@ -276,6 +376,7 @@
       cyclePeriod = null;
       lastPeakTimestamp = null;
       burst = null;
+      updateChordForStreak(0);
 
       rafId = requestAnimationFrame(renderFrame);
     } else {
@@ -302,6 +403,15 @@
   window.addEventListener("resize", () => {
     setupCanvas();
     if (!audioActive) renderIdle();
+  });
+
+  // Mobile browsers report stale layout dimensions immediately after an
+  // orientation flip; re-measure once the frame settles.
+  window.addEventListener("orientationchange", () => {
+    window.setTimeout(() => {
+      setupCanvas();
+      if (!audioActive) renderIdle();
+    }, 120);
   });
 
   updateFreqDisplay();
