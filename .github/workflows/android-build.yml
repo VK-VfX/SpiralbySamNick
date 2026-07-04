@@ -52,6 +52,18 @@ jobs:
           path: NeverSpiral/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
+      - name: Publish GitHub Release with APK
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: "Spiral build ${{ github.run_number }}"
+          body: |
+            Automated debug build from commit ${{ github.sha }} on branch `${{ github.ref_name }}`.
+          files: NeverSpiral/app/build/outputs/apk/debug/app-debug.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Publish APK to build-artifacts branch
         working-directory: ${{ github.workspace }}
         run: |
