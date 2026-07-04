@@ -29,9 +29,10 @@ import kotlin.math.sqrt
 
 /**
  * Foreground service that captures whatever the device is currently playing (via
- * [AudioPlaybackCaptureConfiguration], not the microphone) and feeds a simple loudness/beat/
- * brightness analysis to [AudioAnalyzer]. Working this way means it reacts identically whether
- * playback is on the speaker, wired headphones, or Bluetooth, unlike listening through the mic.
+ * [AudioPlaybackCaptureConfiguration], not the microphone) as stereo PCM, and publishes each
+ * buffer's per-channel RMS amplitude to [AudioAnalyzer]. Working this way means it reacts
+ * identically whether playback is on the speaker, wired headphones, or Bluetooth, unlike
+ * listening through the mic.
  */
 @RequiresApi(Build.VERSION_CODES.Q)
 class AudioCaptureService : Service() {
@@ -79,7 +80,7 @@ class AudioCaptureService : Service() {
             )
         }
         val notification: Notification = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("Spiral is visualizing audio")
+            .setContentTitle("Visualizing audio")
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setOngoing(true)
             .build()
@@ -102,14 +103,14 @@ class AudioCaptureService : Service() {
         val format = AudioFormat.Builder()
             .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
             .setSampleRate(sampleRate)
-            .setChannelMask(AudioFormat.CHANNEL_IN_MONO)
+            .setChannelMask(AudioFormat.CHANNEL_IN_STEREO)
             .build()
 
         val minBufferSize = AudioRecord.getMinBufferSize(
             sampleRate,
-            AudioFormat.CHANNEL_IN_MONO,
+            AudioFormat.CHANNEL_IN_STEREO,
             AudioFormat.ENCODING_PCM_16BIT,
-        ).coerceAtLeast(2048)
+        ).coerceAtLeast(4096)
 
         val record = try {
             AudioRecord.Builder()
@@ -140,7 +141,7 @@ class AudioCaptureService : Service() {
                 while (isActive) {
                     val read = record.read(buffer, 0, buffer.size)
                     if (read > 0) {
-                        analyze(buffer, read)
+                        analyzeStereo(buffer, read)
                     } else if (read < 0) {
                         break // read error (e.g. record was stopped from under us)
                     }
@@ -151,21 +152,24 @@ class AudioCaptureService : Service() {
         }
     }
 
-    private fun analyze(buffer: ShortArray, length: Int) {
-        var sumSquares = 0.0
-        var zeroCrossings = 0
-        var previous = buffer[0]
-        for (i in 0 until length) {
-            val sample = buffer[i]
-            val normalized = sample.toDouble() / Short.MAX_VALUE
-            sumSquares += normalized * normalized
-            if (i > 0 && (sample >= 0) != (previous >= 0)) zeroCrossings++
-            previous = sample
+    /** [buffer] holds interleaved L,R 16-bit samples; [length] is the number of samples read. */
+    private fun analyzeStereo(buffer: ShortArray, length: Int) {
+        var sumSquaresLeft = 0.0
+        var sumSquaresRight = 0.0
+        var frames = 0
+        var i = 0
+        while (i + 1 < length) {
+            val left = buffer[i].toDouble() / Short.MAX_VALUE
+            val right = buffer[i + 1].toDouble() / Short.MAX_VALUE
+            sumSquaresLeft += left * left
+            sumSquaresRight += right * right
+            frames++
+            i += 2
         }
-        val rms = sqrt(sumSquares / length).toFloat()
-        val zeroCrossingRate = zeroCrossings / length.toFloat()
-        // Zero-crossing rate is naturally small; scale it into a usable 0..1-ish brightness signal.
-        AudioAnalyzer.publish(rms, zeroCrossingRate * 6f)
+        if (frames == 0) return
+        val rmsLeft = sqrt(sumSquaresLeft / frames).toFloat()
+        val rmsRight = sqrt(sumSquaresRight / frames).toFloat()
+        AudioAnalyzer.publish(rmsLeft, rmsRight)
     }
 
     override fun onDestroy() {

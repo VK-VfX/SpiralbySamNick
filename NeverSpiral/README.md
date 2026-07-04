@@ -1,33 +1,25 @@
-# Never Spiral
+# Spiral
 
-An Android app that is just a spiral: it never stops rotating, never stops growing, and never
-stops changing color. New waves of the spiral are continuously born small, grow far larger than
-the screen, and crossfade into the next wave -- so there's no visible reset, just an endless loop.
+A dual analog VU meter that reacts to whatever music is playing on the device -- Spotify,
+YouTube Music, or anything else -- with correctly calibrated ballistics, not a fake wobble.
 
-The spiral has a personality driven entirely by touch:
+## How the meter works
 
-- **Tap** -- each tap adds a jolt of energy. Tap fast and the spiral spins faster, its growth
-  cycle shortens (more manic), and its colors cycle and saturate harder. Stop tapping and it
-  settles back down to a calm drift.
-- **Multiple fingers at once** -- a bigger jolt than a single tap.
-- **Long-press** -- makes the spiral "breathe": a pulsing radius modulation.
-- **Drag** -- flicks the spiral's rotation like a spun wheel, with friction bringing it back to
-  its ambient spin.
-- **Haptics** -- every tap gives a short vibration that scales in strength with the current
-  energy level.
-- **Idle "sleepy" state** -- go untouched for a while and the spiral eases further below its
-  normal resting speed and saturation, instead of settling at a flat idle.
-
-It also has a music visualizer mode ("Visualize music" button, Android 10+ only): it captures
-whatever the device is currently playing via `AudioPlaybackCaptureConfiguration` (not the
-microphone), so it reacts the same way whether you're on speaker, wired headphones, or Bluetooth.
-Loudness drives the same energy value as touch (more arms, faster spin, faster color cycling on
-louder passages), and detected beat onsets trigger the breathing pulse. This requires a one-time
-`RECORD_AUDIO` permission grant and a system "start recording or casting" consent screen -- that
-wording is a quirk of the underlying API; Spiral only ever reads the audio, never video, and only
-while the visualizer is toggled on (shown by a persistent notification while it runs). Whether a
-given player (e.g. Spotify, YouTube Music) allows its audio to be captured this way depends on
-flags it sets internally, which can only be confirmed by testing that app.
+- **Capture**: audio is captured via Android's `AudioPlaybackCaptureConfiguration` (Android 10+),
+  which taps the device's internal audio mix rather than the microphone. That means it reacts the
+  same way whether you're on speaker, wired headphones, or Bluetooth. It requires a `RECORD_AUDIO`
+  grant plus a one-time system "start recording or casting" consent screen -- that wording is a
+  quirk of the underlying API; Spiral only ever reads audio, never video, and only while the
+  visualizer is toggled on (shown by a persistent notification while it runs).
+- **Ballistics**: a real VU meter is not a peak meter. ANSI C16.5-1942 defines its response as
+  reaching 99% of a step change in 300ms, applied *symmetrically* on the way up and down (unlike a
+  peak meter's fast-attack/slow-release). That's what makes the needle read average program energy
+  and ignore brief transients, instead of jumping to every instantaneous sample. `VuMeterEngine`
+  implements this as a single-pole exponential filter in the dB domain with `tau = 300ms / ln(100)`.
+- **Calibration**: 0 dBVU is set to -18 dBFS, the standard professional reference level that leaves
+  headroom above 0 for transients to peak into before the digital signal clips.
+- **Stereo**: audio is captured as stereo PCM and analyzed per channel, driving independent left
+  and right needles.
 
 ## Building
 
