@@ -34,7 +34,8 @@ private const val HUE_BUCKETS = 20
 @Composable
 fun SpiralScreen() {
     val engine = remember { SpiralEngine() }
-    val haptics = remember { Haptics(LocalContext.current) }
+    val context = LocalContext.current
+    val haptics = remember(context) { Haptics(context) }
     val pointerCount = remember { mutableIntStateOf(1) }
 
     LaunchedEffect(engine) {
