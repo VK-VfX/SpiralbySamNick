@@ -42,12 +42,15 @@ so bars react instantly to transients but settle down smoothly instead of jitter
 ## How the oscilloscope works
 
 `OscilloscopeEngine` builds a smoothly *scrolling* waveform the way real audio waveform displays
-do: as raw mono samples arrive, each of 56 bars tracks the peak absolute amplitude seen in its
-slice of a scrolling ~2.4 second window, and completed bars shift left as new ones fill in on the
-right -- rather than replacing the whole trace every buffer, which is what makes it read as a
-continuous, evolving wave instead of flickering. `OscilloscopeScreen` renders those bars sparse
-and gapped, mirrored symmetrically around the centerline and confined to a slim vertical band, for
-a clean, modern waveform-strip look instead of a dense wall of raw electrical trace.
+do: as raw mono samples arrive, each of 56 columns tracks the peak absolute amplitude seen in its
+slice of a scrolling ~2.4 second window, and completed columns shift left as new ones fill in on
+the right -- rather than replacing the whole trace every buffer, which is what makes it read as a
+continuous, evolving wave instead of flickering. `OscilloscopeScreen` stitches the mirrored top and
+bottom envelope of those columns into a single continuous white outline -- one flowing "string"
+with quadratic midpoint smoothing between points, rather than a row of separate bars -- and renders
+it into a persistent off-screen bitmap that's faded (not cleared) every frame, producing a trailing
+afterglow instead of the wave just popping in and out. A gear icon shown only in oscilloscope mode
+opens a settings panel with Scale, Stroke Weight, Intensity, and Afterglow sliders.
 
 All three engines are stepped every frame regardless of which mode is showing, so tapping to
 switch shows a live reading immediately instead of a frozen one. The app also requests a 120Hz
