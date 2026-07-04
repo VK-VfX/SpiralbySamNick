@@ -5,13 +5,14 @@ import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Latest instantaneous RMS amplitude (for the VU meter), log-spaced frequency-band levels (for
- * the spectrum view), and a decimated time-domain waveform window (for the oscilloscope) from
- * captured audio.
+ * the spectrum view), and the raw mono PCM chunk just captured, normalized to -1..1 (for the
+ * oscilloscope to fold into its own scrolling history -- this is a fresh chunk each time, not a
+ * fixed-size display window).
  */
 data class AudioSnapshot(
     val raw: Float = 0f,
     val bands: FloatArray = FloatArray(SpectrumAnalyzer.BAND_COUNT),
-    val waveform: FloatArray = FloatArray(OscilloscopeEngine.POINT_COUNT),
+    val waveform: FloatArray = FloatArray(0),
 )
 
 /**

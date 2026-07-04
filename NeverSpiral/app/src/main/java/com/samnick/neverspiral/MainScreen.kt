@@ -81,6 +81,7 @@ fun MainScreen() {
 
     LaunchedEffect(vuMeter, spectrum, oscilloscope) {
         var lastFrameNanos = 0L
+        var lastWaveform: FloatArray? = null
         while (isActive) {
             withFrameNanos { frameNanos ->
                 val dt = if (lastFrameNanos == 0L) 0f else (frameNanos - lastFrameNanos) / 1_000_000_000f
@@ -88,7 +89,14 @@ fun MainScreen() {
                 val snapshot = AudioAnalyzer.snapshots.value
                 vuMeter.step(dt, snapshot.raw)
                 spectrum.step(dt, snapshot.bands)
-                oscilloscope.step(dt, snapshot.waveform)
+                // Audio buffers arrive slower than the display refreshes, so most frames see the
+                // same snapshot as last time -- only fold a waveform chunk in once, the first
+                // frame it shows up, or it would get double-counted into the scrolling history.
+                if (snapshot.waveform !== lastWaveform) {
+                    oscilloscope.ingest(snapshot.waveform)
+                    lastWaveform = snapshot.waveform
+                }
+                oscilloscope.step(dt)
             }
         }
     }

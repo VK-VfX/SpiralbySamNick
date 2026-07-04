@@ -170,12 +170,7 @@ class AudioCaptureService : Service() {
         val rms = sqrt(sumSquares / frames).toFloat()
         val bands = if (frames >= SpectrumAnalyzer.FFT_SIZE) SpectrumAnalyzer.computeBands(mono) else null
 
-        val pointCount = OscilloscopeEngine.POINT_COUNT
-        val waveform = FloatArray(pointCount)
-        for (i in 0 until pointCount) {
-            val frameIndex = (i * frames / pointCount).coerceIn(0, frames - 1)
-            waveform[i] = mono[frameIndex].toFloat() / Short.MAX_VALUE
-        }
+        val waveform = FloatArray(frames) { i -> mono[i].toFloat() / Short.MAX_VALUE }
 
         AudioAnalyzer.publish(rms, bands, waveform)
     }

@@ -41,10 +41,13 @@ so bars react instantly to transients but settle down smoothly instead of jitter
 
 ## How the oscilloscope works
 
-`OscilloscopeEngine` copies a decimated 800-point window of the raw (mono-downmixed) waveform
-every buffer -- no smoothing, since that would blur the actual waveform shape -- and
-`OscilloscopeScreen` plots it left-to-right against a graticule grid, with a soft glow pass under
-a bright core stroke to suggest phosphor persistence.
+`OscilloscopeEngine` builds a smoothly *scrolling* waveform the way real audio waveform displays
+do: as raw mono samples arrive they're folded into a min/max envelope pair for whichever of 300
+columns they land in (covering a ~2 second window), and completed columns shift left as new ones
+fill in on the right. Each column is drawn as a vertical bar spanning its min-to-max range --
+compressing many audio cycles into one pixel column this way avoids the aliased, noisy look that
+naive point-sampling produces, and shifting incrementally rather than replacing the whole trace
+every buffer is what makes it read as a continuous, evolving wave instead of flickering.
 
 All three engines are stepped every frame regardless of which mode is showing, so tapping to
 switch shows a live reading immediately instead of a frozen one.
