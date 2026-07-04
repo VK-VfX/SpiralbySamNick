@@ -1,12 +1,16 @@
 # Sam's Visualizer
 
-Two audio-reactive visualizer modes, switchable with a tab at the top, both driven by whatever
-music is playing on the device -- Spotify, YouTube Music, or anything else.
+Three audio-reactive visualizer modes -- tap anywhere on the screen to crossfade to the next one
+-- all driven by whatever music is playing on the device: Spotify, YouTube Music, or anything else.
 
 - **VU Meter**: an analog needle meter with correctly calibrated ballistics (not a fake wobble),
   plus a peak LED that pulses when the level hits the top of the scale.
 - **Spectrum**: a real-time FFT bar spectrum, log-spaced across the audible range, with per-band
   peak-hold caps.
+- **Oscilloscope**: an X/Y "oscilloscope music" view -- the left channel drives the horizontal
+  position and the right channel the vertical position, the same way feeding two channels into a
+  real scope's X/Y mode turns stereo audio into a literal drawn shape (a sine on both channels
+  traces a circle, matched square waves trace geometric figures).
 
 ## How the meter works
 
@@ -37,8 +41,15 @@ captured PCM buffers, buckets the result into 28 log-spaced bands from 40Hz to 1
 `SpectrumEngine` smooths each band with a fast rise / slower fall filter plus a peak-hold cap --
 so bars react instantly to transients but settle down smoothly instead of jittering.
 
-Both engines are stepped every frame regardless of which tab is visible, so switching tabs shows
-a live reading immediately instead of a frozen one.
+## How the oscilloscope works
+
+`OscilloscopeEngine` copies a decimated 512-point window of raw left/right samples every buffer
+(no smoothing -- that would blur the traced shapes) and `OscilloscopeScreen` plots them as a
+connected path with left on the X axis and right on the Y axis, drawn with a soft glow pass under
+a bright core stroke to suggest phosphor persistence.
+
+All three engines are stepped every frame regardless of which mode is showing, so tapping to
+switch shows a live reading immediately instead of a frozen one.
 
 ## Building
 
