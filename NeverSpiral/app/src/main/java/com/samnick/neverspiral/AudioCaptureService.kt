@@ -29,10 +29,9 @@ import kotlin.math.sqrt
 
 /**
  * Foreground service that captures whatever the device is currently playing (via
- * [AudioPlaybackCaptureConfiguration], not the microphone) as stereo PCM, and publishes each
- * buffer's per-channel RMS amplitude to [AudioAnalyzer]. Working this way means it reacts
- * identically whether playback is on the speaker, wired headphones, or Bluetooth, unlike
- * listening through the mic.
+ * [AudioPlaybackCaptureConfiguration], not the microphone), and publishes each buffer's RMS
+ * amplitude to [AudioAnalyzer]. Working this way means it reacts identically whether playback is
+ * on the speaker, wired headphones, or Bluetooth, unlike listening through the mic.
  */
 @RequiresApi(Build.VERSION_CODES.Q)
 class AudioCaptureService : Service() {
@@ -103,14 +102,14 @@ class AudioCaptureService : Service() {
         val format = AudioFormat.Builder()
             .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
             .setSampleRate(sampleRate)
-            .setChannelMask(AudioFormat.CHANNEL_IN_STEREO)
+            .setChannelMask(AudioFormat.CHANNEL_IN_MONO)
             .build()
 
         val minBufferSize = AudioRecord.getMinBufferSize(
             sampleRate,
-            AudioFormat.CHANNEL_IN_STEREO,
+            AudioFormat.CHANNEL_IN_MONO,
             AudioFormat.ENCODING_PCM_16BIT,
-        ).coerceAtLeast(4096)
+        ).coerceAtLeast(2048)
 
         val record = try {
             AudioRecord.Builder()
@@ -141,7 +140,7 @@ class AudioCaptureService : Service() {
                 while (isActive) {
                     val read = record.read(buffer, 0, buffer.size)
                     if (read > 0) {
-                        analyzeStereo(buffer, read)
+                        analyze(buffer, read)
                     } else if (read < 0) {
                         break // read error (e.g. record was stopped from under us)
                     }
@@ -152,24 +151,14 @@ class AudioCaptureService : Service() {
         }
     }
 
-    /** [buffer] holds interleaved L,R 16-bit samples; [length] is the number of samples read. */
-    private fun analyzeStereo(buffer: ShortArray, length: Int) {
-        var sumSquaresLeft = 0.0
-        var sumSquaresRight = 0.0
-        var frames = 0
-        var i = 0
-        while (i + 1 < length) {
-            val left = buffer[i].toDouble() / Short.MAX_VALUE
-            val right = buffer[i + 1].toDouble() / Short.MAX_VALUE
-            sumSquaresLeft += left * left
-            sumSquaresRight += right * right
-            frames++
-            i += 2
+    private fun analyze(buffer: ShortArray, length: Int) {
+        var sumSquares = 0.0
+        for (i in 0 until length) {
+            val normalized = buffer[i].toDouble() / Short.MAX_VALUE
+            sumSquares += normalized * normalized
         }
-        if (frames == 0) return
-        val rmsLeft = sqrt(sumSquaresLeft / frames).toFloat()
-        val rmsRight = sqrt(sumSquaresRight / frames).toFloat()
-        AudioAnalyzer.publish(rmsLeft, rmsRight)
+        val rms = sqrt(sumSquares / length).toFloat()
+        AudioAnalyzer.publish(rms)
     }
 
     override fun onDestroy() {

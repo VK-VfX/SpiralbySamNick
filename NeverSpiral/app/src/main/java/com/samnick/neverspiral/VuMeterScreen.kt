@@ -36,13 +36,20 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.cos
+import kotlin.math.min
 import kotlin.math.sin
 import kotlinx.coroutines.isActive
 
-/** dB-VU values that get a tick and a label on the scale, matching a classic analog VU face. */
+/**
+ * dB-VU values that get a tick and a label, matching a classic analog VU face. These are laid
+ * out with *even angular spacing between adjacent entries* (see [leanForDbVu]) rather than
+ * spacing proportional to their dB gap -- which is what a real VU meter's dial looks like too:
+ * -20 to -10 (a 10 dB gap) takes up the same arc as 0 to 1 (a 1 dB gap). Spacing by dB value
+ * instead crushes the busy -3..+3 region into a sliver and was why labels were overlapping.
+ */
 private val TICK_VALUES = listOf(-20f, -10f, -7f, -5f, -3f, -2f, -1f, 0f, 1f, 2f, 3f)
-private const val LEAN_MIN_DEG = -50f
-private const val LEAN_MAX_DEG = 50f
+private const val LEAN_MIN_DEG = -55f
+private const val LEAN_MAX_DEG = 55f
 
 private val FRAME_COLOR = Color(0xFF17151A)
 private val BODY_COLOR = Color(0xFFE8DAB0)
@@ -51,8 +58,7 @@ private val REDLINE_COLOR = Color(0xFFB6342F)
 
 @Composable
 fun VuMeterScreen() {
-    val leftMeter = remember { VuMeterEngine() }
-    val rightMeter = remember { VuMeterEngine() }
+    val meter = remember { VuMeterEngine() }
     val context = LocalContext.current
     var visualizerOn by remember { mutableStateOf(false) }
 
@@ -73,15 +79,13 @@ fun VuMeterScreen() {
         }
     }
 
-    LaunchedEffect(leftMeter, rightMeter) {
+    LaunchedEffect(meter) {
         var lastFrameNanos = 0L
         while (isActive) {
             withFrameNanos { frameNanos ->
                 val dt = if (lastFrameNanos == 0L) 0f else (frameNanos - lastFrameNanos) / 1_000_000_000f
                 lastFrameNanos = frameNanos
-                val snapshot = AudioAnalyzer.snapshots.value
-                leftMeter.step(dt, snapshot.rawLeft)
-                rightMeter.step(dt, snapshot.rawRight)
+                meter.step(dt, AudioAnalyzer.snapshots.value.raw)
             }
         }
     }
@@ -91,26 +95,25 @@ fun VuMeterScreen() {
         TICK_VALUES.map { value ->
             val label = if (value == 0f) "0" else if (value > 0f) "+${value.toInt()}" else value.toInt().toString()
             val color = if (value > 0f) REDLINE_COLOR else FRAME_COLOR
-            Triple(value, color, textMeasurer.measure(label, style = TextStyle(fontSize = 15.sp, color = color, fontWeight = FontWeight.Medium)))
+            Triple(value, color, textMeasurer.measure(label, style = TextStyle(fontSize = 14.sp, color = color, fontWeight = FontWeight.Medium)))
         }
     }
     val vuLabelLayout = remember(textMeasurer) {
-        textMeasurer.measure("VU", style = TextStyle(fontSize = 22.sp, color = FRAME_COLOR, fontWeight = FontWeight.Bold))
+        textMeasurer.measure("VU", style = TextStyle(fontSize = 26.sp, color = FRAME_COLOR, fontWeight = FontWeight.Bold))
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             drawRect(color = Color(0xFF0B0B0E))
 
-            val meterWidth = size.width * 0.42f
+            val meterWidth = min(size.width * 0.84f, size.height * 0.72f)
             val meterHeight = meterWidth * 0.62f
-            val gap = size.width * 0.03f
-            val totalWidth = meterWidth * 2f + gap
-            val startX = (size.width - totalWidth) / 2f
-            val top = size.height / 2f - meterHeight / 2f
+            val topLeft = Offset(
+                (size.width - meterWidth) / 2f,
+                (size.height - meterHeight) / 2f,
+            )
 
-            drawVuMeter(tickLayouts, vuLabelLayout, Offset(startX, top), meterWidth, meterHeight, leftMeter.dbVu)
-            drawVuMeter(tickLayouts, vuLabelLayout, Offset(startX + meterWidth + gap, top), meterWidth, meterHeight, rightMeter.dbVu)
+            drawVuMeter(tickLayouts, vuLabelLayout, topLeft, meterWidth, meterHeight, meter.dbVu)
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -118,8 +121,7 @@ fun VuMeterScreen() {
                 onClick = {
                     if (visualizerOn) {
                         AudioCaptureService.stop(context)
-                        leftMeter.reset()
-                        rightMeter.reset()
+                        meter.reset()
                         visualizerOn = false
                     } else {
                         recordPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
@@ -145,23 +147,23 @@ private fun DrawScope.drawVuMeter(
 ) {
     drawRoundRect(
         color = FRAME_COLOR,
-        topLeft = Offset(topLeft.x - 8f, topLeft.y - 8f),
-        size = Size(width + 16f, height + 16f),
-        cornerRadius = CornerRadius(20f, 20f),
+        topLeft = Offset(topLeft.x - 10f, topLeft.y - 10f),
+        size = Size(width + 20f, height + 20f),
+        cornerRadius = CornerRadius(24f, 24f),
     )
     drawRoundRect(
         color = BODY_COLOR,
         topLeft = topLeft,
         size = Size(width, height),
-        cornerRadius = CornerRadius(16f, 16f),
+        cornerRadius = CornerRadius(18f, 18f),
     )
 
-    drawText(vuLabelLayout, topLeft = Offset(topLeft.x + width * 0.06f, topLeft.y + height * 0.08f))
+    drawText(vuLabelLayout, topLeft = Offset(topLeft.x + width * 0.05f, topLeft.y + height * 0.07f))
 
     val pivot = Offset(topLeft.x + width / 2f, topLeft.y + height * 1.05f)
-    val tickOuterRadius = height * 0.95f
-    val tickInnerRadius = height * 0.82f
-    val labelRadius = height * 0.64f
+    val tickOuterRadius = height * 0.96f
+    val tickInnerRadius = height * 0.84f
+    val labelRadius = height * 0.70f
     val needleLength = height * 0.90f
 
     for ((value, color, layout) in tickLayouts) {
@@ -191,8 +193,25 @@ private fun DrawScope.drawVuMeter(
     drawCircle(color = NEEDLE_COLOR, radius = height * 0.035f, center = pivot)
 }
 
-/** Maps a dB-VU value on the [-20, +3] scale to a lean angle in degrees from vertical. */
-private fun leanForDbVu(dbVu: Float): Float {
-    val t = ((dbVu - VuMeterEngine.SCALE_MIN_DB_VU) / (VuMeterEngine.SCALE_MAX_DB_VU - VuMeterEngine.SCALE_MIN_DB_VU)).coerceIn(0f, 1f)
+/**
+ * Maps a dB-VU value to a lean angle in degrees from vertical, using the *position* of [value]
+ * within [TICK_VALUES] rather than its raw magnitude -- so every adjacent pair of ticks gets an
+ * equal slice of the sweep, and the needle interpolates smoothly between whichever two ticks
+ * bracket its current reading.
+ */
+private fun leanForDbVu(value: Float): Float {
+    val clamped = value.coerceIn(TICK_VALUES.first(), TICK_VALUES.last())
+    var lowerIndex = 0
+    for (i in 0 until TICK_VALUES.size - 1) {
+        if (clamped >= TICK_VALUES[i] && clamped <= TICK_VALUES[i + 1]) {
+            lowerIndex = i
+            break
+        }
+    }
+    val lowerValue = TICK_VALUES[lowerIndex]
+    val upperValue = TICK_VALUES[lowerIndex + 1]
+    val fraction = if (upperValue > lowerValue) (clamped - lowerValue) / (upperValue - lowerValue) else 0f
+    val position = lowerIndex + fraction
+    val t = position / (TICK_VALUES.size - 1)
     return LEAN_MIN_DEG + t * (LEAN_MAX_DEG - LEAN_MIN_DEG)
 }

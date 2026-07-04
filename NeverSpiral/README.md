@@ -1,6 +1,6 @@
-# Spiral
+# VU Meter
 
-A dual analog VU meter that reacts to whatever music is playing on the device -- Spotify,
+An analog VU meter that reacts to whatever music is playing on the device -- Spotify,
 YouTube Music, or anything else -- with correctly calibrated ballistics, not a fake wobble.
 
 ## How the meter works
@@ -9,7 +9,7 @@ YouTube Music, or anything else -- with correctly calibrated ballistics, not a f
   which taps the device's internal audio mix rather than the microphone. That means it reacts the
   same way whether you're on speaker, wired headphones, or Bluetooth. It requires a `RECORD_AUDIO`
   grant plus a one-time system "start recording or casting" consent screen -- that wording is a
-  quirk of the underlying API; Spiral only ever reads audio, never video, and only while the
+  quirk of the underlying API; the app only ever reads audio, never video, and only while the
   visualizer is toggled on (shown by a persistent notification while it runs).
 - **Ballistics**: a real VU meter is not a peak meter. ANSI C16.5-1942 defines its response as
   reaching 99% of a step change in 300ms, applied *symmetrically* on the way up and down (unlike a
@@ -18,8 +18,10 @@ YouTube Music, or anything else -- with correctly calibrated ballistics, not a f
   implements this as a single-pole exponential filter in the dB domain with `tau = 300ms / ln(100)`.
 - **Calibration**: 0 dBVU is set to -18 dBFS, the standard professional reference level that leaves
   headroom above 0 for transients to peak into before the digital signal clips.
-- **Stereo**: audio is captured as stereo PCM and analyzed per channel, driving independent left
-  and right needles.
+- **Scale layout**: tick marks (-20, -10, -7, -5, -3, -2, -1, 0, 1, 2, 3) are spaced *evenly by
+  position*, not by dB value -- matching a real VU meter's dial, where the wide -20-to-10 gap and
+  the narrow 0-to-1 gap take up roughly the same arc. The needle interpolates smoothly between
+  whichever two ticks bracket the current reading.
 
 ## Building
 
