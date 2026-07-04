@@ -158,7 +158,8 @@ class AudioCaptureService : Service() {
             sumSquares += normalized * normalized
         }
         val rms = sqrt(sumSquares / length).toFloat()
-        AudioAnalyzer.publish(rms)
+        val bands = if (length >= SpectrumAnalyzer.FFT_SIZE) SpectrumAnalyzer.computeBands(buffer) else null
+        AudioAnalyzer.publish(rms, bands)
     }
 
     override fun onDestroy() {

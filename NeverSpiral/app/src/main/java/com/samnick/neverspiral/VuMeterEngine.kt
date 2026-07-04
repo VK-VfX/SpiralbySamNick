@@ -3,9 +3,11 @@ package com.samnick.neverspiral
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.setValue
+import kotlin.math.PI
 import kotlin.math.exp
 import kotlin.math.ln
 import kotlin.math.log10
+import kotlin.math.sin
 
 /**
  * Emulates a real analog VU meter's ballistics for one channel.
@@ -19,28 +21,49 @@ import kotlin.math.log10
  * The smoothing is applied directly in the dB domain (the standard, simple way to emulate this
  * digitally), then calibrated so 0 dBVU corresponds to -18 dBFS: the professional reference level
  * that leaves headroom above 0 for transients to peak into before the signal clips digitally.
+ *
+ * A separate [peakHold] value drives a peak LED: it latches on the instant the needle hits the
+ * top of the scale and fades out over [PEAK_HOLD_SECONDS], independent of the needle's own much
+ * slower ballistic fall, so a single loud hit still reads clearly as a peak.
  */
 class VuMeterEngine {
     var dbVu by mutableFloatStateOf(SCALE_MIN_DB_VU)
         private set
 
     private var smoothedDbFs = SILENCE_FLOOR_DBFS
+    private var elapsed = 0f
+    private var peakHold = 0f
 
     /** Advance the needle by [dtSeconds] toward the level implied by [rawRms] (linear, ~0..1). */
     fun step(dtSeconds: Float, rawRms: Float) {
         val dt = dtSeconds.coerceIn(0f, 0.1f)
-        val alpha = 1f - exp(-dt / BALLISTIC_TAU_SECONDS)
+        elapsed += dt
 
+        val alpha = 1f - exp(-dt / BALLISTIC_TAU_SECONDS)
         val targetDbFs = amplitudeToDbFs(rawRms)
         smoothedDbFs += (targetDbFs - smoothedDbFs) * alpha
 
         dbVu = (smoothedDbFs + CALIBRATION_OFFSET_DB).coerceIn(SCALE_MIN_DB_VU, SCALE_MAX_DB_VU)
+
+        peakHold = if (dbVu >= SCALE_MAX_DB_VU - PEAK_TOLERANCE_DB) {
+            1f
+        } else {
+            (peakHold - dt / PEAK_HOLD_SECONDS).coerceAtLeast(0f)
+        }
+    }
+
+    /** 0..1 brightness for the peak LED: smoothly pulses while a peak is held, otherwise off. */
+    fun peakLedBrightness(): Float {
+        if (peakHold <= 0f) return 0f
+        val pulse = 0.5f + 0.5f * sin(2f * PI.toFloat() * BLINK_HZ * elapsed)
+        return peakHold * pulse
     }
 
     /** Drop the needle back to rest, e.g. when capture stops. */
     fun reset() {
         smoothedDbFs = SILENCE_FLOOR_DBFS
         dbVu = SCALE_MIN_DB_VU
+        peakHold = 0f
     }
 
     companion object {
@@ -55,6 +78,10 @@ class VuMeterEngine {
         // A step reaching 99% of its final value in 300ms, for a single-pole exponential
         // response, implies tau = 300ms / ln(100).
         private val BALLISTIC_TAU_SECONDS = 0.3f / ln(100f)
+
+        private const val PEAK_TOLERANCE_DB = 0.15f
+        private const val PEAK_HOLD_SECONDS = 1.2f
+        private const val BLINK_HZ = 5f
 
         private fun amplitudeToDbFs(rms: Float): Float {
             val clamped = rms.coerceAtLeast(AMPLITUDE_FLOOR)

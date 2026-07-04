@@ -3,23 +3,29 @@ package com.samnick.neverspiral
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
-/** Latest instantaneous RMS amplitude (linear, roughly 0..1) from captured audio. */
+/**
+ * Latest instantaneous RMS amplitude (for the VU meter) and log-spaced frequency-band levels
+ * (for the spectrum view) from captured audio.
+ */
 data class AudioSnapshot(
     val raw: Float = 0f,
+    val bands: FloatArray = FloatArray(SpectrumAnalyzer.BAND_COUNT),
 )
 
 /**
- * Process-wide sink for raw audio level. [AudioCaptureService] publishes a frame here every
- * time it reads a buffer of captured playback. The VU meter reads [snapshots] directly to drive
- * its needle ballistics, independent of whichever component started the capture -- all dB
- * conversion and ballistic smoothing happens downstream in [VuMeterEngine], not here.
+ * Process-wide sink for raw audio levels. [AudioCaptureService] publishes a frame here every
+ * time it reads a buffer of captured playback. The VU meter and spectrum view both read
+ * [snapshots] directly to drive their own smoothing, independent of whichever component started
+ * the capture -- all dB conversion, FFT, and ballistic smoothing happen downstream, not here.
  */
 object AudioAnalyzer {
     private val _snapshots = MutableStateFlow(AudioSnapshot())
     val snapshots: StateFlow<AudioSnapshot> = _snapshots
 
-    fun publish(raw: Float) {
-        _snapshots.value = AudioSnapshot(raw = raw)
+    /** [bands] is optional: pass null when a buffer was too short to run the FFT this time. */
+    fun publish(raw: Float, bands: FloatArray? = null) {
+        val current = _snapshots.value
+        _snapshots.value = AudioSnapshot(raw = raw, bands = bands ?: current.bands)
     }
 
     fun reset() {

@@ -1,7 +1,12 @@
-# VU Meter
+# Sam's Visualizer
 
-An analog VU meter that reacts to whatever music is playing on the device -- Spotify,
-YouTube Music, or anything else -- with correctly calibrated ballistics, not a fake wobble.
+Two audio-reactive visualizer modes, switchable with a tab at the top, both driven by whatever
+music is playing on the device -- Spotify, YouTube Music, or anything else.
+
+- **VU Meter**: an analog needle meter with correctly calibrated ballistics (not a fake wobble),
+  plus a peak LED that pulses when the level hits the top of the scale.
+- **Spectrum**: a real-time FFT bar spectrum, log-spaced across the audible range, with per-band
+  peak-hold caps.
 
 ## How the meter works
 
@@ -22,6 +27,18 @@ YouTube Music, or anything else -- with correctly calibrated ballistics, not a f
   position*, not by dB value -- matching a real VU meter's dial, where the wide -20-to-10 gap and
   the narrow 0-to-1 gap take up roughly the same arc. The needle interpolates smoothly between
   whichever two ticks bracket the current reading.
+- **Peak LED**: latches on the instant the needle hits the top of the scale and pulses for about
+  a second, independent of the needle's own much slower ballistic fall.
+
+## How the spectrum view works
+
+`SpectrumAnalyzer` runs a plain iterative radix-2 FFT (1024-point, Hann-windowed) on the same
+captured PCM buffers, buckets the result into 28 log-spaced bands from 40Hz to 16kHz, and
+`SpectrumEngine` smooths each band with a fast rise / slower fall filter plus a peak-hold cap --
+so bars react instantly to transients but settle down smoothly instead of jittering.
+
+Both engines are stepped every frame regardless of which tab is visible, so switching tabs shows
+a live reading immediately instead of a frozen one.
 
 ## Building
 

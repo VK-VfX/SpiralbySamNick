@@ -1,25 +1,9 @@
 package com.samnick.neverspiral
 
-import android.Manifest
-import android.app.Activity
-import android.media.projection.MediaProjectionManager
-import android.os.Build
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -27,18 +11,15 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
-import kotlinx.coroutines.isActive
 
 /**
  * dB-VU values that get a tick and a label, matching a classic analog VU face. These are laid
@@ -55,41 +36,12 @@ private val FRAME_COLOR = Color(0xFF17151A)
 private val BODY_COLOR = Color(0xFFE8DAB0)
 private val NEEDLE_COLOR = Color(0xFF17151A)
 private val REDLINE_COLOR = Color(0xFFB6342F)
+private val LED_OFF_COLOR = Color(0xFF3A1F1F)
+private val LED_ON_COLOR = Color(0xFFFF3B30)
 
+/** Pure rendering of [meter]'s current reading; stepping happens in the shared frame loop. */
 @Composable
-fun VuMeterScreen() {
-    val meter = remember { VuMeterEngine() }
-    val context = LocalContext.current
-    var visualizerOn by remember { mutableStateOf(false) }
-
-    val projectionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        val data = result.data
-        if (result.resultCode == Activity.RESULT_OK && data != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            AudioCaptureService.start(context, result.resultCode, data)
-            visualizerOn = true
-        } else {
-            visualizerOn = false
-        }
-    }
-
-    val recordPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val projectionManager = context.getSystemService(MediaProjectionManager::class.java)
-            projectionLauncher.launch(projectionManager.createScreenCaptureIntent())
-        }
-    }
-
-    LaunchedEffect(meter) {
-        var lastFrameNanos = 0L
-        while (isActive) {
-            withFrameNanos { frameNanos ->
-                val dt = if (lastFrameNanos == 0L) 0f else (frameNanos - lastFrameNanos) / 1_000_000_000f
-                lastFrameNanos = frameNanos
-                meter.step(dt, AudioAnalyzer.snapshots.value.raw)
-            }
-        }
-    }
-
+fun VuMeterScreen(meter: VuMeterEngine) {
     val textMeasurer = rememberTextMeasurer()
     val tickLayouts = remember(textMeasurer) {
         TICK_VALUES.map { value ->
@@ -102,38 +54,17 @@ fun VuMeterScreen() {
         textMeasurer.measure("VU", style = TextStyle(fontSize = 26.sp, color = FRAME_COLOR, fontWeight = FontWeight.Bold))
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            drawRect(color = Color(0xFF0B0B0E))
+    Canvas(modifier = Modifier.fillMaxSize()) {
+        drawRect(color = Color(0xFF0B0B0E))
 
-            val meterWidth = min(size.width * 0.84f, size.height * 0.72f)
-            val meterHeight = meterWidth * 0.62f
-            val topLeft = Offset(
-                (size.width - meterWidth) / 2f,
-                (size.height - meterHeight) / 2f,
-            )
+        val meterWidth = min(size.width * 0.84f, size.height * 0.72f)
+        val meterHeight = meterWidth * 0.62f
+        val topLeft = Offset(
+            (size.width - meterWidth) / 2f,
+            (size.height - meterHeight) / 2f,
+        )
 
-            drawVuMeter(tickLayouts, vuLabelLayout, topLeft, meterWidth, meterHeight, meter.dbVu)
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            Button(
-                onClick = {
-                    if (visualizerOn) {
-                        AudioCaptureService.stop(context)
-                        meter.reset()
-                        visualizerOn = false
-                    } else {
-                        recordPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                    }
-                },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(24.dp),
-            ) {
-                Text(if (visualizerOn) "Stop visualizer" else "Visualize music")
-            }
-        }
+        drawVuMeter(tickLayouts, vuLabelLayout, topLeft, meterWidth, meterHeight, meter.dbVu, meter.peakLedBrightness())
     }
 }
 
@@ -144,6 +75,7 @@ private fun DrawScope.drawVuMeter(
     width: Float,
     height: Float,
     dbVu: Float,
+    peakBrightness: Float,
 ) {
     drawRoundRect(
         color = FRAME_COLOR,
@@ -159,6 +91,13 @@ private fun DrawScope.drawVuMeter(
     )
 
     drawText(vuLabelLayout, topLeft = Offset(topLeft.x + width * 0.05f, topLeft.y + height * 0.07f))
+
+    val ledCenter = Offset(topLeft.x + width * 0.92f, topLeft.y + height * 0.11f)
+    val ledRadius = height * 0.05f
+    if (peakBrightness > 0.02f) {
+        drawCircle(color = LED_ON_COLOR.copy(alpha = peakBrightness * 0.35f), radius = ledRadius * 2.2f, center = ledCenter)
+    }
+    drawCircle(color = lerpColor(LED_OFF_COLOR, LED_ON_COLOR, peakBrightness), radius = ledRadius, center = ledCenter)
 
     val pivot = Offset(topLeft.x + width / 2f, topLeft.y + height * 1.05f)
     val tickOuterRadius = height * 0.96f
@@ -189,8 +128,8 @@ private fun DrawScope.drawVuMeter(
         pivot.x + needleLength * cos(needleAngle).toFloat(),
         pivot.y - needleLength * sin(needleAngle).toFloat(),
     )
-    drawLine(color = NEEDLE_COLOR, start = pivot, end = tip, strokeWidth = 4f, cap = StrokeCap.Round)
-    drawCircle(color = NEEDLE_COLOR, radius = height * 0.035f, center = pivot)
+    drawLine(color = NEEDLE_COLOR, start = pivot, end = tip, strokeWidth = 7f, cap = StrokeCap.Round)
+    drawCircle(color = NEEDLE_COLOR, radius = height * 0.045f, center = pivot)
 }
 
 /**
@@ -214,4 +153,14 @@ private fun leanForDbVu(value: Float): Float {
     val position = lowerIndex + fraction
     val t = position / (TICK_VALUES.size - 1)
     return LEAN_MIN_DEG + t * (LEAN_MAX_DEG - LEAN_MIN_DEG)
+}
+
+private fun lerpColor(a: Color, b: Color, t: Float): Color {
+    val c = t.coerceIn(0f, 1f)
+    return Color(
+        red = a.red + (b.red - a.red) * c,
+        green = a.green + (b.green - a.green) * c,
+        blue = a.blue + (b.blue - a.blue) * c,
+        alpha = 1f,
+    )
 }
