@@ -7,8 +7,8 @@ Three audio-reactive visualizer modes -- tap anywhere on the screen to crossfade
   plus a peak LED that pulses when the level hits the top of the scale.
 - **Spectrum**: a real-time FFT bar spectrum, log-spaced across the audible range, with per-band
   peak-hold caps.
-- **Oscilloscope**: a classic Y-T waveform trace -- amplitude on the vertical axis, time flowing
-  left to right, like a benchtop scope's normal mode -- over a graticule grid.
+- **Oscilloscope**: a minimalist, mirrored bar waveform (the "podcast/SoundCloud" look) confined
+  to a slim band rather than filling the screen.
 
 ## How the meter works
 
@@ -42,15 +42,17 @@ so bars react instantly to transients but settle down smoothly instead of jitter
 ## How the oscilloscope works
 
 `OscilloscopeEngine` builds a smoothly *scrolling* waveform the way real audio waveform displays
-do: as raw mono samples arrive they're folded into a min/max envelope pair for whichever of 300
-columns they land in (covering a ~2 second window), and completed columns shift left as new ones
-fill in on the right. Each column is drawn as a vertical bar spanning its min-to-max range --
-compressing many audio cycles into one pixel column this way avoids the aliased, noisy look that
-naive point-sampling produces, and shifting incrementally rather than replacing the whole trace
-every buffer is what makes it read as a continuous, evolving wave instead of flickering.
+do: as raw mono samples arrive, each of 56 bars tracks the peak absolute amplitude seen in its
+slice of a scrolling ~2.4 second window, and completed bars shift left as new ones fill in on the
+right -- rather than replacing the whole trace every buffer, which is what makes it read as a
+continuous, evolving wave instead of flickering. `OscilloscopeScreen` renders those bars sparse
+and gapped, mirrored symmetrically around the centerline and confined to a slim vertical band, for
+a clean, modern waveform-strip look instead of a dense wall of raw electrical trace.
 
 All three engines are stepped every frame regardless of which mode is showing, so tapping to
-switch shows a live reading immediately instead of a frozen one.
+switch shows a live reading immediately instead of a frozen one. The app also requests a 120Hz
+window refresh rate on displays that support it (Android ties refresh rate to the whole window,
+not to individual views, so this benefits all three modes, not just the oscilloscope).
 
 ## Building
 

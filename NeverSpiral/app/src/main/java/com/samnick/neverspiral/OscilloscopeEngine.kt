@@ -3,43 +3,37 @@ package com.samnick.neverspiral
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.setValue
+import kotlin.math.abs
 
 /**
- * Builds a smoothly scrolling amplitude-vs-time waveform, the way a real audio waveform display
- * works: as new PCM samples arrive they're folded into a min/max "envelope" pair for whichever
- * column they land in, and completed columns shift left as new ones fill in on the right --
- * rather than replacing the entire visible trace with a fresh, essentially random ~40ms snippet
- * every buffer (the previous approach), which aliased into flickering noise instead of a
- * recognizable wave and never looked smooth from frame to frame.
+ * Builds a smoothly scrolling waveform envelope for a minimalist bar-style oscilloscope (the
+ * "podcast waveform" look, mirrored symmetrically around the centerline) rather than a raw
+ * electrical scope trace. Each of [COLUMN_COUNT] bars tracks the peak absolute amplitude seen in
+ * its slice of a scrolling window, and completed bars shift left as new ones fill in on the
+ * right.
  *
  * [elapsed] exists purely as a Compose-observable value so the Canvas redraws every frame even
- * though [columnMin]/[columnMax] are plain, non-observable arrays (mutated in place to avoid
- * allocating new arrays every frame).
+ * though [columnPeak] itself is a plain, non-observable array (mutated in place to avoid
+ * allocating a new array every frame).
  */
 class OscilloscopeEngine {
-    val columnMin = FloatArray(COLUMN_COUNT)
-    val columnMax = FloatArray(COLUMN_COUNT)
+    val columnPeak = FloatArray(COLUMN_COUNT)
 
     var elapsed by mutableFloatStateOf(0f)
         private set
 
-    private var partialMin = 0f
-    private var partialMax = 0f
+    private var partialPeak = 0f
     private var partialCount = 0
 
-    /** Folds newly captured raw mono PCM (linear, -1..1) into the scrolling column history. */
+    /** Folds newly captured raw mono PCM (linear, -1..1) into the scrolling bar history. */
     fun ingest(samples: FloatArray) {
         for (s in samples) {
-            if (partialCount == 0) {
-                partialMin = s
-                partialMax = s
-            } else {
-                if (s < partialMin) partialMin = s
-                if (s > partialMax) partialMax = s
-            }
+            val magnitude = abs(s)
+            if (magnitude > partialPeak) partialPeak = magnitude
             partialCount++
             if (partialCount >= SAMPLES_PER_COLUMN) {
-                pushColumn(partialMin, partialMax)
+                pushColumn(partialPeak)
+                partialPeak = 0f
                 partialCount = 0
             }
         }
@@ -51,22 +45,20 @@ class OscilloscopeEngine {
     }
 
     fun reset() {
-        columnMin.fill(0f)
-        columnMax.fill(0f)
+        columnPeak.fill(0f)
+        partialPeak = 0f
         partialCount = 0
     }
 
-    private fun pushColumn(min: Float, max: Float) {
-        columnMin.copyInto(columnMin, destinationOffset = 0, startIndex = 1, endIndex = COLUMN_COUNT)
-        columnMax.copyInto(columnMax, destinationOffset = 0, startIndex = 1, endIndex = COLUMN_COUNT)
-        columnMin[COLUMN_COUNT - 1] = min
-        columnMax[COLUMN_COUNT - 1] = max
+    private fun pushColumn(peak: Float) {
+        columnPeak.copyInto(columnPeak, destinationOffset = 0, startIndex = 1, endIndex = COLUMN_COUNT)
+        columnPeak[COLUMN_COUNT - 1] = peak.coerceIn(0f, 1f)
     }
 
     companion object {
-        const val COLUMN_COUNT = 300
+        const val COLUMN_COUNT = 56
         private const val SAMPLE_RATE = 44100
-        private const val WINDOW_SECONDS = 2.0f
+        private const val WINDOW_SECONDS = 2.4f
         private val SAMPLES_PER_COLUMN = (SAMPLE_RATE * WINDOW_SECONDS / COLUMN_COUNT).toInt()
     }
 }
