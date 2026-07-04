@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Stylized spiral glyph in amber, centered in the 108x108 adaptive-icon canvas
+         (icons crop to a ~66dp-diameter safe zone centered in the viewport). -->
+    <path
+        android:pathData="M54,54 m0,-30 a30,30 0 1,1 -21.2,8.8"
+        android:strokeColor="#E9C99A"
+        android:strokeWidth="6"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M54,54 m0,-20 a20,20 0 1,1 -14.1,5.9"
+        android:strokeColor="#F2C879"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M54,54 m0,-10 a10,10 0 1,1 -7.1,2.9"
+        android:strokeColor="#FFF8E7"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000" />
+</vector>
