@@ -67,8 +67,8 @@ fun SpiralScreen() {
             }
             .pointerInput(Unit) {
                 detectTapGestures(
-                    onTap = {
-                        engine.onTap(pointerCount.intValue)
+                    onTap = { offset ->
+                        engine.onTap(pointerCount.intValue, offset.x, offset.y)
                         haptics.tapTick(engine.energy)
                     },
                     onLongPress = {
@@ -98,7 +98,25 @@ fun SpiralScreen() {
                 drawGeneration(generation, engine, baseRadius, center, breathing)
             }
         }
+
+        for (ripple in engine.ripples) {
+            drawRipple(ripple, engine.elapsed)
+        }
     }
+}
+
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawRipple(ripple: TapRipple, elapsed: Float) {
+    val t = ((elapsed - ripple.birth) / 0.5f).coerceIn(0f, 1f)
+    if (t >= 1f) return
+    val eased = 1f - (1f - t) * (1f - t)
+    val radius = 8f + eased * 130f
+    val alpha = 1f - t
+    drawCircle(
+        color = Color.hsv(ripple.hue, 0.75f, 1f, alpha * 0.9f),
+        radius = radius,
+        center = Offset(ripple.x, ripple.y),
+        style = Stroke(width = (6f * (1f - t)).coerceAtLeast(1f)),
+    )
 }
 
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawGeneration(
@@ -123,30 +141,35 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawGeneration(
     val radius = baseRadius * scale * breathing
 
     val n = (TURNS * POINTS_PER_TURN).toInt()
-    val paths = Array(HUE_BUCKETS) { Path() }
-    val started = BooleanArray(HUE_BUCKETS)
-
-    for (i in 0..n) {
-        val p = i / n.toFloat()
-        val theta = p * TURNS * 2f * PI.toFloat()
-        val r = p * radius
-        val x = center.x + r * cos(theta)
-        val y = center.y + r * sin(theta)
-        val bucket = (p * (HUE_BUCKETS - 1)).toInt().coerceIn(0, HUE_BUCKETS - 1)
-        if (!started[bucket]) {
-            paths[bucket].moveTo(x, y)
-            started[bucket] = true
-        } else {
-            paths[bucket].lineTo(x, y)
-        }
-    }
-
     val strokeWidth = (2.5f + scale * 1.1f).coerceAtMost(14f)
-    val saturation = (0.65f + engine.energy * 0.35f).coerceIn(0f, 1f)
-    for (b in 0 until HUE_BUCKETS) {
-        val p = b / (HUE_BUCKETS - 1).toFloat()
-        val hue = (generation.hueOffset + p * 260f).mod(360f)
-        val color = Color.hsv(hue, saturation, 1f, opacity)
-        drawPath(paths[b], color = color, style = Stroke(width = strokeWidth, cap = StrokeCap.Round))
+    val saturation = ((0.65f + engine.energy * 0.35f) * (1f - engine.restfulness * 0.45f)).coerceIn(0f, 1f)
+    val armSpacing = 2f * PI.toFloat() / generation.armCount
+
+    for (arm in 0 until generation.armCount) {
+        val armOffset = arm * armSpacing
+        val paths = Array(HUE_BUCKETS) { Path() }
+        val started = BooleanArray(HUE_BUCKETS)
+
+        for (i in 0..n) {
+            val p = i / n.toFloat()
+            val theta = armOffset + p * TURNS * 2f * PI.toFloat()
+            val r = p * radius
+            val x = center.x + r * cos(theta)
+            val y = center.y + r * sin(theta)
+            val bucket = (p * (HUE_BUCKETS - 1)).toInt().coerceIn(0, HUE_BUCKETS - 1)
+            if (!started[bucket]) {
+                paths[bucket].moveTo(x, y)
+                started[bucket] = true
+            } else {
+                paths[bucket].lineTo(x, y)
+            }
+        }
+
+        for (b in 0 until HUE_BUCKETS) {
+            val p = b / (HUE_BUCKETS - 1).toFloat()
+            val hue = (generation.hueOffset + arm * 40f + p * 260f).mod(360f)
+            val color = Color.hsv(hue, saturation, 1f, opacity)
+            drawPath(paths[b], color = color, style = Stroke(width = strokeWidth, cap = StrokeCap.Round))
+        }
     }
 }
