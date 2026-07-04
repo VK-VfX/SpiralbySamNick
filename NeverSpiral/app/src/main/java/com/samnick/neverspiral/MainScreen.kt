@@ -88,7 +88,7 @@ fun MainScreen() {
                 val snapshot = AudioAnalyzer.snapshots.value
                 vuMeter.step(dt, snapshot.raw)
                 spectrum.step(dt, snapshot.bands)
-                oscilloscope.step(dt, snapshot.scopeX, snapshot.scopeY)
+                oscilloscope.step(dt, snapshot.waveform)
             }
         }
     }

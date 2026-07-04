@@ -7,10 +7,8 @@ Three audio-reactive visualizer modes -- tap anywhere on the screen to crossfade
   plus a peak LED that pulses when the level hits the top of the scale.
 - **Spectrum**: a real-time FFT bar spectrum, log-spaced across the audible range, with per-band
   peak-hold caps.
-- **Oscilloscope**: an X/Y "oscilloscope music" view -- the left channel drives the horizontal
-  position and the right channel the vertical position, the same way feeding two channels into a
-  real scope's X/Y mode turns stereo audio into a literal drawn shape (a sine on both channels
-  traces a circle, matched square waves trace geometric figures).
+- **Oscilloscope**: a classic Y-T waveform trace -- amplitude on the vertical axis, time flowing
+  left to right, like a benchtop scope's normal mode -- over a graticule grid.
 
 ## How the meter works
 
@@ -43,9 +41,9 @@ so bars react instantly to transients but settle down smoothly instead of jitter
 
 ## How the oscilloscope works
 
-`OscilloscopeEngine` copies a decimated 512-point window of raw left/right samples every buffer
-(no smoothing -- that would blur the traced shapes) and `OscilloscopeScreen` plots them as a
-connected path with left on the X axis and right on the Y axis, drawn with a soft glow pass under
+`OscilloscopeEngine` copies a decimated 800-point window of the raw (mono-downmixed) waveform
+every buffer -- no smoothing, since that would blur the actual waveform shape -- and
+`OscilloscopeScreen` plots it left-to-right against a graticule grid, with a soft glow pass under
 a bright core stroke to suggest phosphor persistence.
 
 All three engines are stepped every frame regardless of which mode is showing, so tapping to

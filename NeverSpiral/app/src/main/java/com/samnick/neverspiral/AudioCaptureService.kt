@@ -171,15 +171,13 @@ class AudioCaptureService : Service() {
         val bands = if (frames >= SpectrumAnalyzer.FFT_SIZE) SpectrumAnalyzer.computeBands(mono) else null
 
         val pointCount = OscilloscopeEngine.POINT_COUNT
-        val scopeX = FloatArray(pointCount)
-        val scopeY = FloatArray(pointCount)
+        val waveform = FloatArray(pointCount)
         for (i in 0 until pointCount) {
             val frameIndex = (i * frames / pointCount).coerceIn(0, frames - 1)
-            scopeX[i] = buffer[frameIndex * 2].toFloat() / Short.MAX_VALUE
-            scopeY[i] = buffer[frameIndex * 2 + 1].toFloat() / Short.MAX_VALUE
+            waveform[i] = mono[frameIndex].toFloat() / Short.MAX_VALUE
         }
 
-        AudioAnalyzer.publish(rms, bands, scopeX, scopeY)
+        AudioAnalyzer.publish(rms, bands, waveform)
     }
 
     override fun onDestroy() {

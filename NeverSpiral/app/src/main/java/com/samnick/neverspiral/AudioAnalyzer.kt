@@ -5,14 +5,13 @@ import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Latest instantaneous RMS amplitude (for the VU meter), log-spaced frequency-band levels (for
- * the spectrum view), and a decimated left/right sample trace (for the oscilloscope) from
+ * the spectrum view), and a decimated time-domain waveform window (for the oscilloscope) from
  * captured audio.
  */
 data class AudioSnapshot(
     val raw: Float = 0f,
     val bands: FloatArray = FloatArray(SpectrumAnalyzer.BAND_COUNT),
-    val scopeX: FloatArray = FloatArray(OscilloscopeEngine.POINT_COUNT),
-    val scopeY: FloatArray = FloatArray(OscilloscopeEngine.POINT_COUNT),
+    val waveform: FloatArray = FloatArray(OscilloscopeEngine.POINT_COUNT),
 )
 
 /**
@@ -26,14 +25,13 @@ object AudioAnalyzer {
     private val _snapshots = MutableStateFlow(AudioSnapshot())
     val snapshots: StateFlow<AudioSnapshot> = _snapshots
 
-    /** [bands], [scopeX], and [scopeY] are optional: pass null to keep the previous value. */
-    fun publish(raw: Float, bands: FloatArray? = null, scopeX: FloatArray? = null, scopeY: FloatArray? = null) {
+    /** [bands] and [waveform] are optional: pass null to keep the previous value. */
+    fun publish(raw: Float, bands: FloatArray? = null, waveform: FloatArray? = null) {
         val current = _snapshots.value
         _snapshots.value = AudioSnapshot(
             raw = raw,
             bands = bands ?: current.bands,
-            scopeX = scopeX ?: current.scopeX,
-            scopeY = scopeY ?: current.scopeY,
+            waveform = waveform ?: current.waveform,
         )
     }
 

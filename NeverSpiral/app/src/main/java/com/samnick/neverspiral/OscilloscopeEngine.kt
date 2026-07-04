@@ -5,34 +5,31 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.setValue
 
 /**
- * Holds the latest left/right sample trace for the X/Y oscilloscope view. The trace is drawn raw
- * -- smoothing it would blur the Lissajous shapes an oscilloscope is meant to show. [elapsed]
- * exists purely as a Compose-observable value so the Canvas redraws every frame even though the
- * point arrays themselves are plain, non-observable arrays (mutated in place to avoid allocating
- * a new array every frame).
+ * Holds the latest time-domain waveform window for the oscilloscope view: amplitude on the Y
+ * axis, time on the X axis, exactly like a benchtop scope's normal Y-T mode. Drawn raw --
+ * smoothing it would blur the waveform's actual shape. [elapsed] exists purely as a
+ * Compose-observable value so the Canvas redraws every frame even though [samples] itself is a
+ * plain, non-observable array (mutated in place to avoid allocating a new array every frame).
  */
 class OscilloscopeEngine {
-    val pointsX = FloatArray(POINT_COUNT)
-    val pointsY = FloatArray(POINT_COUNT)
+    val samples = FloatArray(POINT_COUNT)
 
     var elapsed by mutableFloatStateOf(0f)
         private set
 
-    fun step(dtSeconds: Float, x: FloatArray, y: FloatArray) {
+    fun step(dtSeconds: Float, waveform: FloatArray) {
         elapsed += dtSeconds.coerceIn(0f, 0.1f)
-        val n = minOf(POINT_COUNT, x.size, y.size)
+        val n = minOf(POINT_COUNT, waveform.size)
         for (i in 0 until n) {
-            pointsX[i] = x[i]
-            pointsY[i] = y[i]
+            samples[i] = waveform[i]
         }
     }
 
     fun reset() {
-        pointsX.fill(0f)
-        pointsY.fill(0f)
+        samples.fill(0f)
     }
 
     companion object {
-        const val POINT_COUNT = 512
+        const val POINT_COUNT = 800
     }
 }

@@ -11,37 +11,45 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 
-private val SCOPE_COLOR = Color(0xFF39FF6A)
-private val GRID_COLOR = Color(0xFF16241A)
+private val SCOPE_COLOR = Color(0xFF39FF14)
+private val GRID_COLOR = Color(0xFF163318)
+
+private const val GRID_COLUMNS = 8
+private const val GRID_ROWS = 4
 
 /**
- * X/Y "oscilloscope music" view: the left channel drives the horizontal position and the right
- * channel the vertical position, exactly like feeding two channels into a scope's X/Y mode --
- * a sine on both channels traces a circle, matched square waves trace geometric shapes.
+ * Classic Y-T oscilloscope view: amplitude on the vertical axis, time flowing left to right,
+ * same as a benchtop scope's normal (non X/Y) mode -- the shape traces the waveform itself, not
+ * a stereo Lissajous figure.
  */
 @Composable
 fun OscilloscopeScreen(engine: OscilloscopeEngine) {
     Canvas(modifier = Modifier.fillMaxSize()) {
         // Reading elapsed (Compose state) here is what makes this Canvas redraw every frame --
-        // the actual trace data lives in plain arrays that Compose can't observe on its own.
+        // the actual trace data lives in a plain array that Compose can't observe on its own.
         @Suppress("UNUSED_EXPRESSION")
         engine.elapsed
 
         drawRect(color = Color(0xFF060A07))
 
-        val center = Offset(size.width / 2f, size.height / 2f)
-        val scale = minOf(size.width, size.height) / 2f * 0.85f
+        // Graticule, reminiscent of a real oscilloscope screen.
+        for (col in 1 until GRID_COLUMNS) {
+            val x = size.width * col / GRID_COLUMNS
+            drawLine(GRID_COLOR, Offset(x, 0f), Offset(x, size.height), strokeWidth = 1.5f)
+        }
+        for (row in 1 until GRID_ROWS) {
+            val y = size.height * row / GRID_ROWS
+            drawLine(GRID_COLOR, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.5f)
+        }
+        val centerY = size.height / 2f
+        drawLine(GRID_COLOR, Offset(0f, centerY), Offset(size.width, centerY), strokeWidth = 2f)
 
-        // Faint crosshair, reminiscent of a real oscilloscope graticule.
-        drawLine(GRID_COLOR, Offset(0f, center.y), Offset(size.width, center.y), strokeWidth = 2f)
-        drawLine(GRID_COLOR, Offset(center.x, 0f), Offset(center.x, size.height), strokeWidth = 2f)
-
+        val amplitude = size.height * 0.42f
+        val n = engine.samples.size
         val path = Path()
-        val n = engine.pointsX.size
         for (i in 0 until n) {
-            val x = center.x + engine.pointsX[i] * scale
-            // Flip Y so a positive right-channel value draws upward, matching a real scope.
-            val y = center.y - engine.pointsY[i] * scale
+            val x = size.width * i / (n - 1).coerceAtLeast(1)
+            val y = centerY - engine.samples[i] * amplitude
             if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
         }
 
@@ -49,12 +57,12 @@ fun OscilloscopeScreen(engine: OscilloscopeEngine) {
         drawPath(
             path,
             color = SCOPE_COLOR.copy(alpha = 0.35f),
-            style = Stroke(width = 7f, cap = StrokeCap.Round, join = StrokeJoin.Round),
+            style = Stroke(width = 6f, cap = StrokeCap.Round, join = StrokeJoin.Round),
         )
         drawPath(
             path,
             color = SCOPE_COLOR,
-            style = Stroke(width = 2.2f, cap = StrokeCap.Round, join = StrokeJoin.Round),
+            style = Stroke(width = 2f, cap = StrokeCap.Round, join = StrokeJoin.Round),
         )
     }
 }
