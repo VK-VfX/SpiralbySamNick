@@ -1,16 +1,30 @@
 package com.samnick.neverspiral
 
+import android.Manifest
+import android.app.Activity
+import android.media.projection.MediaProjectionManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -20,6 +34,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.min
@@ -37,6 +52,32 @@ fun SpiralScreen() {
     val context = LocalContext.current
     val haptics = remember(context) { Haptics(context) }
     val pointerCount = remember { mutableIntStateOf(1) }
+    var visualizerOn by remember { mutableStateOf(false) }
+
+    val projectionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val data = result.data
+        if (result.resultCode == Activity.RESULT_OK && data != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            AudioCaptureService.start(context, result.resultCode, data)
+            visualizerOn = true
+        } else {
+            visualizerOn = false
+        }
+    }
+
+    val recordPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val projectionManager = context.getSystemService(MediaProjectionManager::class.java)
+            projectionLauncher.launch(projectionManager.createScreenCaptureIntent())
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        AudioAnalyzer.snapshots.collect { snapshot ->
+            if (visualizerOn) {
+                engine.applyAudio(snapshot.loudness, snapshot.beatId, snapshot.brightness)
+            }
+        }
+    }
 
     LaunchedEffect(engine) {
         var lastFrameNanos = 0L
@@ -49,6 +90,7 @@ fun SpiralScreen() {
         }
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Canvas(
         modifier = Modifier
             .fillMaxSize()
@@ -101,6 +143,26 @@ fun SpiralScreen() {
 
         for (ripple in engine.ripples) {
             drawRipple(ripple, engine.elapsed)
+        }
+    }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            Button(
+                onClick = {
+                    if (visualizerOn) {
+                        AudioCaptureService.stop(context)
+                        engine.stopAudio()
+                        visualizerOn = false
+                    } else {
+                        recordPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(24.dp),
+            ) {
+                Text(if (visualizerOn) "Stop visualizer" else "Visualize music")
+            }
         }
     }
 }

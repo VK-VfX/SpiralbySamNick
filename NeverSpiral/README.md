@@ -15,6 +15,19 @@ The spiral has a personality driven entirely by touch:
   its ambient spin.
 - **Haptics** -- every tap gives a short vibration that scales in strength with the current
   energy level.
+- **Idle "sleepy" state** -- go untouched for a while and the spiral eases further below its
+  normal resting speed and saturation, instead of settling at a flat idle.
+
+It also has a music visualizer mode ("Visualize music" button, Android 10+ only): it captures
+whatever the device is currently playing via `AudioPlaybackCaptureConfiguration` (not the
+microphone), so it reacts the same way whether you're on speaker, wired headphones, or Bluetooth.
+Loudness drives the same energy value as touch (more arms, faster spin, faster color cycling on
+louder passages), and detected beat onsets trigger the breathing pulse. This requires a one-time
+`RECORD_AUDIO` permission grant and a system "start recording or casting" consent screen -- that
+wording is a quirk of the underlying API; Spiral only ever reads the audio, never video, and only
+while the visualizer is toggled on (shown by a persistent notification while it runs). Whether a
+given player (e.g. Spotify, YouTube Music) allows its audio to be captured this way depends on
+flags it sets internally, which can only be confirmed by testing that app.
 
 ## Building
 

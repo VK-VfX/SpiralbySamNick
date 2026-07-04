@@ -49,6 +49,11 @@ class SpiralEngine {
     private var idleTime = 0f
     private val tapTimestamps = ArrayDeque<Long>()
 
+    private var audioActive = false
+    private var audioEnergyTarget = 0f
+    private var audioBrightness = 0f
+    private var lastAppliedBeatId = -1L
+
     private val baseAngularSpeed = 0.35f // radians/sec at rest
     private val baseHueSpeed = 12f // degrees/sec at rest
     private val tapWindowNanos = 1_500_000_000L
@@ -79,7 +84,7 @@ class SpiralEngine {
         // friction brings a manual flick to rest like a spun wheel
         dragVelocity *= exp(-dt * 2.2f)
 
-        hueBase = (hueBase + baseHueSpeed * (1f + energy * 6f) * (1f - restfulness * 0.5f) * dt).mod(360f)
+        hueBase = (hueBase + baseHueSpeed * (1f + energy * 6f + audioBrightness * 4f) * (1f - restfulness * 0.5f) * dt).mod(360f)
 
         val lifetime = lifetimeFor(energy)
         val spawnPeriod = lifetime * 0.5f
@@ -91,7 +96,26 @@ class SpiralEngine {
         ripples.removeAll { r -> (elapsed - r.birth) > rippleLifetime }
 
         pruneOldTaps(nowNanos = System.nanoTime())
-        energyTarget = min(1f, tapTimestamps.size / 6f)
+        val tapEnergyTarget = min(1f, tapTimestamps.size / 6f)
+        energyTarget = if (audioActive) maxOf(tapEnergyTarget, audioEnergyTarget) else tapEnergyTarget
+    }
+
+    /** Feed one analyzed audio frame in; [beatId] changing from the last call counts as a new beat. */
+    fun applyAudio(loudness: Float, beatId: Long, brightness: Float) {
+        audioActive = true
+        audioEnergyTarget = loudness.coerceIn(0f, 1f)
+        audioBrightness = brightness.coerceIn(0f, 1f)
+        if (beatId != lastAppliedBeatId) {
+            lastAppliedBeatId = beatId
+            pulse = 1f
+        }
+    }
+
+    /** Stop letting audio drive the spiral's energy; it falls back to touch-only. */
+    fun stopAudio() {
+        audioActive = false
+        audioEnergyTarget = 0f
+        audioBrightness = 0f
     }
 
     /** A finger just tapped down at ([x], [y]) in the canvas's local coordinates. */
@@ -99,7 +123,8 @@ class SpiralEngine {
         val now = System.nanoTime()
         tapTimestamps.addLast(now)
         pruneOldTaps(now)
-        energyTarget = min(1f, tapTimestamps.size / 6f)
+        val tapEnergyTarget = min(1f, tapTimestamps.size / 6f)
+        energyTarget = if (audioActive) maxOf(tapEnergyTarget, audioEnergyTarget) else tapEnergyTarget
         // Multi-finger taps read as a bigger jolt of excitement.
         energy = min(1f, energy + 0.12f * pointerCount)
         ripples.add(TapRipple(x = x, y = y, birth = elapsed, hue = hueBase))
