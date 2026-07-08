@@ -53,17 +53,22 @@ private enum class VisualMode(val label: String) {
     VU_METER("VU Meter"),
     SPECTRUM("Spectrum"),
     OSCILLOSCOPE("Oscilloscope"),
+    GONIOMETER("Goniometer"),
+    LOUDNESS("Loudness"),
+    SPECTROGRAM("Spectrogram"),
+    PEAK_RMS("Peak / RMS"),
+    TONAL_BALANCE("Tonal Balance"),
     ;
 
     fun next(): VisualMode = entries[(ordinal + 1) % entries.size]
 }
 
 /**
- * Hosts all three visualizer modes plus the single shared "Visualize music" capture toggle.
+ * Hosts all eight visualizer modes plus the single shared "Visualize music" capture toggle.
  * Tapping anywhere on the visualization cycles to the next mode with a smooth crossfade, instead
  * of a fixed tab bar -- which left little room on screen and, pinned to the very top, collided
- * with the status bar. All three engines are stepped every frame regardless of which mode is
- * showing, so switching feels instant rather than starting from a frozen reading.
+ * with the status bar. Every engine is stepped every frame regardless of which mode is showing,
+ * so switching feels instant rather than starting from a frozen reading.
  */
 @Composable
 fun MainScreen() {
@@ -71,6 +76,11 @@ fun MainScreen() {
     val spectrum = remember { SpectrumEngine(SpectrumAnalyzer.BAND_COUNT) }
     val oscilloscope = remember { OscilloscopeEngine() }
     val oscilloscopeSettings = remember { OscilloscopeSettings() }
+    val goniometer = remember { GoniometerEngine() }
+    val loudness = remember { LoudnessEngine() }
+    val spectrogram = remember { SpectrogramEngine(SpectrumAnalyzer.BAND_COUNT) }
+    val peakRms = remember { PeakRmsEngine() }
+    val tonalBalance = remember { TonalBalanceEngine(SpectrumAnalyzer.BAND_COUNT) }
     val context = LocalContext.current
     var visualizerOn by remember { mutableStateOf(false) }
     var mode by remember { mutableStateOf(VisualMode.VU_METER) }
@@ -93,9 +103,11 @@ fun MainScreen() {
         }
     }
 
-    LaunchedEffect(vuMeter, spectrum, oscilloscope) {
+    LaunchedEffect(vuMeter, spectrum, oscilloscope, goniometer, loudness, spectrogram, peakRms, tonalBalance) {
         var lastFrameNanos = 0L
         var lastWaveform: FloatArray? = null
+        var lastLeft: FloatArray? = null
+        var lastBands: FloatArray? = null
         while (isActive) {
             withFrameNanos { frameNanos ->
                 val dt = if (lastFrameNanos == 0L) 0f else (frameNanos - lastFrameNanos) / 1_000_000_000f
@@ -103,14 +115,29 @@ fun MainScreen() {
                 val snapshot = AudioAnalyzer.snapshots.value
                 vuMeter.step(dt, snapshot.raw)
                 spectrum.step(dt, snapshot.bands)
+                peakRms.step(dt, snapshot.raw, snapshot.peak)
+                tonalBalance.step(dt, snapshot.bands)
                 // Audio buffers arrive slower than the display refreshes, so most frames see the
-                // same snapshot as last time -- only fold a waveform chunk in once, the first
-                // frame it shows up, or it would get double-counted into the scrolling history.
+                // same snapshot as last time -- only fold a chunk in once, the first frame it
+                // shows up, or it would get double-counted into whichever scrolling history reads
+                // it (oscilloscope trace, goniometer dot cloud, spectrogram column).
                 if (snapshot.waveform !== lastWaveform) {
                     oscilloscope.ingest(snapshot.waveform)
+                    loudness.ingest(snapshot.waveform)
                     lastWaveform = snapshot.waveform
                 }
+                if (snapshot.left !== lastLeft) {
+                    goniometer.ingest(snapshot.left, snapshot.right)
+                    lastLeft = snapshot.left
+                }
+                if (snapshot.bands !== lastBands) {
+                    spectrogram.ingest(snapshot.bands)
+                    lastBands = snapshot.bands
+                }
                 oscilloscope.step(dt)
+                goniometer.step(dt)
+                loudness.step(dt)
+                spectrogram.step(dt)
             }
         }
     }
@@ -138,6 +165,11 @@ fun MainScreen() {
                     VisualMode.VU_METER -> VuMeterScreen(vuMeter)
                     VisualMode.SPECTRUM -> SpectrumScreen(spectrum)
                     VisualMode.OSCILLOSCOPE -> OscilloscopeScreen(oscilloscope, oscilloscopeSettings)
+                    VisualMode.GONIOMETER -> GoniometerScreen(goniometer)
+                    VisualMode.LOUDNESS -> LoudnessScreen(loudness)
+                    VisualMode.SPECTROGRAM -> SpectrogramScreen(spectrogram, SpectrumAnalyzer.BAND_COUNT)
+                    VisualMode.PEAK_RMS -> PeakRmsScreen(peakRms)
+                    VisualMode.TONAL_BALANCE -> TonalBalanceScreen(tonalBalance)
                 }
             }
 
@@ -212,6 +244,11 @@ fun MainScreen() {
                         vuMeter.reset()
                         spectrum.reset()
                         oscilloscope.reset()
+                        goniometer.reset()
+                        loudness.reset()
+                        spectrogram.reset()
+                        peakRms.reset()
+                        tonalBalance.reset()
                         visualizerOn = false
                     } else {
                         recordPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)

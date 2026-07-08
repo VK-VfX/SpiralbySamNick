@@ -25,14 +25,15 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 import kotlin.math.sqrt
 
 /**
  * Foreground service that captures whatever the device is currently playing (via
  * [AudioPlaybackCaptureConfiguration], not the microphone) as stereo PCM, and publishes each
- * buffer's RMS amplitude, FFT bands, and a decimated left/right trace to [AudioAnalyzer]. Working
- * this way means it reacts identically whether playback is on the speaker, wired headphones, or
- * Bluetooth, unlike listening through the mic.
+ * buffer's RMS amplitude, linear sample peak, FFT bands, and the raw mono/left/right PCM to
+ * [AudioAnalyzer]. Working this way means it reacts identically whether playback is on the
+ * speaker, wired headphones, or Bluetooth, unlike listening through the mic.
  */
 @RequiresApi(Build.VERSION_CODES.Q)
 class AudioCaptureService : Service() {
@@ -158,7 +159,10 @@ class AudioCaptureService : Service() {
         if (frames <= 0) return
 
         var sumSquares = 0.0
+        var peak = 0f
         val mono = ShortArray(frames)
+        val left = FloatArray(frames)
+        val right = FloatArray(frames)
         for (f in 0 until frames) {
             val l = buffer[f * 2]
             val r = buffer[f * 2 + 1]
@@ -166,13 +170,20 @@ class AudioCaptureService : Service() {
             mono[f] = avg.toShort()
             val normalized = avg.toDouble() / Short.MAX_VALUE
             sumSquares += normalized * normalized
+
+            val ln = l.toFloat() / Short.MAX_VALUE
+            val rn = r.toFloat() / Short.MAX_VALUE
+            left[f] = ln
+            right[f] = rn
+            val sampleAbsMax = maxOf(abs(ln), abs(rn))
+            if (sampleAbsMax > peak) peak = sampleAbsMax
         }
         val rms = sqrt(sumSquares / frames).toFloat()
         val bands = if (frames >= SpectrumAnalyzer.FFT_SIZE) SpectrumAnalyzer.computeBands(mono) else null
 
         val waveform = FloatArray(frames) { i -> mono[i].toFloat() / Short.MAX_VALUE }
 
-        AudioAnalyzer.publish(rms, bands, waveform)
+        AudioAnalyzer.publish(raw = rms, peak = peak, waveform = waveform, left = left, right = right, bands = bands)
     }
 
     override fun onDestroy() {

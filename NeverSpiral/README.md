@@ -1,6 +1,6 @@
 # Sam's Visualizer
 
-Three audio-reactive visualizer modes, styled as a modern dark mastering-suite instrument panel --
+Eight audio-reactive visualizer modes, styled as a modern dark mastering-suite instrument panel --
 flat near-black panels, thin hairline dividers, a cool desaturated accent, and red reserved strictly
 for clip/overload warnings, the way studio metering looks. Tap anywhere on the screen to crossfade
 to the next mode, all driven by whatever music is playing on the device: Spotify, YouTube Music, or
@@ -16,6 +16,17 @@ anything else.
 - **Oscilloscope**: a single continuous white outline tracing the waveform envelope over a faint
   graticule grid, with a settings panel (Scale, Stroke Weight, Intensity, Afterglow) accessible via
   a gear icon.
+- **Goniometer**: a stereo phase scope -- plots left/right on the mid/side axes, so mono content
+  collapses to a vertical line and phase problems fan out sideways -- plus a running phase
+  correlation readout.
+- **Loudness**: a BS.1770-style LUFS meter (momentary, short-term, integrated, plus loudness
+  range), the metric streaming platforms actually normalize to, alongside a scrolling history trend.
+- **Spectrogram**: a scrolling time/frequency waterfall built on the same FFT bands as Spectrum, so
+  harmonic content and decay/reverb tails read as shape over time instead of a single frame.
+- **Peak / RMS**: a hardware-style dual bar meter (fast peak with a hold cap, next to RMS) with a
+  crest-factor readout -- the gap between the two shows how dynamic or compressed a master is.
+- **Tonal Balance**: a long-averaged spectral curve against a flat reference line, showing the
+  overall EQ character of what's playing rather than instantaneous levels.
 
 ## How the meter works
 
@@ -63,10 +74,37 @@ it into a persistent off-screen bitmap that's faded (not cleared) every frame, p
 afterglow instead of the wave just popping in and out. A gear icon shown only in oscilloscope mode
 opens a settings panel with Scale, Stroke Weight, Intensity, and Afterglow sliders.
 
-All three engines are stepped every frame regardless of which mode is showing, so tapping to
-switch shows a live reading immediately instead of a frozen one. The app also requests a 120Hz
-window refresh rate on displays that support it (Android ties refresh rate to the whole window,
-not to individual views, so this benefits all three modes, not just the oscilloscope).
+## How the newer instruments work
+
+- **Goniometer**: plots left/right on mid/side axes -- `x = (L-R)/2`, `y = (L+R)/2` -- rather than
+  raw L/R, matching the convention hardware phase scopes use, so mono content collapses to a
+  vertical line instead of a diagonal one. `GoniometerEngine` also tracks a running phase
+  correlation coefficient (a leaky-integrator Pearson correlation over L and R power/cross-power)
+  from +1 (perfectly in phase) through 0 (uncorrelated/wide) to -1 (out of phase, will cancel when
+  summed to mono).
+- **Loudness**: `LoudnessEngine` is a practical real-time approximation of ITU-R BS.1770 / EBU
+  R128, not a certified meter -- K-weighting is a proper high-pass + high-shelf biquad pair (RBJ
+  cookbook DSP) tuned to the same intent as the standard's filters, and integrated-loudness gating
+  uses a single-pass absolute-threshold approximation rather than BS.1770's two-pass absolute +
+  relative block gating, since this runs continuously on a live stream rather than analyzing a
+  fixed file. Loudness range (LRA) is the 95th-minus-10th-percentile spread of a rolling short-term
+  history.
+- **Spectrogram**: `SpectrogramEngine` is a ring buffer of FFT columns (O(1) insert, no shifting).
+  `SpectrogramScreen` rebuilds a tiny (one pixel per time/frequency cell) bitmap via a single bulk
+  `setPixels` call whenever a new FFT frame arrives, then scales it up to fill the canvas -- cheap
+  regardless of screen resolution.
+- **Peak / RMS**: `PeakRmsEngine` gives peak a near-instant attack and a slower release (unlike the
+  VU meter's symmetric ballistics), so it actually catches transients, plus a hold cap that latches
+  and slowly falls. RMS uses the same ~300ms window as the VU meter. The gap between them, the
+  crest factor, is a genuinely useful number: wide means dynamic, narrow means compressed/limited.
+- **Tonal Balance**: `TonalBalanceEngine` smooths the same bands as Spectrum with a multi-second
+  time constant instead of a fast one, so it settles into overall tonal character rather than
+  reacting to transients.
+
+Every engine is stepped every frame regardless of which mode is showing, so tapping to switch shows
+a live reading immediately instead of a frozen one. The app also requests a 120Hz window refresh
+rate on displays that support it (Android ties refresh rate to the whole window, not to individual
+views, so this benefits every mode).
 
 ## Building
 
