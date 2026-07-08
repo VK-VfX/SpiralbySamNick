@@ -20,13 +20,12 @@ private val BACKGROUND = VisualizerTheme.BACKGROUND
 private val GRID_LINE_FRACTIONS = listOf(0.2f, 0.4f, 0.6f, 0.8f)
 
 /**
- * A single continuous white outline tracing the mirrored waveform envelope -- one flowing
- * "string" rather than a row of separate bars -- over a faint graticule grid, like a real
- * benchtop oscilloscope screen. The top and bottom edges are stitched into one closed path with
- * quadratic midpoint smoothing between points, so it reads as a fluid curve instead of a jagged
- * connect-the-dots line. Rendered into a persistent off-screen bitmap that's faded (not cleared)
- * every frame, which is what produces the afterglow trail; the grid is redrawn fresh every frame
- * for the same reason, or it would fade away along with the wave.
+ * A single continuous white line tracing the waveform envelope -- one flowing "string", not a
+ * mirrored top/bottom pair -- over a faint graticule grid, like a real benchtop oscilloscope
+ * screen. Quadratic midpoint smoothing between points is what makes it read as a fluid curve
+ * instead of a jagged connect-the-dots line. Rendered into a persistent off-screen bitmap that's
+ * faded (not cleared) every frame, which is what produces the afterglow trail; the grid is
+ * redrawn fresh every frame for the same reason, or it would fade away along with the wave.
  */
 @Composable
 fun OscilloscopeScreen(engine: OscilloscopeEngine, settings: OscilloscopeSettings) {
@@ -73,23 +72,18 @@ fun OscilloscopeScreen(engine: OscilloscopeEngine, settings: OscilloscopeSetting
         val n = engine.columnPeak.size
         val pitch = size.width / n
 
-        val topPoints = FloatArray(n * 2)
-        val bottomPoints = FloatArray(n * 2)
+        val tracePoints = FloatArray(n * 2)
         for (i in 0 until n) {
             val x = (i + 0.5f) * pitch
             val half = (engine.columnPeak[i] * settings.scale * halfBand)
                 .coerceAtLeast(minHalf)
                 .coerceAtMost(maxHalf)
-            topPoints[i * 2] = x
-            topPoints[i * 2 + 1] = centerY - half
-            bottomPoints[i * 2] = x
-            bottomPoints[i * 2 + 1] = centerY + half
+            tracePoints[i * 2] = x
+            tracePoints[i * 2 + 1] = centerY - half
         }
 
         val outline = AndroidPath()
-        addSmoothedPoints(outline, topPoints, reversed = false, startNewPath = true)
-        addSmoothedPoints(outline, bottomPoints, reversed = true, startNewPath = false)
-        outline.close()
+        addSmoothedPoints(outline, tracePoints, reversed = false, startNewPath = true)
 
         val baseStrokeWidth = size.minDimension * 0.012f
         val paint = AndroidPaint().apply {

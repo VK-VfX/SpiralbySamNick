@@ -55,7 +55,7 @@ private enum class VisualMode(val label: String) {
     OSCILLOSCOPE("Oscilloscope"),
     GONIOMETER("Goniometer"),
     LOUDNESS("Loudness"),
-    SPECTROGRAM("Spectrogram"),
+    GRAPHIC_EQ("Graphic EQ"),
     PEAK_RMS("Peak / RMS"),
     TONAL_BALANCE("Tonal Balance"),
     ;
@@ -78,7 +78,6 @@ fun MainScreen() {
     val oscilloscopeSettings = remember { OscilloscopeSettings() }
     val goniometer = remember { GoniometerEngine() }
     val loudness = remember { LoudnessEngine() }
-    val spectrogram = remember { SpectrogramEngine(SpectrumAnalyzer.BAND_COUNT) }
     val peakRms = remember { PeakRmsEngine() }
     val tonalBalance = remember { TonalBalanceEngine(SpectrumAnalyzer.BAND_COUNT) }
     val context = LocalContext.current
@@ -103,11 +102,10 @@ fun MainScreen() {
         }
     }
 
-    LaunchedEffect(vuMeter, spectrum, oscilloscope, goniometer, loudness, spectrogram, peakRms, tonalBalance) {
+    LaunchedEffect(vuMeter, spectrum, oscilloscope, goniometer, loudness, peakRms, tonalBalance) {
         var lastFrameNanos = 0L
         var lastWaveform: FloatArray? = null
         var lastLeft: FloatArray? = null
-        var lastBands: FloatArray? = null
         while (isActive) {
             withFrameNanos { frameNanos ->
                 val dt = if (lastFrameNanos == 0L) 0f else (frameNanos - lastFrameNanos) / 1_000_000_000f
@@ -120,7 +118,7 @@ fun MainScreen() {
                 // Audio buffers arrive slower than the display refreshes, so most frames see the
                 // same snapshot as last time -- only fold a chunk in once, the first frame it
                 // shows up, or it would get double-counted into whichever scrolling history reads
-                // it (oscilloscope trace, goniometer dot cloud, spectrogram column).
+                // it (oscilloscope trace, goniometer dot cloud).
                 if (snapshot.waveform !== lastWaveform) {
                     oscilloscope.ingest(snapshot.waveform)
                     loudness.ingest(snapshot.waveform)
@@ -130,14 +128,9 @@ fun MainScreen() {
                     goniometer.ingest(snapshot.left, snapshot.right)
                     lastLeft = snapshot.left
                 }
-                if (snapshot.bands !== lastBands) {
-                    spectrogram.ingest(snapshot.bands)
-                    lastBands = snapshot.bands
-                }
                 oscilloscope.step(dt)
                 goniometer.step(dt)
                 loudness.step(dt)
-                spectrogram.step(dt)
             }
         }
     }
@@ -167,7 +160,7 @@ fun MainScreen() {
                     VisualMode.OSCILLOSCOPE -> OscilloscopeScreen(oscilloscope, oscilloscopeSettings)
                     VisualMode.GONIOMETER -> GoniometerScreen(goniometer)
                     VisualMode.LOUDNESS -> LoudnessScreen(loudness)
-                    VisualMode.SPECTROGRAM -> SpectrogramScreen(spectrogram, SpectrumAnalyzer.BAND_COUNT)
+                    VisualMode.GRAPHIC_EQ -> GraphicEqScreen(spectrum)
                     VisualMode.PEAK_RMS -> PeakRmsScreen(peakRms)
                     VisualMode.TONAL_BALANCE -> TonalBalanceScreen(tonalBalance)
                 }
@@ -246,7 +239,6 @@ fun MainScreen() {
                         oscilloscope.reset()
                         goniometer.reset()
                         loudness.reset()
-                        spectrogram.reset()
                         peakRms.reset()
                         tonalBalance.reset()
                         visualizerOn = false

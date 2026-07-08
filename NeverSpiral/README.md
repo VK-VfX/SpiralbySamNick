@@ -13,7 +13,7 @@ anything else.
 - **Spectrum**: a real-time FFT bar spectrum, log-spaced across the audible range, with a cool
   blue-to-white gradient (red reserved for the clip zone at the very top), a dB reference grid, and
   frequency labels for orientation across the range.
-- **Oscilloscope**: a single continuous white outline tracing the waveform envelope over a faint
+- **Oscilloscope**: a single continuous white line tracing the waveform envelope over a faint
   graticule grid, with a settings panel (Scale, Stroke Weight, Intensity, Afterglow) accessible via
   a gear icon.
 - **Goniometer**: a stereo phase scope -- plots left/right on the mid/side axes, so mono content
@@ -21,8 +21,9 @@ anything else.
   correlation readout.
 - **Loudness**: a BS.1770-style LUFS meter (momentary, short-term, integrated, plus loudness
   range), the metric streaming platforms actually normalize to, alongside a scrolling history trend.
-- **Spectrogram**: a scrolling time/frequency waterfall built on the same FFT bands as Spectrum, so
-  harmonic content and decay/reverb tails read as shape over time instead of a single frame.
+- **Graphic EQ**: a classic discrete-LED equalizer bank -- the kind of spectrum display built into
+  receivers and separates -- with per-band peak-hold segments, built on the same FFT bands as
+  Spectrum.
 - **Peak / RMS**: a hardware-style dual bar meter (fast peak with a hold cap, next to RMS) with a
   crest-factor readout -- the gap between the two shows how dynamic or compressed a master is.
 - **Tonal Balance**: a long-averaged spectral curve against a flat reference line, showing the
@@ -67,12 +68,12 @@ reference grid plus frequency labels (60Hz, 250Hz, 1kHz, 4kHz, 16kHz) for orient
 do: as raw mono samples arrive, each of 56 columns tracks the peak absolute amplitude seen in its
 slice of a scrolling ~2.4 second window, and completed columns shift left as new ones fill in on
 the right -- rather than replacing the whole trace every buffer, which is what makes it read as a
-continuous, evolving wave instead of flickering. `OscilloscopeScreen` stitches the mirrored top and
-bottom envelope of those columns into a single continuous white outline -- one flowing "string"
-with quadratic midpoint smoothing between points, rather than a row of separate bars -- and renders
-it into a persistent off-screen bitmap that's faded (not cleared) every frame, producing a trailing
-afterglow instead of the wave just popping in and out. A gear icon shown only in oscilloscope mode
-opens a settings panel with Scale, Stroke Weight, Intensity, and Afterglow sliders.
+continuous, evolving wave instead of flickering. `OscilloscopeScreen` traces that envelope as a
+single continuous white line -- one flowing "string" with quadratic midpoint smoothing between
+points, not a mirrored top/bottom pair -- and renders it into a persistent off-screen bitmap that's
+faded (not cleared) every frame, producing a trailing afterglow instead of the wave just popping in
+and out. A gear icon shown only in oscilloscope mode opens a settings panel with Scale, Stroke
+Weight, Intensity, and Afterglow sliders.
 
 ## How the newer instruments work
 
@@ -89,10 +90,10 @@ opens a settings panel with Scale, Stroke Weight, Intensity, and Afterglow slide
   relative block gating, since this runs continuously on a live stream rather than analyzing a
   fixed file. Loudness range (LRA) is the 95th-minus-10th-percentile spread of a rolling short-term
   history.
-- **Spectrogram**: `SpectrogramEngine` is a ring buffer of FFT columns (O(1) insert, no shifting).
-  `SpectrogramScreen` rebuilds a tiny (one pixel per time/frequency cell) bitmap via a single bulk
-  `setPixels` call whenever a new FFT frame arrives, then scales it up to fill the canvas -- cheap
-  regardless of screen resolution.
+- **Graphic EQ**: `GraphicEqScreen` renders the same [SpectrumEngine] bands and peak-hold caps as
+  the Spectrum view, but as a bank of discrete lit/unlit segments per band instead of continuous
+  bars -- the classic look of a receiver's built-in spectrum display -- so it's a different
+  rendering treatment of already-proven data rather than a new capture or DSP path.
 - **Peak / RMS**: `PeakRmsEngine` gives peak a near-instant attack and a slower release (unlike the
   VU meter's symmetric ballistics), so it actually catches transients, plus a hold cap that latches
   and slowly falls. RMS uses the same ~300ms window as the VU meter. The gap between them, the
