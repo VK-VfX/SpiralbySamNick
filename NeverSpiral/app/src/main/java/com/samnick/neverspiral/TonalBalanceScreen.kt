@@ -93,7 +93,7 @@ private fun Path.addSmoothedCurve(points: List<Offset>) {
         val curr = points[i]
         val midX = (prev.x + curr.x) / 2f
         val midY = (prev.y + curr.y) / 2f
-        quadraticTo(prev.x, prev.y, midX, midY)
+        quadraticBezierTo(prev.x, prev.y, midX, midY)
     }
     lineTo(points.last().x, points.last().y)
 }
