@@ -11,9 +11,11 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.sp
@@ -32,12 +34,12 @@ private val TICK_VALUES = listOf(-20f, -10f, -7f, -5f, -3f, -2f, -1f, 0f, 1f, 2f
 private const val LEAN_MIN_DEG = -55f
 private const val LEAN_MAX_DEG = 55f
 
-private val FRAME_COLOR = Color(0xFF17151A)
-private val BODY_COLOR = Color(0xFFE8DAB0)
-private val NEEDLE_COLOR = Color(0xFF17151A)
-private val REDLINE_COLOR = Color(0xFFB6342F)
-private val LED_OFF_COLOR = Color(0xFF3A1F1F)
-private val LED_ON_COLOR = Color(0xFFFF3B30)
+private val FACE_COLOR = VisualizerTheme.PANEL_RAISED
+private val NEEDLE_COLOR = VisualizerTheme.ACCENT
+private val TICK_COLOR = VisualizerTheme.TEXT_SECONDARY
+private val REDLINE_COLOR = VisualizerTheme.CRITICAL
+private val LED_OFF_COLOR = Color(0xFF2A1214)
+private val LED_ON_COLOR = VisualizerTheme.CRITICAL
 
 /** Pure rendering of [meter]'s current reading; stepping happens in the shared frame loop. */
 @Composable
@@ -46,16 +48,26 @@ fun VuMeterScreen(meter: VuMeterEngine) {
     val tickLayouts = remember(textMeasurer) {
         TICK_VALUES.map { value ->
             val label = if (value == 0f) "0" else if (value > 0f) "+${value.toInt()}" else value.toInt().toString()
-            val color = if (value > 0f) REDLINE_COLOR else FRAME_COLOR
-            Triple(value, color, textMeasurer.measure(label, style = TextStyle(fontSize = 14.sp, color = color, fontWeight = FontWeight.Medium)))
+            val color = if (value > 0f) REDLINE_COLOR else TICK_COLOR
+            Triple(
+                value,
+                color,
+                textMeasurer.measure(
+                    label,
+                    style = TextStyle(fontSize = 13.sp, color = color, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium),
+                ),
+            )
         }
     }
     val vuLabelLayout = remember(textMeasurer) {
-        textMeasurer.measure("VU", style = TextStyle(fontSize = 26.sp, color = FRAME_COLOR, fontWeight = FontWeight.Bold))
+        textMeasurer.measure(
+            "VU",
+            style = TextStyle(fontSize = 22.sp, color = VisualizerTheme.TEXT_SECONDARY, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold),
+        )
     }
 
     Canvas(modifier = Modifier.fillMaxSize()) {
-        drawRect(color = Color(0xFF0B0B0E))
+        drawRect(color = VisualizerTheme.BACKGROUND)
 
         val meterWidth = min(size.width * 0.84f, size.height * 0.72f)
         val meterHeight = meterWidth * 0.62f
@@ -64,11 +76,12 @@ fun VuMeterScreen(meter: VuMeterEngine) {
             (size.height - meterHeight) / 2f,
         )
 
-        drawVuMeter(tickLayouts, vuLabelLayout, topLeft, meterWidth, meterHeight, meter.dbVu, meter.peakLedBrightness())
+        drawVuMeter(textMeasurer, tickLayouts, vuLabelLayout, topLeft, meterWidth, meterHeight, meter.dbVu, meter.peakLedBrightness())
     }
 }
 
 private fun DrawScope.drawVuMeter(
+    textMeasurer: androidx.compose.ui.text.TextMeasurer,
     tickLayouts: List<Triple<Float, Color, TextLayoutResult>>,
     vuLabelLayout: TextLayoutResult,
     topLeft: Offset,
@@ -77,27 +90,32 @@ private fun DrawScope.drawVuMeter(
     dbVu: Float,
     peakBrightness: Float,
 ) {
+    // Flat panel with a thin hairline border instead of a thick bezel -- the "modern mastering
+    // suite" look reads as a recessed instrument in the panel rather than a boxed-in gauge.
     drawRoundRect(
-        color = FRAME_COLOR,
-        topLeft = Offset(topLeft.x - 10f, topLeft.y - 10f),
-        size = Size(width + 20f, height + 20f),
-        cornerRadius = CornerRadius(24f, 24f),
-    )
-    drawRoundRect(
-        color = BODY_COLOR,
+        color = FACE_COLOR,
         topLeft = topLeft,
         size = Size(width, height),
-        cornerRadius = CornerRadius(18f, 18f),
+        cornerRadius = CornerRadius(10f, 10f),
+    )
+    drawRoundRect(
+        color = VisualizerTheme.HAIRLINE,
+        topLeft = topLeft,
+        size = Size(width, height),
+        cornerRadius = CornerRadius(10f, 10f),
+        style = Stroke(width = 1.5f),
     )
 
     drawText(vuLabelLayout, topLeft = Offset(topLeft.x + width * 0.05f, topLeft.y + height * 0.07f))
 
     val ledCenter = Offset(topLeft.x + width * 0.92f, topLeft.y + height * 0.11f)
-    val ledRadius = height * 0.05f
+    val ledRadius = height * 0.045f
     if (peakBrightness > 0.02f) {
-        drawCircle(color = LED_ON_COLOR.copy(alpha = peakBrightness * 0.35f), radius = ledRadius * 2.2f, center = ledCenter)
+        drawCircle(color = LED_ON_COLOR.copy(alpha = peakBrightness * 0.4f), radius = ledRadius * 2.6f, center = ledCenter)
+        drawCircle(color = LED_ON_COLOR.copy(alpha = peakBrightness * 0.75f), radius = ledRadius * 1.6f, center = ledCenter)
     }
     drawCircle(color = lerpColor(LED_OFF_COLOR, LED_ON_COLOR, peakBrightness), radius = ledRadius, center = ledCenter)
+    drawCircle(color = VisualizerTheme.HAIRLINE, radius = ledRadius, center = ledCenter, style = Stroke(width = 1.5f))
 
     val pivot = Offset(topLeft.x + width / 2f, topLeft.y + height * 1.05f)
     val tickOuterRadius = height * 0.96f
@@ -113,7 +131,7 @@ private fun DrawScope.drawVuMeter(
 
         val inner = Offset(pivot.x + tickInnerRadius * dx, pivot.y - tickInnerRadius * dy)
         val outer = Offset(pivot.x + tickOuterRadius * dx, pivot.y - tickOuterRadius * dy)
-        drawLine(color = color, start = inner, end = outer, strokeWidth = 3f, cap = StrokeCap.Round)
+        drawLine(color = color, start = inner, end = outer, strokeWidth = 2.5f, cap = StrokeCap.Round)
 
         val labelPos = Offset(
             pivot.x + labelRadius * dx - layout.size.width / 2f,
@@ -128,8 +146,27 @@ private fun DrawScope.drawVuMeter(
         pivot.x + needleLength * cos(needleAngle).toFloat(),
         pivot.y - needleLength * sin(needleAngle).toFloat(),
     )
-    drawLine(color = NEEDLE_COLOR, start = pivot, end = tip, strokeWidth = 7f, cap = StrokeCap.Round)
-    drawCircle(color = NEEDLE_COLOR, radius = height * 0.045f, center = pivot)
+    drawLine(color = NEEDLE_COLOR.copy(alpha = 0.3f), start = pivot, end = tip, strokeWidth = 12f, cap = StrokeCap.Round)
+    drawLine(color = NEEDLE_COLOR, start = pivot, end = tip, strokeWidth = 5f, cap = StrokeCap.Round)
+    drawCircle(color = VisualizerTheme.PANEL, radius = height * 0.05f, center = pivot)
+    drawCircle(color = NEEDLE_COLOR, radius = height * 0.03f, center = pivot)
+
+    // A digital readout alongside the analog needle -- pairing both is a hallmark of serious
+    // studio metering, where the needle gives a fast visual read of program energy and the
+    // digits give an exact number.
+    val readoutText = (if (dbVu >= 0f) "+" else "") + "%.1f".format(dbVu)
+    val readoutColor = if (dbVu >= VuMeterEngine.SCALE_MAX_DB_VU - 0.15f) REDLINE_COLOR else VisualizerTheme.ACCENT
+    val readoutLayout = textMeasurer.measure(
+        readoutText,
+        style = TextStyle(fontSize = 15.sp, color = readoutColor, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold),
+    )
+    drawText(
+        readoutLayout,
+        topLeft = Offset(
+            topLeft.x + width * 0.05f,
+            topLeft.y + height * 0.07f + vuLabelLayout.size.height + height * 0.02f,
+        ),
+    )
 }
 
 /**

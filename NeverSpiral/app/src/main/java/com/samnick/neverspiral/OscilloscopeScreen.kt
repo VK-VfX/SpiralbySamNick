@@ -16,14 +16,17 @@ import androidx.compose.ui.graphics.toArgb
 
 private const val BAND_HEIGHT_FRACTION = 0.55f
 private const val MIN_HALF_HEIGHT_FRACTION = 0.03f
-private val BACKGROUND = Color(0xFF0B0B0E)
+private val BACKGROUND = VisualizerTheme.BACKGROUND
+private val GRID_LINE_FRACTIONS = listOf(0.2f, 0.4f, 0.6f, 0.8f)
 
 /**
  * A single continuous white outline tracing the mirrored waveform envelope -- one flowing
- * "string" rather than a row of separate bars. The top and bottom edges are stitched into one
- * closed path with quadratic midpoint smoothing between points, so it reads as a fluid curve
- * instead of a jagged connect-the-dots line. Rendered into a persistent off-screen bitmap that's
- * faded (not cleared) every frame, which is what produces the afterglow trail.
+ * "string" rather than a row of separate bars -- over a faint graticule grid, like a real
+ * benchtop oscilloscope screen. The top and bottom edges are stitched into one closed path with
+ * quadratic midpoint smoothing between points, so it reads as a fluid curve instead of a jagged
+ * connect-the-dots line. Rendered into a persistent off-screen bitmap that's faded (not cleared)
+ * every frame, which is what produces the afterglow trail; the grid is redrawn fresh every frame
+ * for the same reason, or it would fade away along with the wave.
  */
 @Composable
 fun OscilloscopeScreen(engine: OscilloscopeEngine, settings: OscilloscopeSettings) {
@@ -49,6 +52,18 @@ fun OscilloscopeScreen(engine: OscilloscopeEngine, settings: OscilloscopeSetting
         val fadeAlpha = ((1f - settings.afterglow).coerceIn(0.06f, 1f) * 255).toInt()
         val fadeColor = (fadeAlpha shl 24) or (BACKGROUND.toArgb() and 0x00FFFFFF)
         trailCanvas.drawColor(fadeColor, PorterDuff.Mode.SRC_OVER)
+
+        val gridPaint = AndroidPaint().apply {
+            color = VisualizerTheme.HAIRLINE.toArgb()
+            alpha = 130
+            strokeWidth = 1.5f
+        }
+        for (frac in GRID_LINE_FRACTIONS) {
+            val y = size.height * frac
+            trailCanvas.drawLine(0f, y, size.width, y, gridPaint)
+            val x = size.width * frac
+            trailCanvas.drawLine(x, 0f, x, size.height, gridPaint)
+        }
 
         val centerY = size.height / 2f
         val halfBand = size.height * BAND_HEIGHT_FRACTION / 2f

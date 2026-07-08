@@ -22,10 +22,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -37,9 +41,9 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -114,7 +118,7 @@ fun MainScreen() {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0B0B0E))
+            .background(VisualizerTheme.BACKGROUND)
             .safeDrawingPadding(),
     ) {
         Box(
@@ -138,10 +142,12 @@ fun MainScreen() {
             }
 
             Text(
-                text = mode.label,
-                color = Color.White.copy(alpha = 0.55f),
-                fontSize = 13.sp,
+                text = mode.label.uppercase(),
+                color = VisualizerTheme.TEXT_SECONDARY,
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Medium,
+                letterSpacing = 1.5.sp,
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .padding(12.dp),
@@ -154,11 +160,12 @@ fun MainScreen() {
                         .padding(12.dp)
                         .size(36.dp)
                         .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.14f))
+                        .background(VisualizerTheme.PANEL_RAISED)
+                        .border(1.5.dp, VisualizerTheme.HAIRLINE, CircleShape)
                         .clickable { showOscilloscopeSettings = !showOscilloscopeSettings },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text("⚙", color = Color.White, fontSize = 18.sp)
+                    Text("⚙", color = VisualizerTheme.ACCENT, fontSize = 18.sp)
                 }
 
                 if (showOscilloscopeSettings) {
@@ -167,8 +174,9 @@ fun MainScreen() {
                             .align(Alignment.BottomCenter)
                             .fillMaxWidth()
                             .padding(16.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(Color.Black.copy(alpha = 0.55f))
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(VisualizerTheme.PANEL.copy(alpha = 0.92f))
+                            .border(1.dp, VisualizerTheme.HAIRLINE, RoundedCornerShape(12.dp))
                             .padding(horizontal = 16.dp, vertical = 8.dp),
                     ) {
                         OscilloscopeSliderRow(
@@ -197,7 +205,7 @@ fun MainScreen() {
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            Button(
+            OutlinedButton(
                 onClick = {
                     if (visualizerOn) {
                         AudioCaptureService.stop(context)
@@ -209,11 +217,25 @@ fun MainScreen() {
                         recordPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                     }
                 },
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(
+                    1.dp,
+                    if (visualizerOn) VisualizerTheme.CRITICAL else VisualizerTheme.ACCENT,
+                ),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = if (visualizerOn) VisualizerTheme.CRITICAL else VisualizerTheme.ACCENT,
+                ),
                 modifier = Modifier
                     .align(Alignment.CenterHorizontally)
                     .padding(16.dp),
             ) {
-                Text(if (visualizerOn) "Stop visualizer" else "Visualize music")
+                Text(
+                    text = if (visualizerOn) "STOP" else "VISUALIZE MUSIC",
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 1.sp,
+                    fontSize = 13.sp,
+                )
             }
         }
     }
@@ -229,20 +251,27 @@ private fun OscilloscopeSliderRow(
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
             text = label,
-            color = Color.White.copy(alpha = 0.8f),
+            color = VisualizerTheme.TEXT_SECONDARY,
             fontSize = 12.sp,
+            fontFamily = FontFamily.Monospace,
             modifier = Modifier.width(96.dp),
         )
         Slider(
             value = value,
             onValueChange = onValueChange,
             valueRange = range,
+            colors = SliderDefaults.colors(
+                thumbColor = VisualizerTheme.ACCENT,
+                activeTrackColor = VisualizerTheme.ACCENT,
+                inactiveTrackColor = VisualizerTheme.HAIRLINE,
+            ),
             modifier = Modifier.weight(1f),
         )
         Text(
             text = "%.2f".format(value),
-            color = Color.White.copy(alpha = 0.8f),
+            color = VisualizerTheme.TEXT_SECONDARY,
             fontSize = 12.sp,
+            fontFamily = FontFamily.Monospace,
             modifier = Modifier.width(40.dp),
         )
     }

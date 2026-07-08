@@ -18,9 +18,9 @@ object SpectrumAnalyzer {
     const val BAND_COUNT = 28
 
     private const val SAMPLE_RATE = 44100f
-    private const val MIN_FREQ_HZ = 40f
-    private const val MAX_FREQ_HZ = 16000f
-    private const val FLOOR_DB = -60f
+    const val MIN_FREQ_HZ = 40f
+    const val MAX_FREQ_HZ = 16000f
+    const val FLOOR_DB = -60f
 
     private val window = FloatArray(FFT_SIZE) { i ->
         (0.5 - 0.5 * cos(2.0 * PI * i / (FFT_SIZE - 1))).toFloat()

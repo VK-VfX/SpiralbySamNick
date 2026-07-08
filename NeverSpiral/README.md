@@ -1,14 +1,21 @@
 # Sam's Visualizer
 
-Three audio-reactive visualizer modes -- tap anywhere on the screen to crossfade to the next one
--- all driven by whatever music is playing on the device: Spotify, YouTube Music, or anything else.
+Three audio-reactive visualizer modes, styled as a modern dark mastering-suite instrument panel --
+flat near-black panels, thin hairline dividers, a cool desaturated accent, and red reserved strictly
+for clip/overload warnings, the way studio metering looks. Tap anywhere on the screen to crossfade
+to the next mode, all driven by whatever music is playing on the device: Spotify, YouTube Music, or
+anything else.
 
-- **VU Meter**: an analog needle meter with correctly calibrated ballistics (not a fake wobble),
-  plus a peak LED that pulses when the level hits the top of the scale.
-- **Spectrum**: a real-time FFT bar spectrum, log-spaced across the audible range, with per-band
-  peak-hold caps.
-- **Oscilloscope**: a minimalist, mirrored bar waveform (the "podcast/SoundCloud" look) confined
-  to a slim band rather than filling the screen.
+- **VU Meter**: an analog needle meter with correctly calibrated ballistics (not a fake wobble), a
+  digital dB readout alongside the needle, and a peak LED that hard-flashes to full brightness the
+  instant it hits the top of the scale, then decays -- like a real hardware peak indicator, not a
+  soft continuous pulse.
+- **Spectrum**: a real-time FFT bar spectrum, log-spaced across the audible range, with a cool
+  blue-to-white gradient (red reserved for the clip zone at the very top), a dB reference grid, and
+  frequency labels for orientation across the range.
+- **Oscilloscope**: a single continuous white outline tracing the waveform envelope over a faint
+  graticule grid, with a settings panel (Scale, Stroke Weight, Intensity, Afterglow) accessible via
+  a gear icon.
 
 ## How the meter works
 
@@ -29,15 +36,19 @@ Three audio-reactive visualizer modes -- tap anywhere on the screen to crossfade
   position*, not by dB value -- matching a real VU meter's dial, where the wide -20-to-10 gap and
   the narrow 0-to-1 gap take up roughly the same arc. The needle interpolates smoothly between
   whichever two ticks bracket the current reading.
-- **Peak LED**: latches on the instant the needle hits the top of the scale and pulses for about
-  a second, independent of the needle's own much slower ballistic fall.
+- **Peak LED**: a hard flash, not a gradual pulse -- brightness snaps to full the instant the
+  needle hits the top of the scale, then decays smoothly on its own, independent of the needle's
+  own much slower ballistic fall, so a single loud hit still reads as a crisp flash.
 
 ## How the spectrum view works
 
 `SpectrumAnalyzer` runs a plain iterative radix-2 FFT (1024-point, Hann-windowed) on the same
 captured PCM buffers, buckets the result into 28 log-spaced bands from 40Hz to 16kHz, and
 `SpectrumEngine` smooths each band with a fast rise / slower fall filter plus a peak-hold cap --
-so bars react instantly to transients but settle down smoothly instead of jittering.
+so bars react instantly to transients but settle down smoothly instead of jittering. `SpectrumScreen`
+colors each bar on a cool blue-to-cyan-to-white gradient with red reserved for the clip zone right
+at the top (rather than a green-to-red gradient spread across the whole range), and draws a dB
+reference grid plus frequency labels (60Hz, 250Hz, 1kHz, 4kHz, 16kHz) for orientation.
 
 ## How the oscilloscope works
 
