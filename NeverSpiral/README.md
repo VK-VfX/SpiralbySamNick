@@ -2,32 +2,41 @@
 
 Eight audio-reactive visualizer modes, styled as a modern dark mastering-suite instrument panel --
 flat near-black panels, thin hairline dividers, a cool desaturated accent, and red reserved strictly
-for clip/overload warnings, the way studio metering looks. Tap anywhere on the screen to crossfade
-to the next mode, all driven by whatever music is playing on the device: Spotify, YouTube Music, or
-anything else.
+for clip/overload warnings, the way studio metering looks. All driven by whatever music is playing
+on the device: Spotify, YouTube Music, or anything else.
+
+## Navigation
+
+- **Tap** anywhere on the visualization to crossfade to the next mode.
+- **Swipe** left or right to move either direction, for when the mode you want is behind you.
+- **Long-press** to open a picker grid and jump straight to any of the 8 modes.
+- A small dot row along the bottom shows which of the 8 modes you're on.
+- Five modes (VU Meter, Spectrum, Oscilloscope, Goniometer, Loudness) have their own tunable
+  settings behind a gear icon in the top-right corner; every setting persists across app restarts.
 
 - **VU Meter**: an analog needle meter with correctly calibrated ballistics (not a fake wobble), a
   digital dB readout alongside the needle, and a peak LED that hard-flashes to full brightness the
   instant it hits the top of the scale, then decays -- like a real hardware peak indicator, not a
-  soft continuous pulse.
-- **Spectrum**: a real-time FFT bar spectrum, log-spaced across the audible range, with a cool
-  blue-to-white gradient (red reserved for the clip zone at the very top), a dB reference grid, and
-  frequency labels for orientation across the range.
+  soft continuous pulse. *Settings: calibration reference (12-24 dBFS).*
+- **Spectrum**: a real-time FFT bar spectrum, log-spaced across the audible range, with a dB
+  reference grid and frequency labels for orientation across the range. *Settings: Cool (blue-to-
+  white) or Classic (green-yellow-red) color scheme.*
 - **Oscilloscope**: a single continuous white line tracing the waveform envelope over a faint
-  graticule grid, with a settings panel (Scale, Stroke Weight, Intensity, Afterglow) accessible via
-  a gear icon.
+  graticule grid. *Settings: Scale, Stroke Weight, Intensity, Afterglow.*
 - **Goniometer**: a stereo phase scope -- plots left/right on the mid/side axes, so mono content
   collapses to a vertical line and phase problems fan out sideways -- plus a running phase
-  correlation readout.
+  correlation readout. *Settings: trail persistence.*
 - **Loudness**: a BS.1770-style LUFS meter (momentary, short-term, integrated, plus loudness
-  range), the metric streaming platforms actually normalize to, alongside a scrolling history trend.
+  range) against a selectable normalization target, alongside a scrolling history trend. *Settings:
+  target standard (Streaming -14, Apple Music -16, EBU R128 -23).*
 - **Graphic EQ**: a classic discrete-LED equalizer bank -- the kind of spectrum display built into
-  receivers and separates -- with per-band peak-hold segments, built on the same FFT bands as
-  Spectrum.
+  receivers and separates -- with per-band peak-hold segments and the same dB/frequency axes as
+  Spectrum, built on the same FFT bands.
 - **Peak / RMS**: a hardware-style dual bar meter (fast peak with a hold cap, next to RMS) with a
   crest-factor readout -- the gap between the two shows how dynamic or compressed a master is.
-- **Tonal Balance**: a long-averaged spectral curve against a flat reference line, showing the
-  overall EQ character of what's playing rather than instantaneous levels.
+- **Tonal Balance**: a long-averaged spectral curve against a dashed reference curve tracking the
+  same bands with a much longer time constant, showing whether what's playing right now trends
+  brighter/darker/bassier than the last minute or so, rather than a comparison to an arbitrary line.
 
 ## How the meter works
 
@@ -58,9 +67,10 @@ anything else.
 captured PCM buffers, buckets the result into 28 log-spaced bands from 40Hz to 16kHz, and
 `SpectrumEngine` smooths each band with a fast rise / slower fall filter plus a peak-hold cap --
 so bars react instantly to transients but settle down smoothly instead of jittering. `SpectrumScreen`
-colors each bar on a cool blue-to-cyan-to-white gradient with red reserved for the clip zone right
-at the top (rather than a green-to-red gradient spread across the whole range), and draws a dB
-reference grid plus frequency labels (60Hz, 250Hz, 1kHz, 4kHz, 16kHz) for orientation.
+colors each bar per the selected `SpectrumColorScheme` (a cool blue-to-cyan-to-white gradient, or a
+classic green-to-red one -- red is always reserved for the clip zone right at the top rather than
+spread across the whole range), and draws a dB reference grid plus frequency labels (60Hz, 250Hz,
+1kHz, 4kHz, 16kHz) for orientation.
 
 ## How the oscilloscope works
 
@@ -102,10 +112,14 @@ Weight, Intensity, and Afterglow sliders.
   time constant instead of a fast one, so it settles into overall tonal character rather than
   reacting to transients.
 
-Every engine is stepped every frame regardless of which mode is showing, so tapping to switch shows
-a live reading immediately instead of a frozen one. The app also requests a 120Hz window refresh
-rate on displays that support it (Android ties refresh rate to the whole window, not to individual
-views, so this benefits every mode).
+Every engine is stepped every frame regardless of which mode is showing, so switching among most
+modes shows a live reading immediately instead of a frozen one -- the two exceptions are Loudness
+(two IIR K-weighting filters run over every sample in every buffer) and Goniometer (a per-sample
+correlation sum), the heaviest per-sample work in the app, which only run while their own screen is
+actually visible; both settle back to a live reading within their own ballistic time constant
+(under a second) after switching back. The app also requests a 120Hz window refresh rate on
+displays that support it (Android ties refresh rate to the whole window, not to individual views,
+so this benefits every mode).
 
 ## Building
 

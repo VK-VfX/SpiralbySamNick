@@ -32,15 +32,19 @@ class VuMeterEngine {
     private var smoothedDbFs = SILENCE_FLOOR_DBFS
     private var ledBrightness = 0f
 
-    /** Advance the needle by [dtSeconds] toward the level implied by [rawRms] (linear, ~0..1). */
-    fun step(dtSeconds: Float, rawRms: Float) {
+    /**
+     * Advance the needle by [dtSeconds] toward the level implied by [rawRms] (linear, ~0..1).
+     * [calibrationOffsetDb] is adjustable (default [VuMeterSettings.DEFAULT_CALIBRATION_OFFSET_DB],
+     * the standard -18 dBFS reference) so headroom can be tuned for a hotter or cooler source.
+     */
+    fun step(dtSeconds: Float, rawRms: Float, calibrationOffsetDb: Float = VuMeterSettings.DEFAULT_CALIBRATION_OFFSET_DB) {
         val dt = dtSeconds.coerceIn(0f, 0.1f)
 
         val alpha = 1f - exp(-dt / BALLISTIC_TAU_SECONDS)
         val targetDbFs = amplitudeToDbFs(rawRms)
         smoothedDbFs += (targetDbFs - smoothedDbFs) * alpha
 
-        dbVu = (smoothedDbFs + CALIBRATION_OFFSET_DB).coerceIn(SCALE_MIN_DB_VU, SCALE_MAX_DB_VU)
+        dbVu = (smoothedDbFs + calibrationOffsetDb).coerceIn(SCALE_MIN_DB_VU, SCALE_MAX_DB_VU)
 
         if (dbVu >= SCALE_MAX_DB_VU - PEAK_TOLERANCE_DB) {
             ledBrightness = 1f
@@ -61,8 +65,6 @@ class VuMeterEngine {
     }
 
     companion object {
-        /** Standard VU reference: 0 dBVU corresponds to -18 dBFS. */
-        const val CALIBRATION_OFFSET_DB = 18f
         const val SCALE_MIN_DB_VU = -20f
         const val SCALE_MAX_DB_VU = 3f
 

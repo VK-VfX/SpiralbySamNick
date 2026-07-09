@@ -25,12 +25,15 @@ private val FREQ_LABELS_HZ = listOf(60f, 250f, 1000f, 4000f, 16000f)
 private val DEEP_BLUE = Color(0xFF1C4E66)
 private val CYAN = VisualizerTheme.ACCENT
 private val NEAR_WHITE = Color(0xFFEAF6F8)
+private val CLASSIC_GREEN = Color(0xFF3DDC5A)
+private val CLASSIC_YELLOW = Color(0xFFE8E23D)
+private val CLASSIC_ORANGE = Color(0xFFF08A2E)
 
-/** Renders [engine]'s smoothed frequency bands as a cool blue-to-white studio spectrum, with a
- * red flash reserved for the clip zone right at the top -- rather than a green-to-red gradient
- * spread across the whole range. */
+/** Renders [engine]'s smoothed frequency bands as a bar spectrum, in either the cool blue-to-white
+ * studio palette (red reserved for the clip zone right at the top) or a classic green-yellow-red
+ * gradient, per [settings]. */
 @Composable
-fun SpectrumScreen(engine: SpectrumEngine) {
+fun SpectrumScreen(engine: SpectrumEngine, settings: SpectrumSettings) {
     val textMeasurer = rememberTextMeasurer()
     val gridLabels = remember(textMeasurer) {
         GRID_DB_LINES.map { db ->
@@ -86,7 +89,7 @@ fun SpectrumScreen(engine: SpectrumEngine) {
             val x = paddingX + i * (barWidth + gap)
 
             drawRoundRect(
-                color = colorForLevel(level),
+                color = colorForLevel(level, settings.colorScheme),
                 topLeft = Offset(x, baseline - barHeight),
                 size = Size(barWidth, barHeight),
                 cornerRadius = CornerRadius(barWidth * 0.25f, barWidth * 0.25f),
@@ -117,11 +120,23 @@ private fun xFractionForFrequency(hz: Float): Float {
     return ((ln(hz) - logMin) / (logMax - logMin)).coerceIn(0f, 1f)
 }
 
+private fun colorForLevel(level: Float, scheme: SpectrumColorScheme): Color = when (scheme) {
+    SpectrumColorScheme.COOL -> coolColorForLevel(level)
+    SpectrumColorScheme.CLASSIC -> classicColorForLevel(level)
+}
+
 /** Cool blue at low level through cyan and near-white, with red reserved for the clip zone. */
-private fun colorForLevel(level: Float): Color = when {
+private fun coolColorForLevel(level: Float): Color = when {
     level < 0.75f -> lerpColor(DEEP_BLUE, CYAN, level / 0.75f)
     level < 0.92f -> lerpColor(CYAN, NEAR_WHITE, (level - 0.75f) / 0.17f)
     else -> lerpColor(NEAR_WHITE, VisualizerTheme.CRITICAL, (level - 0.92f) / 0.08f)
+}
+
+/** Green at low level, sweeping through yellow and orange to red at high level -- the classic look. */
+private fun classicColorForLevel(level: Float): Color = when {
+    level < 0.5f -> lerpColor(CLASSIC_GREEN, CLASSIC_YELLOW, level / 0.5f)
+    level < 0.8f -> lerpColor(CLASSIC_YELLOW, CLASSIC_ORANGE, (level - 0.5f) / 0.3f)
+    else -> lerpColor(CLASSIC_ORANGE, VisualizerTheme.CRITICAL, (level - 0.8f) / 0.2f)
 }
 
 private fun lerpColor(a: Color, b: Color, t: Float): Color {

@@ -18,12 +18,12 @@ import kotlin.math.ln
 
 /** A handful of round frequencies labeled along the bottom, matching the Spectrum view's axis. */
 private val FREQ_LABELS_HZ = listOf(60f, 250f, 1000f, 4000f, 16000f)
-private const val REFERENCE_FRACTION = 0.35f
 
 /**
  * A smooth, long-averaged spectral curve rather than fast-moving bars: shows the overall tonal
- * balance of what's playing -- bass-heavy, bright, scooped mids, and so on -- against a flat
- * dashed reference line, the way a mastering engineer would eyeball a track's EQ curve.
+ * balance of what's playing -- bass-heavy, bright, scooped mids, and so on -- against a dashed
+ * reference curve tracking the *same* bands with a much longer time constant, so it reads as
+ * "brighter/darker than the last minute or so" rather than a comparison to an arbitrary flat line.
  */
 @Composable
 fun TonalBalanceScreen(engine: TonalBalanceEngine) {
@@ -50,21 +50,23 @@ fun TonalBalanceScreen(engine: TonalBalanceEngine) {
         val baseline = size.height * 0.82f
         val maxHeight = size.height * 0.62f
 
-        val referenceY = baseline - REFERENCE_FRACTION * maxHeight
-        drawLine(
-            color = VisualizerTheme.TEXT_SECONDARY,
-            start = Offset(paddingX, referenceY),
-            end = Offset(size.width - paddingX, referenceY),
-            strokeWidth = 1.5f,
-            pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f)),
-        )
-
         val n = engine.smoothedBands.size
         val pitch = usableWidth / (n - 1)
         val points = (0 until n).map { i ->
             val level = engine.smoothedBands[i].coerceIn(0f, 1f)
             Offset(paddingX + i * pitch, baseline - level * maxHeight)
         }
+        val referencePoints = (0 until n).map { i ->
+            val level = engine.referenceBands[i].coerceIn(0f, 1f)
+            Offset(paddingX + i * pitch, baseline - level * maxHeight)
+        }
+
+        val referencePath = Path().apply { addSmoothedCurve(referencePoints) }
+        drawPath(
+            referencePath,
+            color = VisualizerTheme.TEXT_SECONDARY,
+            style = Stroke(width = 1.5f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f))),
+        )
 
         val fillPath = Path().apply {
             addSmoothedCurve(points)

@@ -3,16 +3,27 @@ package com.samnick.neverspiral
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.sp
+import kotlin.math.ln
 
 private const val SEGMENT_COUNT = 18
 private const val SEGMENT_GAP_FRACTION = 0.24f
 private const val COLUMN_GAP_FRACTION = 0.18f
 private const val PEAK_SEGMENT_HEIGHT_FRACTION = 0.4f
+
+/** dB reference lines and frequency labels, matching the Spectrum view's axes. */
+private val GRID_DB_LINES = listOf(0f, -12f, -24f, -36f, -48f, -60f)
+private val FREQ_LABELS_HZ = listOf(60f, 250f, 1000f, 4000f, 16000f)
 
 /**
  * A classic discrete-LED graphic-equalizer bank -- the kind of spectrum display built into
@@ -23,6 +34,25 @@ private const val PEAK_SEGMENT_HEIGHT_FRACTION = 0.4f
  */
 @Composable
 fun GraphicEqScreen(engine: SpectrumEngine) {
+    val textMeasurer = rememberTextMeasurer()
+    val gridLabels = remember(textMeasurer) {
+        GRID_DB_LINES.map { db ->
+            db to textMeasurer.measure(
+                if (db == 0f) "0" else db.toInt().toString(),
+                style = TextStyle(fontSize = 10.sp, color = VisualizerTheme.TEXT_SECONDARY, fontFamily = FontFamily.Monospace),
+            )
+        }
+    }
+    val freqLabels = remember(textMeasurer) {
+        FREQ_LABELS_HZ.map { hz ->
+            val label = if (hz >= 1000f) "${(hz / 1000f).toInt()}k" else "${hz.toInt()}"
+            hz to textMeasurer.measure(
+                label,
+                style = TextStyle(fontSize = 10.sp, color = VisualizerTheme.TEXT_SECONDARY, fontFamily = FontFamily.Monospace),
+            )
+        }
+    }
+
     Canvas(modifier = Modifier.fillMaxSize()) {
         // Reading elapsed (Compose state) here is what makes this Canvas redraw every frame --
         // the actual bar/peak data lives in plain arrays that Compose can't observe on its own.
@@ -32,16 +62,29 @@ fun GraphicEqScreen(engine: SpectrumEngine) {
         drawRect(color = VisualizerTheme.BACKGROUND)
 
         val bandCount = engine.bands.size
-        val paddingX = size.width * 0.03f
+        val paddingX = size.width * 0.075f
         val usableWidth = size.width - paddingX * 2f
         val columnPitch = usableWidth / bandCount
         val columnWidth = columnPitch * (1f - COLUMN_GAP_FRACTION)
 
         val top = size.height * 0.08f
-        val bottom = size.height * 0.86f
+        val bottom = size.height * 0.82f
         val totalHeight = bottom - top
         val segmentPitch = totalHeight / SEGMENT_COUNT
         val segmentHeight = segmentPitch * (1f - SEGMENT_GAP_FRACTION)
+
+        // dB reference grid, drawn first so the LED columns sit on top of it.
+        for ((db, label) in gridLabels) {
+            val frac = ((db - SpectrumAnalyzer.FLOOR_DB) / -SpectrumAnalyzer.FLOOR_DB).coerceIn(0f, 1f)
+            val y = bottom - frac * totalHeight
+            drawLine(
+                color = VisualizerTheme.HAIRLINE,
+                start = Offset(paddingX, y),
+                end = Offset(size.width - paddingX, y),
+                strokeWidth = 1f,
+            )
+            drawText(label, topLeft = Offset(paddingX - label.size.width - 6f, y - label.size.height / 2f))
+        }
 
         for (i in 0 until bandCount) {
             val level = engine.bands[i].coerceIn(0f, 1f)
@@ -70,7 +113,20 @@ fun GraphicEqScreen(engine: SpectrumEngine) {
                 cornerRadius = CornerRadius(2f, 2f),
             )
         }
+
+        // Frequency labels along the bottom for orientation across the audible range.
+        for ((hz, label) in freqLabels) {
+            val x = paddingX + xFractionForFrequency(hz) * usableWidth
+            drawText(label, topLeft = Offset(x - label.size.width / 2f, bottom + 8f))
+        }
     }
+}
+
+/** Where along the log-spaced band axis [hz] falls, matching [SpectrumAnalyzer]'s band layout. */
+private fun xFractionForFrequency(hz: Float): Float {
+    val logMin = ln(SpectrumAnalyzer.MIN_FREQ_HZ)
+    val logMax = ln(SpectrumAnalyzer.MAX_FREQ_HZ)
+    return ((ln(hz) - logMin) / (logMax - logMin)).coerceIn(0f, 1f)
 }
 
 /** Green/cyan for the lower two-thirds, amber approaching the top, red for the last segment -- a clip warning. */

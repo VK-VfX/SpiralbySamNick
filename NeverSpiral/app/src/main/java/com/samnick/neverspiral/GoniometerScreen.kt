@@ -22,7 +22,6 @@ import androidx.compose.ui.unit.sp
 import kotlin.math.min
 
 private const val DOT_SAMPLE_STRIDE = 4
-private const val TRAIL_FADE = 0.22f
 
 /**
  * A goniometer, plotted on the mid/side axes rather than raw L/R: mono content collapses to a
@@ -33,7 +32,7 @@ private const val TRAIL_FADE = 0.22f
  * raw samples, not a fixed small point count.
  */
 @Composable
-fun GoniometerScreen(engine: GoniometerEngine) {
+fun GoniometerScreen(engine: GoniometerEngine, settings: GoniometerSettings) {
     val trailHolder = remember { arrayOfNulls<Bitmap>(1) }
     val lastGenerationHolder = remember { intArrayOf(-1) }
     val textMeasurer = rememberTextMeasurer()
@@ -52,7 +51,7 @@ fun GoniometerScreen(engine: GoniometerEngine) {
         }
         val trailCanvas = AndroidCanvas(trail)
 
-        val fadeAlpha = (TRAIL_FADE * 255).toInt()
+        val fadeAlpha = ((1f - settings.trailPersistence).coerceIn(0.04f, 1f) * 255).toInt()
         val fadeColor = (fadeAlpha shl 24) or (VisualizerTheme.BACKGROUND.toArgb() and 0x00FFFFFF)
         trailCanvas.drawColor(fadeColor, PorterDuff.Mode.SRC_OVER)
 

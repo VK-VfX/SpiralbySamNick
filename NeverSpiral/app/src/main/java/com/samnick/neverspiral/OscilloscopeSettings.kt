@@ -8,11 +8,16 @@ import androidx.compose.runtime.setValue
  * User-tunable oscilloscope look, exposed through a gear-icon settings panel shown only in
  * oscilloscope mode.
  */
-class OscilloscopeSettings {
-    var scale by mutableFloatStateOf(1f)
-    var strokeWeight by mutableFloatStateOf(1.6f)
-    var intensity by mutableFloatStateOf(1f)
-    var afterglow by mutableFloatStateOf(0.35f)
+class OscilloscopeSettings(
+    initialScale: Float = 1f,
+    initialStrokeWeight: Float = 1.6f,
+    initialIntensity: Float = 1f,
+    initialAfterglow: Float = 0.35f,
+) {
+    var scale by mutableFloatStateOf(initialScale)
+    var strokeWeight by mutableFloatStateOf(initialStrokeWeight)
+    var intensity by mutableFloatStateOf(initialIntensity)
+    var afterglow by mutableFloatStateOf(initialAfterglow)
 
     companion object {
         const val SCALE_MIN = 0.4f

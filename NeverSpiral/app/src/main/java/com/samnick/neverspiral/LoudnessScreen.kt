@@ -9,6 +9,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.text.TextMeasurer
@@ -18,6 +19,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.sp
+import kotlin.math.abs
 
 private val SCALE_TICKS_LUFS = listOf(0f, -6f, -12f, -18f, -23f, -30f, -40f)
 
@@ -28,7 +30,7 @@ private val SCALE_TICKS_LUFS = listOf(0f, -6f, -12f, -18f, -23f, -30f, -40f)
  * normalize to, as a complement to the vintage-ballistics VU meter.
  */
 @Composable
-fun LoudnessScreen(engine: LoudnessEngine) {
+fun LoudnessScreen(engine: LoudnessEngine, settings: LoudnessSettings) {
     val textMeasurer = rememberTextMeasurer()
     val tickLabels = remember(textMeasurer) {
         SCALE_TICKS_LUFS.map { lufs ->
@@ -88,13 +90,35 @@ fun LoudnessScreen(engine: LoudnessEngine) {
             drawText(label, topLeft = Offset(barRight + 12f, y - label.size.height / 2f))
         }
 
+        // Dashed marker at the selected normalization target.
+        val targetLufs = settings.target.targetLufs
+        val targetY = yForLufs(targetLufs)
+        drawLine(
+            color = VisualizerTheme.WARN,
+            start = Offset(barLeft - 6f, targetY),
+            end = Offset(barRight + 6f, targetY),
+            strokeWidth = 2f,
+            pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 5f)),
+        )
+
         // Digital readouts to the right of the bar.
         val readoutX = size.width * 0.58f
         var readoutY = size.height * 0.10f
         readoutY = drawReadout(textMeasurer, "MOMENTARY", "%.1f LUFS".format(engine.momentaryLufs), momentaryColor, readoutX, readoutY)
         readoutY = drawReadout(textMeasurer, "SHORT-TERM", "%.1f LUFS".format(engine.shortTermLufs), VisualizerTheme.ACCENT, readoutX, readoutY + 18f)
         readoutY = drawReadout(textMeasurer, "INTEGRATED", "%.1f LUFS".format(engine.integratedLufs), VisualizerTheme.TEXT_PRIMARY, readoutX, readoutY + 18f)
-        drawReadout(textMeasurer, "LOUDNESS RANGE", "%.1f LU".format(engine.loudnessRange), VisualizerTheme.TEXT_SECONDARY, readoutX, readoutY + 18f)
+        readoutY = drawReadout(textMeasurer, "LOUDNESS RANGE", "%.1f LU".format(engine.loudnessRange), VisualizerTheme.TEXT_SECONDARY, readoutX, readoutY + 18f)
+
+        val delta = engine.integratedLufs - targetLufs
+        val deltaColor = if (abs(delta) <= 1f) VisualizerTheme.ACCENT else VisualizerTheme.WARN
+        drawReadout(
+            textMeasurer,
+            "VS ${settings.target.label.uppercase()} (${targetLufs.toInt()})",
+            (if (delta >= 0f) "+" else "") + "%.1f LU".format(delta),
+            deltaColor,
+            readoutX,
+            readoutY + 18f,
+        )
 
         // Scrolling short-term history trend line along the bottom.
         val historyTop = size.height * 0.72f
