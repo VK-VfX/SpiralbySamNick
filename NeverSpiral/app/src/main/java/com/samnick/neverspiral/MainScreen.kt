@@ -79,7 +79,9 @@ private const val SWIPE_THRESHOLD_PX = 90f
 /**
  * Hosts all eight visualizer modes plus the single shared "Visualize music" capture toggle. Tap
  * to cycle forward, swipe left/right to cycle either direction, or long-press to jump straight to
- * a mode via a picker grid -- tap-only stopped scaling once there were 8 modes to page through.
+ * a mode via a picker grid -- tap-only stopped scaling once there were 8 modes to page through. A
+ * hamburger icon in the top-right opens the app-wide [AppSettingsScreen] (player shortcuts,
+ * keep-screen-on, OTA updates, about) -- distinct from each mode's own gear-icon tuning panel.
  * Every engine is stepped every frame regardless of which mode is showing (except Loudness and
  * Goniometer's per-sample work, which only runs while their mode is actually visible -- the
  * heaviest per-sample processing in the app, worth skipping when nothing is reading it), so
@@ -124,6 +126,7 @@ fun MainScreen() {
     var mode by remember { mutableStateOf(VisualMode.VU_METER) }
     var showSettings by remember { mutableStateOf(false) }
     var showModePicker by remember { mutableStateOf(false) }
+    var showAppSettings by remember { mutableStateOf(false) }
 
     val projectionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val data = result.data
@@ -182,164 +185,189 @@ fun MainScreen() {
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(VisualizerTheme.BACKGROUND)
-            .safeDrawingPadding(),
-    ) {
-        Box(
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
             modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .pointerInput(Unit) {
-                    detectTapGestures(
-                        onTap = { mode = mode.next() },
-                        onLongPress = { showModePicker = true },
-                    )
-                }
-                .pointerInput(Unit) {
-                    var totalDragX = 0f
-                    detectHorizontalDragGestures(
-                        onDragStart = { totalDragX = 0f },
-                        onHorizontalDrag = { change, dragAmount ->
-                            totalDragX += dragAmount
-                            change.consume()
-                        },
-                        onDragEnd = {
-                            if (totalDragX <= -SWIPE_THRESHOLD_PX) {
-                                mode = mode.next()
-                            } else if (totalDragX >= SWIPE_THRESHOLD_PX) {
-                                mode = mode.previous()
-                            }
-                        },
-                    )
-                },
+                .fillMaxSize()
+                .background(VisualizerTheme.BACKGROUND)
+                .safeDrawingPadding(),
         ) {
-            AnimatedContent(
-                targetState = mode,
-                transitionSpec = { fadeIn() togetherWith fadeOut() },
-                label = "visualizer-mode",
-            ) { current ->
-                when (current) {
-                    VisualMode.VU_METER -> VuMeterScreen(vuMeter)
-                    VisualMode.SPECTRUM -> SpectrumScreen(spectrum, spectrumSettings)
-                    VisualMode.OSCILLOSCOPE -> OscilloscopeScreen(oscilloscope, oscilloscopeSettings)
-                    VisualMode.GONIOMETER -> GoniometerScreen(goniometer, goniometerSettings)
-                    VisualMode.LOUDNESS -> LoudnessScreen(loudness, loudnessSettings)
-                    VisualMode.GRAPHIC_EQ -> GraphicEqScreen(spectrum)
-                    VisualMode.PEAK_RMS -> PeakRmsScreen(peakRms)
-                    VisualMode.TONAL_BALANCE -> TonalBalanceScreen(tonalBalance)
-                }
-            }
-
-            Text(
-                text = mode.label.uppercase(),
-                color = VisualizerTheme.TEXT_SECONDARY,
-                fontSize = 12.sp,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Medium,
-                letterSpacing = 1.5.sp,
+            Row(
                 modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(12.dp),
-            )
-
-            ModeIndicatorDots(
-                currentMode = mode,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 10.dp),
-            )
-
-            if (mode in MODES_WITH_SETTINGS) {
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.End,
+            ) {
                 Box(
                     modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(12.dp)
-                        .size(36.dp)
+                        .size(32.dp)
                         .clip(CircleShape)
                         .background(VisualizerTheme.PANEL_RAISED)
                         .border(1.5.dp, VisualizerTheme.HAIRLINE, CircleShape)
-                        .clickable { showSettings = !showSettings },
+                        .clickable { showAppSettings = true },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text("⚙", color = VisualizerTheme.ACCENT, fontSize = 18.sp)
-                }
-
-                if (showSettings) {
-                    Column(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .fillMaxWidth()
-                            .padding(16.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(VisualizerTheme.PANEL.copy(alpha = 0.92f))
-                            .border(1.dp, VisualizerTheme.HAIRLINE, RoundedCornerShape(12.dp))
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                    ) {
-                        SettingsPanelContent(
-                            mode = mode,
-                            context = context,
-                            vuMeterSettings = vuMeterSettings,
-                            spectrumSettings = spectrumSettings,
-                            oscilloscopeSettings = oscilloscopeSettings,
-                            goniometerSettings = goniometerSettings,
-                            loudnessSettings = loudnessSettings,
-                        )
-                    }
+                    Text("☰", color = VisualizerTheme.ACCENT, fontSize = 15.sp)
                 }
             }
 
-            if (showModePicker) {
-                ModePickerOverlay(
-                    currentMode = mode,
-                    onSelect = {
-                        mode = it
-                        showModePicker = false
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onTap = { mode = mode.next() },
+                            onLongPress = { showModePicker = true },
+                        )
+                    }
+                    .pointerInput(Unit) {
+                        var totalDragX = 0f
+                        detectHorizontalDragGestures(
+                            onDragStart = { totalDragX = 0f },
+                            onHorizontalDrag = { change, dragAmount ->
+                                totalDragX += dragAmount
+                                change.consume()
+                            },
+                            onDragEnd = {
+                                if (totalDragX <= -SWIPE_THRESHOLD_PX) {
+                                    mode = mode.next()
+                                } else if (totalDragX >= SWIPE_THRESHOLD_PX) {
+                                    mode = mode.previous()
+                                }
+                            },
+                        )
                     },
-                    onDismiss = { showModePicker = false },
+            ) {
+                AnimatedContent(
+                    targetState = mode,
+                    transitionSpec = { fadeIn() togetherWith fadeOut() },
+                    label = "visualizer-mode",
+                ) { current ->
+                    when (current) {
+                        VisualMode.VU_METER -> VuMeterScreen(vuMeter)
+                        VisualMode.SPECTRUM -> SpectrumScreen(spectrum, spectrumSettings)
+                        VisualMode.OSCILLOSCOPE -> OscilloscopeScreen(oscilloscope, oscilloscopeSettings)
+                        VisualMode.GONIOMETER -> GoniometerScreen(goniometer, goniometerSettings)
+                        VisualMode.LOUDNESS -> LoudnessScreen(loudness, loudnessSettings)
+                        VisualMode.GRAPHIC_EQ -> GraphicEqScreen(spectrum)
+                        VisualMode.PEAK_RMS -> PeakRmsScreen(peakRms)
+                        VisualMode.TONAL_BALANCE -> TonalBalanceScreen(tonalBalance)
+                    }
+                }
+
+                Text(
+                    text = mode.label.uppercase(),
+                    color = VisualizerTheme.TEXT_SECONDARY,
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Medium,
+                    letterSpacing = 1.5.sp,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(12.dp),
                 )
+
+                ModeIndicatorDots(
+                    currentMode = mode,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 10.dp),
+                )
+
+                if (mode in MODES_WITH_SETTINGS) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(12.dp)
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(VisualizerTheme.PANEL_RAISED)
+                            .border(1.5.dp, VisualizerTheme.HAIRLINE, CircleShape)
+                            .clickable { showSettings = !showSettings },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("⚙", color = VisualizerTheme.ACCENT, fontSize = 18.sp)
+                    }
+
+                    if (showSettings) {
+                        Column(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .fillMaxWidth()
+                                .padding(16.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(VisualizerTheme.PANEL.copy(alpha = 0.92f))
+                                .border(1.dp, VisualizerTheme.HAIRLINE, RoundedCornerShape(12.dp))
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                        ) {
+                            SettingsPanelContent(
+                                mode = mode,
+                                context = context,
+                                vuMeterSettings = vuMeterSettings,
+                                spectrumSettings = spectrumSettings,
+                                oscilloscopeSettings = oscilloscopeSettings,
+                                goniometerSettings = goniometerSettings,
+                                loudnessSettings = loudnessSettings,
+                            )
+                        }
+                    }
+                }
+
+                if (showModePicker) {
+                    ModePickerOverlay(
+                        currentMode = mode,
+                        onSelect = {
+                            mode = it
+                            showModePicker = false
+                        },
+                        onDismiss = { showModePicker = false },
+                    )
+                }
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                OutlinedButton(
+                    onClick = {
+                        if (visualizerOn) {
+                            AudioCaptureService.stop(context)
+                            vuMeter.reset()
+                            spectrum.reset()
+                            oscilloscope.reset()
+                            goniometer.reset()
+                            loudness.reset()
+                            peakRms.reset()
+                            tonalBalance.reset()
+                            visualizerOn = false
+                        } else {
+                            recordPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        }
+                    },
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(
+                        1.dp,
+                        if (visualizerOn) VisualizerTheme.CRITICAL else VisualizerTheme.ACCENT,
+                    ),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = if (visualizerOn) VisualizerTheme.CRITICAL else VisualizerTheme.ACCENT,
+                    ),
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .padding(16.dp),
+                ) {
+                    Text(
+                        text = if (visualizerOn) "STOP" else "VISUALIZE MUSIC",
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = 1.sp,
+                        fontSize = 13.sp,
+                    )
+                }
             }
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            OutlinedButton(
-                onClick = {
-                    if (visualizerOn) {
-                        AudioCaptureService.stop(context)
-                        vuMeter.reset()
-                        spectrum.reset()
-                        oscilloscope.reset()
-                        goniometer.reset()
-                        loudness.reset()
-                        peakRms.reset()
-                        tonalBalance.reset()
-                        visualizerOn = false
-                    } else {
-                        recordPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                    }
-                },
-                shape = RoundedCornerShape(8.dp),
-                border = BorderStroke(
-                    1.dp,
-                    if (visualizerOn) VisualizerTheme.CRITICAL else VisualizerTheme.ACCENT,
-                ),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = if (visualizerOn) VisualizerTheme.CRITICAL else VisualizerTheme.ACCENT,
-                ),
-                modifier = Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .padding(16.dp),
-            ) {
-                Text(
-                    text = if (visualizerOn) "STOP" else "VISUALIZE MUSIC",
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.SemiBold,
-                    letterSpacing = 1.sp,
-                    fontSize = 13.sp,
-                )
-            }
+        if (showAppSettings) {
+            AppSettingsScreen(onDismiss = { showAppSettings = false })
         }
     }
 }

@@ -1,0 +1,385 @@
+package com.samnick.neverspiral
+
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
+
+private data class PlayerApp(val label: String, val packageName: String)
+
+private val PLAYER_APPS = listOf(
+    PlayerApp("Spotify", "com.spotify.music"),
+    PlayerApp("YouTube Music", "com.google.android.apps.youtube.music"),
+    PlayerApp("Tidal", "com.aspiro.tidal"),
+)
+
+private const val KEY_KEEP_SCREEN_ON = "keep_screen_on"
+private const val KEY_AUTO_CHECK_UPDATES = "auto_check_updates"
+
+private sealed interface UpdateCheckState {
+    object Idle : UpdateCheckState
+    object Checking : UpdateCheckState
+    object UpToDateOrUnknown : UpdateCheckState
+    data class Available(val release: UpdateChecker.LatestRelease) : UpdateCheckState
+    data class Downloading(val release: UpdateChecker.LatestRelease) : UpdateCheckState
+}
+
+/**
+ * A full-screen, app-wide settings surface -- distinct from each visualizer mode's own gear-icon
+ * panel, which only tunes that mode's look. Covers player shortcuts, display behavior, GitHub-
+ * based OTA updates, and an about section.
+ */
+@Composable
+fun AppSettingsScreen(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val view = LocalView.current
+    val scope = rememberCoroutineScope()
+
+    var keepScreenOn by remember { mutableStateOf(SettingsStore.getBoolean(context, KEY_KEEP_SCREEN_ON, false)) }
+    var autoCheckUpdates by remember { mutableStateOf(SettingsStore.getBoolean(context, KEY_AUTO_CHECK_UPDATES, false)) }
+    var updateState by remember { mutableStateOf<UpdateCheckState>(UpdateCheckState.Idle) }
+    val versionName = remember {
+        try {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown"
+        } catch (e: Exception) {
+            "unknown"
+        }
+    }
+
+    LaunchedEffect(keepScreenOn) {
+        view.keepScreenOn = keepScreenOn
+    }
+
+    LaunchedEffect(Unit) {
+        if (autoCheckUpdates) {
+            updateState = UpdateCheckState.Checking
+            val release = UpdateChecker.checkLatest()
+            updateState = if (release != null) UpdateCheckState.Available(release) else UpdateCheckState.UpToDateOrUnknown
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(VisualizerTheme.BACKGROUND)
+            .safeDrawingPadding(),
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "SETTINGS",
+                    color = VisualizerTheme.TEXT_PRIMARY,
+                    fontSize = 16.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.5.sp,
+                )
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(VisualizerTheme.PANEL_RAISED)
+                        .clickable { onDismiss() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("✕", color = VisualizerTheme.ACCENT, fontSize = 16.sp)
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp),
+            ) {
+                SettingsSectionTitle("Players")
+                Text(
+                    text = "Sam's Visualizer listens to whatever's playing system-wide, so it already " +
+                        "works with any of these -- no account or setup needed. These just jump " +
+                        "straight to the app.",
+                    color = VisualizerTheme.TEXT_SECONDARY,
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.padding(bottom = 10.dp),
+                )
+                for (player in PLAYER_APPS) {
+                    PlayerRow(player, context)
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+                SettingsSectionTitle("Display")
+                SettingsToggleRow(
+                    label = "Keep Screen On",
+                    description = "Prevents the display from sleeping while the app is open. Android " +
+                        "doesn't let apps change the system screen-timeout duration directly, so this " +
+                        "is the available always-on option.",
+                    checked = keepScreenOn,
+                ) {
+                    keepScreenOn = it
+                    SettingsStore.putBoolean(context, KEY_KEEP_SCREEN_ON, it)
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+                SettingsSectionTitle("Updates")
+                SettingsToggleRow(
+                    label = "Check Automatically",
+                    description = "Silently checks the GitHub repo's releases for a newer build each " +
+                        "time Settings opens.",
+                    checked = autoCheckUpdates,
+                ) {
+                    autoCheckUpdates = it
+                    SettingsStore.putBoolean(context, KEY_AUTO_CHECK_UPDATES, it)
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                UpdateSection(
+                    state = updateState,
+                    onCheckNow = {
+                        scope.launch {
+                            updateState = UpdateCheckState.Checking
+                            val release = UpdateChecker.checkLatest()
+                            updateState = if (release != null) UpdateCheckState.Available(release) else UpdateCheckState.UpToDateOrUnknown
+                        }
+                    },
+                    onInstall = { release ->
+                        scope.launch {
+                            if (UpdateChecker.canInstallPackages(context)) {
+                                updateState = UpdateCheckState.Downloading(release)
+                                UpdateChecker.downloadAndInstall(context, release)
+                                updateState = UpdateCheckState.Available(release)
+                            } else {
+                                UpdateChecker.requestInstallPermission(context)
+                            }
+                        }
+                    },
+                )
+
+                Spacer(modifier = Modifier.height(20.dp))
+                SettingsSectionTitle("About")
+                Text(
+                    text = "Sam's Visualizer",
+                    color = VisualizerTheme.TEXT_PRIMARY,
+                    fontSize = 14.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "Version $versionName",
+                    color = VisualizerTheme.TEXT_SECONDARY,
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+                Text(
+                    text = "vibe coded with love by Samuel Nicholas Salvador/Veera Krishnan.",
+                    color = VisualizerTheme.TEXT_SECONDARY,
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.padding(bottom = 24.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlayerRow(player: PlayerApp, context: Context) {
+    val installed = remember(player.packageName) {
+        context.packageManager.getLaunchIntentForPackage(player.packageName) != null
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(VisualizerTheme.PANEL_RAISED)
+            .clickable {
+                if (installed) {
+                    context.packageManager.getLaunchIntentForPackage(player.packageName)?.let {
+                        context.startActivity(it)
+                    }
+                } else {
+                    openPlayStoreListing(context, player.packageName)
+                }
+            }
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = player.label,
+            color = VisualizerTheme.TEXT_PRIMARY,
+            fontSize = 13.sp,
+            fontFamily = FontFamily.Monospace,
+        )
+        Text(
+            text = if (installed) "OPEN" else "GET",
+            color = if (installed) VisualizerTheme.ACCENT else VisualizerTheme.TEXT_SECONDARY,
+            fontSize = 11.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
+private fun openPlayStoreListing(context: Context, packageName: String) {
+    try {
+        context.startActivity(
+            Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$packageName")),
+        )
+    } catch (e: ActivityNotFoundException) {
+        // No browser available; nothing more we can do.
+    }
+}
+
+@Composable
+private fun SettingsSectionTitle(title: String) {
+    Text(
+        text = title.uppercase(),
+        color = VisualizerTheme.ACCENT,
+        fontSize = 12.sp,
+        fontFamily = FontFamily.Monospace,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 1.5.sp,
+        modifier = Modifier.padding(bottom = 8.dp),
+    )
+}
+
+@Composable
+private fun SettingsToggleRow(
+    label: String,
+    description: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+            Text(label, color = VisualizerTheme.TEXT_PRIMARY, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
+            Text(description, color = VisualizerTheme.TEXT_SECONDARY, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = VisualizerTheme.PANEL,
+                checkedTrackColor = VisualizerTheme.ACCENT,
+                uncheckedThumbColor = VisualizerTheme.TEXT_SECONDARY,
+                uncheckedTrackColor = VisualizerTheme.PANEL_RAISED,
+            ),
+        )
+    }
+}
+
+@Composable
+private fun UpdateSection(
+    state: UpdateCheckState,
+    onCheckNow: () -> Unit,
+    onInstall: (UpdateChecker.LatestRelease) -> Unit,
+) {
+    when (state) {
+        is UpdateCheckState.Idle -> {
+            SettingsActionButton("Check Now", onClick = onCheckNow)
+        }
+        is UpdateCheckState.Checking -> {
+            Text("Checking…", color = VisualizerTheme.TEXT_SECONDARY, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+        }
+        is UpdateCheckState.UpToDateOrUnknown -> {
+            Text(
+                text = "No release found (repo may be private, or unreachable).",
+                color = VisualizerTheme.TEXT_SECONDARY,
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+            SettingsActionButton("Check Now", onClick = onCheckNow)
+        }
+        is UpdateCheckState.Available -> {
+            Text(
+                text = "Latest on GitHub: ${state.release.name}",
+                color = VisualizerTheme.ACCENT,
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+            Row {
+                SettingsActionButton("Download & Install", onClick = { onInstall(state.release) })
+                Spacer(modifier = Modifier.width(8.dp))
+                SettingsActionButton("Recheck", onClick = onCheckNow)
+            }
+        }
+        is UpdateCheckState.Downloading -> {
+            Text(
+                text = "Downloading ${state.release.name}…",
+                color = VisualizerTheme.TEXT_SECONDARY,
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsActionButton(label: String, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(VisualizerTheme.PANEL_RAISED)
+            .clickable { onClick() }
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+    ) {
+        Text(
+            text = label,
+            color = VisualizerTheme.ACCENT,
+            fontSize = 12.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}

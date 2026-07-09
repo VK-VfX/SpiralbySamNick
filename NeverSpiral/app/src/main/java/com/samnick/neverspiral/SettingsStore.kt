@@ -22,4 +22,18 @@ object SettingsStore {
     fun putInt(context: Context, key: String, value: Int) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putInt(key, value).apply()
     }
+
+    fun getBoolean(context: Context, key: String, default: Boolean): Boolean =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean(key, default)
+
+    fun putBoolean(context: Context, key: String, value: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putBoolean(key, value).apply()
+    }
+
+    fun getString(context: Context, key: String, default: String?): String? =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(key, default)
+
+    fun putString(context: Context, key: String, value: String) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putString(key, value).apply()
+    }
 }

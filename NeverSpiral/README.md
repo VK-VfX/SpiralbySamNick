@@ -13,6 +13,7 @@ on the device: Spotify, YouTube Music, or anything else.
 - A small dot row along the bottom shows which of the 8 modes you're on.
 - Five modes (VU Meter, Spectrum, Oscilloscope, Goniometer, Loudness) have their own tunable
   settings behind a gear icon in the top-right corner; every setting persists across app restarts.
+- A hamburger icon (top-right, above the visualizer) opens app-wide Settings -- see below.
 
 - **VU Meter**: an analog needle meter with correctly calibrated ballistics (not a fake wobble), a
   digital dB readout alongside the needle, and a peak LED that hard-flashes to full brightness the
@@ -120,6 +121,28 @@ actually visible; both settle back to a live reading within their own ballistic 
 (under a second) after switching back. The app also requests a 120Hz window refresh rate on
 displays that support it (Android ties refresh rate to the whole window, not to individual views,
 so this benefits every mode).
+
+## App Settings
+
+Distinct from each visualizer mode's own gear-icon tuning panel, the hamburger icon opens an
+app-wide settings screen:
+
+- **Players**: Sam's Visualizer already captures whatever's playing system-wide -- Spotify,
+  YouTube Music, Tidal, anything -- with no account, API key, or per-app setup. This section is
+  just quick-launch shortcuts to jump straight to those apps (or their Play Store listing if not
+  installed); it deliberately does *not* do OAuth account linking, since that wouldn't improve the
+  visualizer and would mean embedding API credentials in the app for no real benefit.
+- **Display**: a "Keep Screen On" toggle. Android doesn't let third-party apps change the system
+  screen-timeout duration directly (that needs the sensitive `WRITE_SETTINGS` permission), so this
+  uses `View.keepScreenOn` -- the standard, non-invasive way to prevent sleep while the app is open.
+- **Updates**: a GitHub-Releases-based OTA update path, the same pattern F-Droid-style apps use
+  outside the Play Store. `UpdateChecker` queries the repo's latest release via GitHub's public
+  REST API, and "Download & Install" fetches the attached APK through `DownloadManager` and hands
+  it to the system installer (prompting for the one-time "install unknown apps" permission if not
+  already granted). This only works while the repo is public -- an unauthenticated request to a
+  private repo's releases API returns 404/403, so a failed check just says so rather than crashing.
+  An "Check Automatically" toggle runs the same check silently once when Settings opens.
+- **About**: version number and "vibe coded with love by Samuel Nicholas Salvador/Veera Krishnan."
 
 ## Building
 
