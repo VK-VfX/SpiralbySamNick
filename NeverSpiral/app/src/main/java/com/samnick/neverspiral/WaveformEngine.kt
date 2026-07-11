@@ -4,16 +4,26 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.setValue
 import kotlin.math.abs
+import kotlin.math.exp
 
 /**
- * Builds a smoothly scrolling amplitude envelope from raw audio: each of [COLUMN_COUNT] columns
- * tracks the peak absolute amplitude seen in its slice of a scrolling window, and completed
- * columns shift left as new ones fill in on the right -- rather than replacing the whole trace
- * every buffer, which is what makes it read as a continuous, evolving wave instead of flickering.
+ * Builds a *static* amplitude envelope snapshot the way a track-overview waveform looks, not a
+ * scrolling scope trace: each of [COLUMN_COUNT] columns tracks the peak absolute amplitude seen in
+ * its slice of a fixed window, but instead of shifting older columns left as new ones arrive (which
+ * reads as continuous horizontal motion), a full window's worth of columns is accumulated silently
+ * off to the side and the whole visible [columnPeak] array is swapped in at once when it's ready --
+ * so the shape holds still and only jumps to a new still shape periodically, never scrolls.
+ *
+ * Each committed column is also normalized against [recentPeak], a slowly-decaying reference level
+ * (instant attack, several-second release -- the same alpha-blend shape used by [GoniometerEngine]'s
+ * correlation and [LoudnessEngine]'s smoothing). Comparing each moment to *recent* loudness rather
+ * than to a fixed 0..1 ceiling is what makes typical, consistently loud passages collapse toward a
+ * flat baseline while genuine accents still spike -- a fixed contrast curve alone can't do that for
+ * mastered, loudness-normalized music, since its raw peaks rarely dip far from the ceiling.
  *
  * [elapsed] exists purely as a Compose-observable value so the Canvas redraws every frame even
- * though [columnPeak] itself is a plain, non-observable array (mutated in place to avoid
- * allocating a new array every frame).
+ * though [columnPeak] itself is a plain, non-observable array (mutated in place to avoid allocating
+ * a new array every frame).
  */
 class WaveformEngine {
     val columnPeak = FloatArray(COLUMN_COUNT)
@@ -21,17 +31,29 @@ class WaveformEngine {
     var elapsed by mutableFloatStateOf(0f)
         private set
 
+    private val buildingColumns = FloatArray(COLUMN_COUNT)
+    private var columnIndex = 0
+
     private var partialPeak = 0f
     private var partialCount = 0
 
-    /** Folds newly captured raw mono PCM (linear, -1..1) into the scrolling envelope history. */
+    private var recentPeak = NORMALIZATION_FLOOR
+
+    /** Folds newly captured raw mono PCM (linear, -1..1) into the current accumulating window. */
     fun ingest(samples: FloatArray) {
         for (s in samples) {
             val magnitude = abs(s)
             if (magnitude > partialPeak) partialPeak = magnitude
+
+            recentPeak = if (magnitude > recentPeak) {
+                magnitude
+            } else {
+                recentPeak + (magnitude - recentPeak) * RECENT_PEAK_RELEASE_ALPHA
+            }
+
             partialCount++
             if (partialCount >= SAMPLES_PER_COLUMN) {
-                pushColumn(partialPeak)
+                accumulateColumn(partialPeak)
                 partialPeak = 0f
                 partialCount = 0
             }
@@ -45,19 +67,35 @@ class WaveformEngine {
 
     fun reset() {
         columnPeak.fill(0f)
+        buildingColumns.fill(0f)
+        columnIndex = 0
         partialPeak = 0f
         partialCount = 0
+        recentPeak = NORMALIZATION_FLOOR
     }
 
-    private fun pushColumn(peak: Float) {
-        columnPeak.copyInto(columnPeak, destinationOffset = 0, startIndex = 1, endIndex = COLUMN_COUNT)
-        columnPeak[COLUMN_COUNT - 1] = peak.coerceIn(0f, 1f)
+    private fun accumulateColumn(peak: Float) {
+        if (columnIndex >= COLUMN_COUNT) return
+        buildingColumns[columnIndex] = peak
+        columnIndex++
+        if (columnIndex >= COLUMN_COUNT) commitWindow()
+    }
+
+    private fun commitWindow() {
+        val floor = recentPeak.coerceAtLeast(NORMALIZATION_FLOOR)
+        for (i in 0 until COLUMN_COUNT) {
+            columnPeak[i] = (buildingColumns[i] / floor).coerceIn(0f, 1f)
+        }
+        columnIndex = 0
     }
 
     companion object {
-        const val COLUMN_COUNT = 56
+        const val COLUMN_COUNT = 40
         private const val SAMPLE_RATE = 44100
-        private const val WINDOW_SECONDS = 2.4f
+        private const val WINDOW_SECONDS = 2f
         private val SAMPLES_PER_COLUMN = (SAMPLE_RATE * WINDOW_SECONDS / COLUMN_COUNT).toInt()
+        private const val RECENT_PEAK_RELEASE_SECONDS = 3.5f
+        private val RECENT_PEAK_RELEASE_ALPHA = 1f - exp(-(1f / SAMPLE_RATE) / RECENT_PEAK_RELEASE_SECONDS)
+        private const val NORMALIZATION_FLOOR = 0.02f
     }
 }

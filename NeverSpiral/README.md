@@ -76,18 +76,23 @@ spread across the whole range), and draws a dB reference grid plus frequency lab
 
 ## How the waveform view works
 
-`WaveformEngine` builds a smoothly *scrolling* amplitude envelope the way real audio waveform
-displays do: as raw mono samples arrive, each of 56 columns tracks the peak absolute amplitude
-seen in its slice of a scrolling ~2.4 second window, and completed columns shift left as new ones
-fill in on the right -- rather than replacing the whole trace every buffer, which is what makes it
-read as a continuous, evolving wave instead of flickering. `WaveformScreen` mirrors that envelope
-symmetrically top and bottom around the centerline, smooths it with quadratic midpoint smoothing,
-and fills the resulting shape solid in a warm cream tone with a subtle lighter outline -- the
-classic look of a track waveform in an audio editor, tall spikes for transients tapering into small
-ripples for quiet passages -- rendered into a persistent off-screen bitmap that's faded (not
-cleared) every frame, producing a trailing afterglow instead of the wave just popping in and out. A
-gear icon shown only in waveform mode opens a settings panel with Scale, Stroke Weight, Intensity,
-and Afterglow sliders.
+`WaveformEngine` builds a *static* amplitude envelope snapshot the way a track-overview waveform
+looks, not a scrolling scope trace: each of 40 columns tracks the peak absolute amplitude seen in
+its slice of a fixed ~2 second window, but instead of shifting older columns left as new ones
+arrive, a full window's worth of columns is accumulated silently off to the side and the whole
+visible shape is swapped in at once when it's ready -- so it holds still and only jumps to a new
+still shape periodically, rather than continuously scrolling. Each committed column is also
+normalized against a slowly-decaying recent-peak reference (instant attack, ~3.5s release), so
+typical, consistently loud passages collapse toward a flat baseline and only genuine accents read
+as tall spikes -- matching the sparse, high-contrast look of a real waveform overview instead of a
+nearly-solid block, which is what mapping raw amplitude linearly against a fixed ceiling would give
+for mastered, loudness-normalized music. `WaveformScreen` mirrors that envelope symmetrically top
+and bottom around the centerline, smooths it with quadratic midpoint smoothing, and fills the
+resulting shape solid in a warm cream tone with a subtle lighter outline -- the classic look of a
+track waveform in an audio editor -- rendered into a persistent off-screen bitmap that's faded (not
+cleared) every frame, which both drives the afterglow and is what keeps the (unchanging) shape
+fully rendered between window updates. A gear icon shown only in waveform mode opens a settings
+panel with Scale, Stroke Weight, Intensity, and Afterglow sliders.
 
 ## How the newer instruments work
 

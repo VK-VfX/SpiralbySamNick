@@ -15,18 +15,15 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import kotlin.math.pow
 
-private const val BAND_HEIGHT_FRACTION = 0.5f
-private const val MIN_HALF_HEIGHT_FRACTION = 0.02f
+private const val BAND_HEIGHT_FRACTION = 0.62f
+private const val MIN_HALF_HEIGHT_FRACTION = 0.018f
 
 /**
- * Most currently-playing (mastered, loudness-normalized) music sits close to peak amplitude for
- * a large fraction of the time, so mapping the raw envelope linearly to height reads as a nearly
- * solid block with barely any contrast -- not the sparse, spiky look of a real waveform overview.
- * Raising the envelope to this power before mapping it to height compresses everything below
- * peak much harder than the peak itself, so only genuine loud transients read as tall spikes and
- * everything else collapses back toward the centerline, the way the reference image looks.
+ * [WaveformEngine] already normalizes each column against a slowly-decaying recent-peak reference,
+ * so most of the contrast work happens upstream now -- this curve is a lighter finishing touch on
+ * top of that, compressing anything short of a genuine accent a bit further toward the centerline.
  */
-private const val CONTRAST_GAMMA = 3.2f
+private const val CONTRAST_GAMMA = 2.2f
 
 private val BACKGROUND = VisualizerTheme.BACKGROUND
 private val WAVEFORM_COLOR = Color(0xFFE8DAB0)
@@ -35,10 +32,13 @@ private val WAVEFORM_HIGHLIGHT = Color(0xFFF6EDD4)
 /**
  * A classic linear waveform: the amplitude envelope mirrored symmetrically top and bottom around
  * a horizontal centerline and filled solid, like a track waveform in an audio editor -- tall
- * spikes for loud transients tapering into small ripples for quiet passages. Quadratic midpoint
- * smoothing between envelope points is what keeps the outline a fluid vector shape instead of a
- * jagged connect-the-dots line. Rendered into a persistent off-screen bitmap that's faded (not
- * cleared) every frame, which is what produces the trailing afterglow.
+ * spikes for loud transients tapering into small ripples for quiet passages. The shape itself is
+ * static, not a scrolling scope trace: [WaveformEngine] only swaps [WaveformEngine.columnPeak] to a
+ * new snapshot once a full window has been accumulated, so between those updates this Canvas keeps
+ * redrawing the *same* shape every frame -- which is also what the persistent afterglow bitmap
+ * needs, since without a per-frame redraw the trail would just fade the shape to nothing. Quadratic
+ * midpoint smoothing between envelope points is what keeps the outline a fluid vector shape instead
+ * of a jagged connect-the-dots line.
  */
 @Composable
 fun WaveformScreen(engine: WaveformEngine, settings: WaveformSettings) {
