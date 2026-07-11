@@ -158,12 +158,15 @@ fun MainScreen() {
                 spectrum.step(dt, snapshot.bands)
                 peakRms.step(dt, snapshot.raw, snapshot.peak)
                 tonalBalance.step(dt, snapshot.bands)
+                // Waveform is now a 12-bar EQ driven by the same FFT bands as Spectrum, so it just
+                // eases toward the latest snapshot every frame -- no dedupe needed, unlike raw
+                // sample buffers, since re-easing toward the same target is harmless.
+                waveform.step(dt, snapshot.bands)
                 // Audio buffers arrive slower than the display refreshes, so most frames see the
                 // same snapshot as last time -- only fold a chunk in once, the first frame it
                 // shows up, or it would get double-counted into whichever scrolling history reads
-                // it (waveform bar history, goniometer dot cloud, Loudness's K-weighting).
+                // it (goniometer dot cloud, Loudness's K-weighting).
                 if (snapshot.waveform !== lastWaveform) {
-                    waveform.ingest(snapshot.waveform)
                     lastWaveform = snapshot.waveform
                     // Loudness's K-weighting runs two IIR filters over every sample in the buffer
                     // -- the heaviest per-sample work in the app -- so only pay for it while the
@@ -178,7 +181,6 @@ fun MainScreen() {
                         goniometer.ingest(snapshot.left, snapshot.right)
                     }
                 }
-                waveform.step(dt)
                 if (mode == VisualMode.GONIOMETER) goniometer.step(dt)
                 if (mode == VisualMode.LOUDNESS) loudness.step(dt)
             }

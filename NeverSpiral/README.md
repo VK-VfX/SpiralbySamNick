@@ -22,9 +22,9 @@ on the device: Spotify, YouTube Music, or anything else.
 - **Spectrum**: a real-time FFT bar spectrum, log-spaced across the audible range, with a dB
   reference grid and frequency labels for orientation across the range. *Settings: Cool (blue-to-
   white) or Classic (green-yellow-red) color scheme.*
-- **Waveform**: a classic single-sided bar waveform -- thin white bars, rounded caps, anchored to a
-  bottom baseline and scrolling left as new bars arrive, the familiar look of a track-overview or
-  podcast-player waveform. *Settings: Scale, Stroke Weight, Intensity, Afterglow.*
+- **Waveform**: a classic 12-bar graphic equalizer -- bars sit at fixed positions and only their
+  height reacts live, each with its own falling "droplet" peak marker that drops under gravity like
+  a water droplet instead of a linear decay. *Settings: Scale, Stroke Weight, Intensity, Afterglow.*
 - **Goniometer**: a stereo phase scope -- plots left/right on the mid/side axes, so mono content
   collapses to a vertical line and phase problems fan out sideways -- plus a running phase
   correlation readout. *Settings: trail persistence.*
@@ -76,20 +76,24 @@ spread across the whole range), and draws a dB reference grid plus frequency lab
 
 ## How the waveform view works
 
-`WaveformEngine` builds a scrolling peak-amplitude history: each of 56 bars tracks the peak absolute
-amplitude seen in its slice of a short rolling window, and completed bars shift left as new ones
-fill in on the right, the way a track-overview waveform looks. Height isn't a raw linear peak --
-it's converted to a dBFS-style level first (20·log10(peak), normalized against a fixed floor), the
-same technique real level meters and waveform displays use. Mastered/loud music often sits close to
-1.0 linear peak for long stretches, so mapping that linearly would read as a nearly solid block; the
-dB curve is what makes genuinely quieter passages (intros, breakdowns, breaths between phrases) read
-meaningfully shorter instead of merely "slightly less maxed." `WaveformScreen` renders each bar as a
-stroked line with a round cap -- not a filled rectangle, which is what gives it a rounded top and a
-small round "dot" during quiet stretches instead of the bar vanishing entirely -- anchored to a
-bottom baseline, the classic single-sided look of a track-overview or podcast-player waveform.
-Rendered into a persistent off-screen bitmap that's faded (not cleared) every frame, which drives
-the trailing afterglow as bars scroll by. A gear icon shown only in waveform mode opens a settings
-panel with Scale (bar height), Stroke Weight (bar width), Intensity, and Afterglow sliders.
+`WaveformEngine` is a classic 12-bar graphic equalizer: bar *positions* never move, only their
+height reacts, live, to the same log-spaced FFT bands [SpectrumEngine] draws (grouped down from 28
+to 12, bass on the left through treble on the right), using the same fast-rise/slower-fall
+ballistics so it reacts to transients immediately but settles smoothly instead of jittering. Each
+bar also carries its own falling "droplet" peak marker: it snaps to a bar's new peak instantly, then
+falls back down under constant acceleration -- not a fixed linear or exponential rate -- exactly
+like a real water droplet, resting back on top of the bar once it catches up. `WaveformScreen`
+draws each bar as a stroked line with a round cap, and each droplet as a small circle that stretches
+into a teardrop shape in proportion to its current fall speed. Rendered into a persistent off-screen
+bitmap that's faded (not cleared) every frame, which drives both the soft glow (a blurred duplicate
+drawn first) and the trailing afterglow. A gear icon shown only in waveform mode opens a settings
+panel with Scale (bar height), Stroke Weight (bar/droplet width), Intensity, and Afterglow sliders.
+
+FFT band levels are now properly normalized by FFT size before being converted to dB (see
+`SpectrumAnalyzer.computeBands`) -- without that division, raw magnitude scales with FFT size, so
+every band read pinned near the 0dB ceiling regardless of what was actually playing. That bug had
+been present since Spectrum was first built; it just never produced an obviously-wrong picture
+until Waveform (and now the 12-bar EQ) started depending on genuine per-band contrast to work at all.
 
 ## How the newer instruments work
 

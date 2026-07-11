@@ -51,7 +51,11 @@ object SpectrumAnalyzer {
             val bin1 = (f1 / binHz).toInt().coerceIn(bin0, magnitudes.size - 1)
             var sum = 0f
             for (k in bin0..bin1) sum += magnitudes[k]
-            val avg = sum / (bin1 - bin0 + 1)
+            // Raw FFT magnitude scales with FFT_SIZE (a full-scale single-bin tone peaks near
+            // FFT_SIZE/2), so without this normalization it reads many times louder than the
+            // original -1..1 signal -- every band would land above the 0dB ceiling below and get
+            // clamped to 1.0 regardless of what's actually playing.
+            val avg = (sum / (bin1 - bin0 + 1)) / (FFT_SIZE / 2f)
             val db = if (avg > 0f) 20f * log10(avg.toDouble()).toFloat() else FLOOR_DB
             bands[b] = ((db - FLOOR_DB) / -FLOOR_DB).coerceIn(0f, 1f)
         }
