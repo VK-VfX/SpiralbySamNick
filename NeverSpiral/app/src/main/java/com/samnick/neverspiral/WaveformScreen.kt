@@ -1,6 +1,7 @@
 package com.samnick.neverspiral
 
 import android.graphics.Bitmap
+import android.graphics.BlurMaskFilter
 import android.graphics.Canvas as AndroidCanvas
 import android.graphics.Paint as AndroidPaint
 import android.graphics.Path as AndroidPath
@@ -16,14 +17,21 @@ import androidx.compose.ui.graphics.toArgb
 import kotlin.math.pow
 
 private const val BAND_HEIGHT_FRACTION = 0.62f
-private const val MIN_HALF_HEIGHT_FRACTION = 0.018f
 
 /**
- * [WaveformEngine] already normalizes each column against a slowly-decaying recent-peak reference,
- * so most of the contrast work happens upstream now -- this curve is a lighter finishing touch on
- * top of that, compressing anything short of a genuine accent a bit further toward the centerline.
+ * [WaveformEngine] already gates quiet columns down to exactly zero, so this just needs to be small
+ * enough that a gated column reads as a thin pinched waist against the centerline rather than a
+ * visibly thick baseline -- that pinch-between-spikes look is what makes each peak read as its own
+ * separate shape instead of one continuous ridge.
  */
-private const val CONTRAST_GAMMA = 2.2f
+private const val MIN_HALF_HEIGHT_FRACTION = 0.006f
+
+/**
+ * [WaveformEngine] already normalizes and noise-gates each column against a slowly-decaying
+ * recent-peak reference, so most of the contrast work happens upstream now -- this curve is a
+ * lighter finishing touch on top of that, sharpening the taper on genuine accents a bit further.
+ */
+private const val CONTRAST_GAMMA = 1.5f
 
 private val BACKGROUND = VisualizerTheme.BACKGROUND
 private val WAVEFORM_COLOR = Color(0xFFE8DAB0)
@@ -91,6 +99,17 @@ fun WaveformScreen(engine: WaveformEngine, settings: WaveformSettings) {
         addSmoothedPoints(outline, topPoints, reversed = false, startNewPath = true)
         addSmoothedPoints(outline, bottomPoints, reversed = true, startNewPath = false)
         outline.close()
+
+        // A soft blurred duplicate behind the sharp fill gives each spike a gentle halo, like the
+        // glow around the peaks in the reference art, instead of a flat solid cutout.
+        val glowPaint = AndroidPaint().apply {
+            isAntiAlias = true
+            style = AndroidPaint.Style.FILL
+            color = WAVEFORM_COLOR.toArgb()
+            alpha = (110 * settings.intensity.coerceAtLeast(WaveformSettings.INTENSITY_MIN)).toInt()
+            maskFilter = BlurMaskFilter(size.minDimension * 0.02f, BlurMaskFilter.Blur.NORMAL)
+        }
+        trailCanvas.drawPath(outline, glowPaint)
 
         val fillPaint = AndroidPaint().apply {
             isAntiAlias = true

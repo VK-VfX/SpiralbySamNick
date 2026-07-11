@@ -16,10 +16,12 @@ import kotlin.math.exp
  *
  * Each committed column is also normalized against [recentPeak], a slowly-decaying reference level
  * (instant attack, several-second release -- the same alpha-blend shape used by [GoniometerEngine]'s
- * correlation and [LoudnessEngine]'s smoothing). Comparing each moment to *recent* loudness rather
- * than to a fixed 0..1 ceiling is what makes typical, consistently loud passages collapse toward a
- * flat baseline while genuine accents still spike -- a fixed contrast curve alone can't do that for
- * mastered, loudness-normalized music, since its raw peaks rarely dip far from the ceiling.
+ * correlation and [LoudnessEngine]'s smoothing), then pushed through a noise gate: anything below
+ * [GATE_THRESHOLD] of that recent peak is dropped to zero rather than merely scaled down, and only
+ * what's above it is rescaled back to the full 0..1 range. A real waveform photo's sparse look comes
+ * from genuine silence between phrases; continuous music rarely reads as literal near-zero even
+ * after normalizing, so this hard gate (an expander, not just a curve) is what forces most columns
+ * flat and lets only genuine loud accents spike, instead of a fixed contrast curve alone.
  *
  * [elapsed] exists purely as a Compose-observable value so the Canvas redraws every frame even
  * though [columnPeak] itself is a plain, non-observable array (mutated in place to avoid allocating
@@ -84,7 +86,9 @@ class WaveformEngine {
     private fun commitWindow() {
         val floor = recentPeak.coerceAtLeast(NORMALIZATION_FLOOR)
         for (i in 0 until COLUMN_COUNT) {
-            columnPeak[i] = (buildingColumns[i] / floor).coerceIn(0f, 1f)
+            val normalized = buildingColumns[i] / floor
+            val gated = ((normalized - GATE_THRESHOLD) / (1f - GATE_THRESHOLD)).coerceIn(0f, 1f)
+            columnPeak[i] = gated
         }
         columnIndex = 0
     }
@@ -97,5 +101,6 @@ class WaveformEngine {
         private const val RECENT_PEAK_RELEASE_SECONDS = 3.5f
         private val RECENT_PEAK_RELEASE_ALPHA = 1f - exp(-(1f / SAMPLE_RATE) / RECENT_PEAK_RELEASE_SECONDS)
         private const val NORMALIZATION_FLOOR = 0.02f
+        private const val GATE_THRESHOLD = 0.52f
     }
 }
