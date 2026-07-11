@@ -13,9 +13,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
+import kotlin.math.pow
 
-private const val BAND_HEIGHT_FRACTION = 0.82f
-private const val MIN_HALF_HEIGHT_FRACTION = 0.025f
+private const val BAND_HEIGHT_FRACTION = 0.5f
+private const val MIN_HALF_HEIGHT_FRACTION = 0.02f
+
+/**
+ * Most currently-playing (mastered, loudness-normalized) music sits close to peak amplitude for
+ * a large fraction of the time, so mapping the raw envelope linearly to height reads as a nearly
+ * solid block with barely any contrast -- not the sparse, spiky look of a real waveform overview.
+ * Raising the envelope to this power before mapping it to height compresses everything below
+ * peak much harder than the peak itself, so only genuine loud transients read as tall spikes and
+ * everything else collapses back toward the centerline, the way the reference image looks.
+ */
+private const val CONTRAST_GAMMA = 3.2f
+
 private val BACKGROUND = VisualizerTheme.BACKGROUND
 private val WAVEFORM_COLOR = Color(0xFFE8DAB0)
 private val WAVEFORM_HIGHLIGHT = Color(0xFFF6EDD4)
@@ -65,7 +77,8 @@ fun WaveformScreen(engine: WaveformEngine, settings: WaveformSettings) {
         val bottomPoints = FloatArray(n * 2)
         for (i in 0 until n) {
             val x = (i + 0.5f) * pitch
-            val half = (engine.columnPeak[i] * settings.scale * halfBand)
+            val contrasted = engine.columnPeak[i].coerceIn(0f, 1f).pow(CONTRAST_GAMMA)
+            val half = (contrasted * settings.scale * halfBand)
                 .coerceAtLeast(minHalf)
                 .coerceAtMost(maxHalf)
             topPoints[i * 2] = x
