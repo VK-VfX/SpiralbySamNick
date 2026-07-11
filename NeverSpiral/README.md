@@ -83,16 +83,18 @@ arrive, a full window's worth of columns is accumulated silently off to the side
 visible shape is swapped in at once when it's ready -- so it holds still and only jumps to a new
 still shape periodically, rather than continuously scrolling. Each committed column is also
 normalized against a slowly-decaying recent-peak reference (instant attack, ~3.5s release), so
-typical, consistently loud passages collapse toward a flat baseline and only genuine accents read
-as tall spikes -- matching the sparse, high-contrast look of a real waveform overview instead of a
-nearly-solid block, which is what mapping raw amplitude linearly against a fixed ceiling would give
-for mastered, loudness-normalized music. `WaveformScreen` mirrors that envelope symmetrically top
-and bottom around the centerline, smooths it with quadratic midpoint smoothing, and fills the
-resulting shape solid in a warm cream tone with a subtle lighter outline -- the classic look of a
-track waveform in an audio editor -- rendered into a persistent off-screen bitmap that's faded (not
-cleared) every frame, which both drives the afterglow and is what keeps the (unchanging) shape
-fully rendered between window updates. A gear icon shown only in waveform mode opens a settings
-panel with Scale, Stroke Weight, Intensity, and Afterglow sliders.
+typical, consistently loud passages read as modest levels and only genuine accents approach full
+height. `WaveformScreen` renders this as a discrete, static audio-progress-bar -- not a continuous
+line: each column is its own isolated diamond, only drawn at all once its level clears a visibility
+threshold, sitting on a flat baseline with a visible gap to its neighbors on either side, the way a
+podcast or voice-message scrubber looks, rather than one smoothed path stitched across every
+column. A star-shaped playhead sweeps left to right across whichever static map is currently
+showing (driven by how far into the *next*, still-accumulating window capture has gotten, so it
+resets right as a new map commits), recoloring the diamonds it has passed gold and leaving the rest
+a faint beige. Diamonds and the playhead are rendered into a persistent off-screen bitmap that's
+faded (not cleared) every frame, which drives both the soft glow around each shape (a blurred
+duplicate drawn first) and the fade between one static map and the next. A gear icon shown only in
+waveform mode opens a settings panel with Scale, Stroke Weight, Intensity, and Afterglow sliders.
 
 ## How the newer instruments work
 

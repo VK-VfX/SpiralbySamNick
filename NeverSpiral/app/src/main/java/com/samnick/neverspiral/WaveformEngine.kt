@@ -14,14 +14,17 @@ import kotlin.math.exp
  * off to the side and the whole visible [columnPeak] array is swapped in at once when it's ready --
  * so the shape holds still and only jumps to a new still shape periodically, never scrolls.
  *
- * Each committed column is also normalized against [recentPeak], a slowly-decaying reference level
+ * Each committed column is normalized against [recentPeak], a slowly-decaying reference level
  * (instant attack, several-second release -- the same alpha-blend shape used by [GoniometerEngine]'s
- * correlation and [LoudnessEngine]'s smoothing), then pushed through a noise gate: anything below
- * [GATE_THRESHOLD] of that recent peak is dropped to zero rather than merely scaled down, and only
- * what's above it is rescaled back to the full 0..1 range. A real waveform photo's sparse look comes
- * from genuine silence between phrases; continuous music rarely reads as literal near-zero even
- * after normalizing, so this hard gate (an expander, not just a curve) is what forces most columns
- * flat and lets only genuine loud accents spike, instead of a fixed contrast curve alone.
+ * correlation and [LoudnessEngine]'s smoothing), so typical loud passages read as modest levels and
+ * only genuine accents approach full height. This engine hands over plain 0..1 levels and nothing
+ * more -- it's [WaveformScreen] that decides whether a given column's level clears the bar to be
+ * drawn as a shape at all, since this is a discrete shape-per-bin display, not a continuous line
+ * that needs its data pre-pinched to look sparse.
+ *
+ * [playheadProgress] is how far into the *next*, still-accumulating window capture has gotten, as a
+ * 0..1 fraction -- [WaveformScreen] sweeps a playhead marker across the *currently shown* static
+ * shape using this value, so the marker resets to the start the instant a new shape commits.
  *
  * [elapsed] exists purely as a Compose-observable value so the Canvas redraws every frame even
  * though [columnPeak] itself is a plain, non-observable array (mutated in place to avoid allocating
@@ -32,6 +35,9 @@ class WaveformEngine {
 
     var elapsed by mutableFloatStateOf(0f)
         private set
+
+    val playheadProgress: Float
+        get() = (columnIndex.toFloat() / COLUMN_COUNT).coerceIn(0f, 1f)
 
     private val buildingColumns = FloatArray(COLUMN_COUNT)
     private var columnIndex = 0
@@ -86,9 +92,7 @@ class WaveformEngine {
     private fun commitWindow() {
         val floor = recentPeak.coerceAtLeast(NORMALIZATION_FLOOR)
         for (i in 0 until COLUMN_COUNT) {
-            val normalized = buildingColumns[i] / floor
-            val gated = ((normalized - GATE_THRESHOLD) / (1f - GATE_THRESHOLD)).coerceIn(0f, 1f)
-            columnPeak[i] = gated
+            columnPeak[i] = (buildingColumns[i] / floor).coerceIn(0f, 1f)
         }
         columnIndex = 0
     }
@@ -101,6 +105,5 @@ class WaveformEngine {
         private const val RECENT_PEAK_RELEASE_SECONDS = 3.5f
         private val RECENT_PEAK_RELEASE_ALPHA = 1f - exp(-(1f / SAMPLE_RATE) / RECENT_PEAK_RELEASE_SECONDS)
         private const val NORMALIZATION_FLOOR = 0.02f
-        private const val GATE_THRESHOLD = 0.52f
     }
 }
