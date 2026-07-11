@@ -53,7 +53,7 @@ import kotlinx.coroutines.isActive
 private enum class VisualMode(val label: String) {
     VU_METER("VU Meter"),
     SPECTRUM("Spectrum"),
-    OSCILLOSCOPE("Oscilloscope"),
+    WAVEFORM("Waveform"),
     GONIOMETER("Goniometer"),
     LOUDNESS("Loudness"),
     GRAPHIC_EQ("Graphic EQ"),
@@ -69,7 +69,7 @@ private enum class VisualMode(val label: String) {
 private val MODES_WITH_SETTINGS = setOf(
     VisualMode.VU_METER,
     VisualMode.SPECTRUM,
-    VisualMode.OSCILLOSCOPE,
+    VisualMode.WAVEFORM,
     VisualMode.GONIOMETER,
     VisualMode.LOUDNESS,
 )
@@ -101,13 +101,13 @@ fun MainScreen() {
         val ordinal = SettingsStore.getInt(context, KEY_SPECTRUM_COLOR_SCHEME, SpectrumColorScheme.COOL.ordinal)
         SpectrumSettings(SpectrumColorScheme.entries.getOrElse(ordinal) { SpectrumColorScheme.COOL })
     }
-    val oscilloscope = remember { OscilloscopeEngine() }
-    val oscilloscopeSettings = remember {
-        OscilloscopeSettings(
-            initialScale = SettingsStore.getFloat(context, KEY_OSC_SCALE, 1f),
-            initialStrokeWeight = SettingsStore.getFloat(context, KEY_OSC_STROKE_WEIGHT, 1.6f),
-            initialIntensity = SettingsStore.getFloat(context, KEY_OSC_INTENSITY, 1f),
-            initialAfterglow = SettingsStore.getFloat(context, KEY_OSC_AFTERGLOW, 0.35f),
+    val waveform = remember { WaveformEngine() }
+    val waveformSettings = remember {
+        WaveformSettings(
+            initialScale = SettingsStore.getFloat(context, KEY_WAVEFORM_SCALE, 1f),
+            initialStrokeWeight = SettingsStore.getFloat(context, KEY_WAVEFORM_STROKE_WEIGHT, 1.6f),
+            initialIntensity = SettingsStore.getFloat(context, KEY_WAVEFORM_INTENSITY, 1f),
+            initialAfterglow = SettingsStore.getFloat(context, KEY_WAVEFORM_AFTERGLOW, 0.35f),
         )
     }
     val goniometer = remember { GoniometerEngine() }
@@ -145,7 +145,7 @@ fun MainScreen() {
         }
     }
 
-    LaunchedEffect(vuMeter, spectrum, oscilloscope, goniometer, loudness, peakRms, tonalBalance) {
+    LaunchedEffect(vuMeter, spectrum, waveform, goniometer, loudness, peakRms, tonalBalance) {
         var lastFrameNanos = 0L
         var lastWaveform: FloatArray? = null
         var lastLeft: FloatArray? = null
@@ -161,9 +161,9 @@ fun MainScreen() {
                 // Audio buffers arrive slower than the display refreshes, so most frames see the
                 // same snapshot as last time -- only fold a chunk in once, the first frame it
                 // shows up, or it would get double-counted into whichever scrolling history reads
-                // it (oscilloscope trace, goniometer dot cloud).
+                // it (waveform trace, goniometer dot cloud).
                 if (snapshot.waveform !== lastWaveform) {
-                    oscilloscope.ingest(snapshot.waveform)
+                    waveform.ingest(snapshot.waveform)
                     lastWaveform = snapshot.waveform
                     // Loudness's K-weighting runs two IIR filters over every sample in the buffer
                     // -- the heaviest per-sample work in the app -- so only pay for it while the
@@ -178,7 +178,7 @@ fun MainScreen() {
                         goniometer.ingest(snapshot.left, snapshot.right)
                     }
                 }
-                oscilloscope.step(dt)
+                waveform.step(dt)
                 if (mode == VisualMode.GONIOMETER) goniometer.step(dt)
                 if (mode == VisualMode.LOUDNESS) loudness.step(dt)
             }
@@ -247,7 +247,7 @@ fun MainScreen() {
                     when (current) {
                         VisualMode.VU_METER -> VuMeterScreen(vuMeter)
                         VisualMode.SPECTRUM -> SpectrumScreen(spectrum, spectrumSettings)
-                        VisualMode.OSCILLOSCOPE -> OscilloscopeScreen(oscilloscope, oscilloscopeSettings)
+                        VisualMode.WAVEFORM -> WaveformScreen(waveform, waveformSettings)
                         VisualMode.GONIOMETER -> GoniometerScreen(goniometer, goniometerSettings)
                         VisualMode.LOUDNESS -> LoudnessScreen(loudness, loudnessSettings)
                         VisualMode.GRAPHIC_EQ -> GraphicEqScreen(spectrum)
@@ -306,7 +306,7 @@ fun MainScreen() {
                                 context = context,
                                 vuMeterSettings = vuMeterSettings,
                                 spectrumSettings = spectrumSettings,
-                                oscilloscopeSettings = oscilloscopeSettings,
+                                waveformSettings = waveformSettings,
                                 goniometerSettings = goniometerSettings,
                                 loudnessSettings = loudnessSettings,
                             )
@@ -333,7 +333,7 @@ fun MainScreen() {
                             AudioCaptureService.stop(context)
                             vuMeter.reset()
                             spectrum.reset()
-                            oscilloscope.reset()
+                            waveform.reset()
                             goniometer.reset()
                             loudness.reset()
                             peakRms.reset()
@@ -378,7 +378,7 @@ private fun SettingsPanelContent(
     context: Context,
     vuMeterSettings: VuMeterSettings,
     spectrumSettings: SpectrumSettings,
-    oscilloscopeSettings: OscilloscopeSettings,
+    waveformSettings: WaveformSettings,
     goniometerSettings: GoniometerSettings,
     loudnessSettings: LoudnessSettings,
 ) {
@@ -403,38 +403,38 @@ private fun SettingsPanelContent(
                 SettingsStore.putInt(context, KEY_SPECTRUM_COLOR_SCHEME, it.ordinal)
             }
         }
-        VisualMode.OSCILLOSCOPE -> {
+        VisualMode.WAVEFORM -> {
             SettingSliderRow(
                 "Scale",
-                oscilloscopeSettings.scale,
-                OscilloscopeSettings.SCALE_MIN..OscilloscopeSettings.SCALE_MAX,
+                waveformSettings.scale,
+                WaveformSettings.SCALE_MIN..WaveformSettings.SCALE_MAX,
             ) {
-                oscilloscopeSettings.scale = it
-                SettingsStore.putFloat(context, KEY_OSC_SCALE, it)
+                waveformSettings.scale = it
+                SettingsStore.putFloat(context, KEY_WAVEFORM_SCALE, it)
             }
             SettingSliderRow(
                 "Stroke Weight",
-                oscilloscopeSettings.strokeWeight,
-                OscilloscopeSettings.STROKE_WEIGHT_MIN..OscilloscopeSettings.STROKE_WEIGHT_MAX,
+                waveformSettings.strokeWeight,
+                WaveformSettings.STROKE_WEIGHT_MIN..WaveformSettings.STROKE_WEIGHT_MAX,
             ) {
-                oscilloscopeSettings.strokeWeight = it
-                SettingsStore.putFloat(context, KEY_OSC_STROKE_WEIGHT, it)
+                waveformSettings.strokeWeight = it
+                SettingsStore.putFloat(context, KEY_WAVEFORM_STROKE_WEIGHT, it)
             }
             SettingSliderRow(
                 "Intensity",
-                oscilloscopeSettings.intensity,
-                OscilloscopeSettings.INTENSITY_MIN..1f,
+                waveformSettings.intensity,
+                WaveformSettings.INTENSITY_MIN..1f,
             ) {
-                oscilloscopeSettings.intensity = it
-                SettingsStore.putFloat(context, KEY_OSC_INTENSITY, it)
+                waveformSettings.intensity = it
+                SettingsStore.putFloat(context, KEY_WAVEFORM_INTENSITY, it)
             }
             SettingSliderRow(
                 "Afterglow",
-                oscilloscopeSettings.afterglow,
-                0f..OscilloscopeSettings.AFTERGLOW_MAX,
+                waveformSettings.afterglow,
+                0f..WaveformSettings.AFTERGLOW_MAX,
             ) {
-                oscilloscopeSettings.afterglow = it
-                SettingsStore.putFloat(context, KEY_OSC_AFTERGLOW, it)
+                waveformSettings.afterglow = it
+                SettingsStore.putFloat(context, KEY_WAVEFORM_AFTERGLOW, it)
             }
         }
         VisualMode.GONIOMETER -> {
@@ -524,9 +524,9 @@ private fun ModePickerOverlay(currentMode: VisualMode, onSelect: (VisualMode) ->
 
 private const val KEY_VU_CALIBRATION = "vu_calibration_offset_db"
 private const val KEY_SPECTRUM_COLOR_SCHEME = "spectrum_color_scheme"
-private const val KEY_OSC_SCALE = "osc_scale"
-private const val KEY_OSC_STROKE_WEIGHT = "osc_stroke_weight"
-private const val KEY_OSC_INTENSITY = "osc_intensity"
-private const val KEY_OSC_AFTERGLOW = "osc_afterglow"
+private const val KEY_WAVEFORM_SCALE = "waveform_scale"
+private const val KEY_WAVEFORM_STROKE_WEIGHT = "waveform_stroke_weight"
+private const val KEY_WAVEFORM_INTENSITY = "waveform_intensity"
+private const val KEY_WAVEFORM_AFTERGLOW = "waveform_afterglow"
 private const val KEY_GONIOMETER_TRAIL = "goniometer_trail_persistence"
 private const val KEY_LOUDNESS_TARGET = "loudness_target"

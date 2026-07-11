@@ -11,7 +11,7 @@ on the device: Spotify, YouTube Music, or anything else.
 - **Swipe** left or right to move either direction, for when the mode you want is behind you.
 - **Long-press** to open a picker grid and jump straight to any of the 8 modes.
 - A small dot row along the bottom shows which of the 8 modes you're on.
-- Five modes (VU Meter, Spectrum, Oscilloscope, Goniometer, Loudness) have their own tunable
+- Five modes (VU Meter, Spectrum, Waveform, Goniometer, Loudness) have their own tunable
   settings behind a gear icon in the top-right corner; every setting persists across app restarts.
 - A hamburger icon (top-right, above the visualizer) opens app-wide Settings -- see below.
 
@@ -22,8 +22,9 @@ on the device: Spotify, YouTube Music, or anything else.
 - **Spectrum**: a real-time FFT bar spectrum, log-spaced across the audible range, with a dB
   reference grid and frequency labels for orientation across the range. *Settings: Cool (blue-to-
   white) or Classic (green-yellow-red) color scheme.*
-- **Oscilloscope**: a single continuous white line tracing the waveform envelope over a faint
-  graticule grid. *Settings: Scale, Stroke Weight, Intensity, Afterglow.*
+- **Waveform**: a classic linear waveform -- the amplitude envelope mirrored symmetrically top and
+  bottom around a horizontal centerline and filled solid in a warm cream tone, like a track
+  waveform in an audio editor. *Settings: Scale, Stroke Weight, Intensity, Afterglow.*
 - **Goniometer**: a stereo phase scope -- plots left/right on the mid/side axes, so mono content
   collapses to a vertical line and phase problems fan out sideways -- plus a running phase
   correlation readout. *Settings: trail persistence.*
@@ -73,18 +74,20 @@ classic green-to-red one -- red is always reserved for the clip zone right at th
 spread across the whole range), and draws a dB reference grid plus frequency labels (60Hz, 250Hz,
 1kHz, 4kHz, 16kHz) for orientation.
 
-## How the oscilloscope works
+## How the waveform view works
 
-`OscilloscopeEngine` builds a smoothly *scrolling* waveform the way real audio waveform displays
-do: as raw mono samples arrive, each of 56 columns tracks the peak absolute amplitude seen in its
-slice of a scrolling ~2.4 second window, and completed columns shift left as new ones fill in on
-the right -- rather than replacing the whole trace every buffer, which is what makes it read as a
-continuous, evolving wave instead of flickering. `OscilloscopeScreen` traces that envelope as a
-single continuous white line -- one flowing "string" with quadratic midpoint smoothing between
-points, not a mirrored top/bottom pair -- and renders it into a persistent off-screen bitmap that's
-faded (not cleared) every frame, producing a trailing afterglow instead of the wave just popping in
-and out. A gear icon shown only in oscilloscope mode opens a settings panel with Scale, Stroke
-Weight, Intensity, and Afterglow sliders.
+`WaveformEngine` builds a smoothly *scrolling* amplitude envelope the way real audio waveform
+displays do: as raw mono samples arrive, each of 56 columns tracks the peak absolute amplitude
+seen in its slice of a scrolling ~2.4 second window, and completed columns shift left as new ones
+fill in on the right -- rather than replacing the whole trace every buffer, which is what makes it
+read as a continuous, evolving wave instead of flickering. `WaveformScreen` mirrors that envelope
+symmetrically top and bottom around the centerline, smooths it with quadratic midpoint smoothing,
+and fills the resulting shape solid in a warm cream tone with a subtle lighter outline -- the
+classic look of a track waveform in an audio editor, tall spikes for transients tapering into small
+ripples for quiet passages -- rendered into a persistent off-screen bitmap that's faded (not
+cleared) every frame, producing a trailing afterglow instead of the wave just popping in and out. A
+gear icon shown only in waveform mode opens a settings panel with Scale, Stroke Weight, Intensity,
+and Afterglow sliders.
 
 ## How the newer instruments work
 

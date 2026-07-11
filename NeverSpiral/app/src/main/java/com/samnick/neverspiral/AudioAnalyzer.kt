@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.StateFlow
  * Everything the visualizers need from one captured buffer: instantaneous mono RMS amplitude (VU
  * meter, loudness meter, peak/RMS meter), the instantaneous linear sample peak across both
  * channels (peak/RMS meter), log-spaced frequency-band levels (spectrum, graphic EQ, tonal
- * balance), the raw mono PCM chunk just captured normalized to -1..1 (oscilloscope, loudness
+ * balance), the raw mono PCM chunk just captured normalized to -1..1 (waveform view, loudness
  * meter), and the raw left/right PCM chunks (goniometer). Each is a fresh chunk on every publish,
  * not a fixed-size display window -- consumers fold it into whatever history they keep.
  */

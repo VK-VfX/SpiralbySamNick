@@ -4,11 +4,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.setValue
 
-/**
- * User-tunable oscilloscope look, exposed through a gear-icon settings panel shown only in
- * oscilloscope mode.
- */
-class OscilloscopeSettings(
+/** User-tunable waveform look, exposed through a gear-icon settings panel shown only in waveform mode. */
+class WaveformSettings(
     initialScale: Float = 1f,
     initialStrokeWeight: Float = 1.6f,
     initialIntensity: Float = 1f,

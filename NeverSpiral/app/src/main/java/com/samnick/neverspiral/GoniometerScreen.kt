@@ -28,7 +28,7 @@ private const val DOT_SAMPLE_STRIDE = 4
  * vertical line, and drift to either side shows genuine stereo width or phase trouble -- the same
  * convention hardware phase scopes use. Dots are stamped into a persistent, fading bitmap trail
  * only when a new buffer actually arrives (tracked via [GoniometerEngine.generation]), same idea
- * as the oscilloscope's afterglow but gated per-buffer instead of per-frame since we're plotting
+ * as the waveform view's afterglow but gated per-buffer instead of per-frame since we're plotting
  * raw samples, not a fixed small point count.
  */
 @Composable

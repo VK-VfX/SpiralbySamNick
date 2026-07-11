@@ -14,26 +14,27 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
 
-private const val BAND_HEIGHT_FRACTION = 0.55f
-private const val MIN_HALF_HEIGHT_FRACTION = 0.03f
+private const val BAND_HEIGHT_FRACTION = 0.82f
+private const val MIN_HALF_HEIGHT_FRACTION = 0.025f
 private val BACKGROUND = VisualizerTheme.BACKGROUND
-private val GRID_LINE_FRACTIONS = listOf(0.2f, 0.4f, 0.6f, 0.8f)
+private val WAVEFORM_COLOR = Color(0xFFE8DAB0)
+private val WAVEFORM_HIGHLIGHT = Color(0xFFF6EDD4)
 
 /**
- * A single continuous white line tracing the waveform envelope -- one flowing "string", not a
- * mirrored top/bottom pair -- over a faint graticule grid, like a real benchtop oscilloscope
- * screen. Quadratic midpoint smoothing between points is what makes it read as a fluid curve
- * instead of a jagged connect-the-dots line. Rendered into a persistent off-screen bitmap that's
- * faded (not cleared) every frame, which is what produces the afterglow trail; the grid is
- * redrawn fresh every frame for the same reason, or it would fade away along with the wave.
+ * A classic linear waveform: the amplitude envelope mirrored symmetrically top and bottom around
+ * a horizontal centerline and filled solid, like a track waveform in an audio editor -- tall
+ * spikes for loud transients tapering into small ripples for quiet passages. Quadratic midpoint
+ * smoothing between envelope points is what keeps the outline a fluid vector shape instead of a
+ * jagged connect-the-dots line. Rendered into a persistent off-screen bitmap that's faded (not
+ * cleared) every frame, which is what produces the trailing afterglow.
  */
 @Composable
-fun OscilloscopeScreen(engine: OscilloscopeEngine, settings: OscilloscopeSettings) {
+fun WaveformScreen(engine: WaveformEngine, settings: WaveformSettings) {
     val trailHolder = remember { arrayOfNulls<Bitmap>(1) }
 
     Canvas(modifier = Modifier.fillMaxSize()) {
         // Reading elapsed (Compose state) here is what makes this Canvas redraw every frame --
-        // the actual bar data lives in a plain array that Compose can't observe on its own.
+        // the actual envelope data lives in a plain array that Compose can't observe on its own.
         @Suppress("UNUSED_EXPRESSION")
         engine.elapsed
 
@@ -47,22 +48,10 @@ fun OscilloscopeScreen(engine: OscilloscopeEngine, settings: OscilloscopeSetting
         val trailCanvas = AndroidCanvas(trail)
 
         // Fading (rather than clearing) the previous frame is what creates the afterglow trail --
-        // a lower afterglow setting means a more opaque overlay, so the string vanishes faster.
+        // a lower afterglow setting means a more opaque overlay, so the shape vanishes faster.
         val fadeAlpha = ((1f - settings.afterglow).coerceIn(0.06f, 1f) * 255).toInt()
         val fadeColor = (fadeAlpha shl 24) or (BACKGROUND.toArgb() and 0x00FFFFFF)
         trailCanvas.drawColor(fadeColor, PorterDuff.Mode.SRC_OVER)
-
-        val gridPaint = AndroidPaint().apply {
-            color = VisualizerTheme.HAIRLINE.toArgb()
-            alpha = 130
-            strokeWidth = 1.5f
-        }
-        for (frac in GRID_LINE_FRACTIONS) {
-            val y = size.height * frac
-            trailCanvas.drawLine(0f, y, size.width, y, gridPaint)
-            val x = size.width * frac
-            trailCanvas.drawLine(x, 0f, x, size.height, gridPaint)
-        }
 
         val centerY = size.height / 2f
         val halfBand = size.height * BAND_HEIGHT_FRACTION / 2f
@@ -72,30 +61,42 @@ fun OscilloscopeScreen(engine: OscilloscopeEngine, settings: OscilloscopeSetting
         val n = engine.columnPeak.size
         val pitch = size.width / n
 
-        val tracePoints = FloatArray(n * 2)
+        val topPoints = FloatArray(n * 2)
+        val bottomPoints = FloatArray(n * 2)
         for (i in 0 until n) {
             val x = (i + 0.5f) * pitch
             val half = (engine.columnPeak[i] * settings.scale * halfBand)
                 .coerceAtLeast(minHalf)
                 .coerceAtMost(maxHalf)
-            tracePoints[i * 2] = x
-            tracePoints[i * 2 + 1] = centerY - half
+            topPoints[i * 2] = x
+            topPoints[i * 2 + 1] = centerY - half
+            bottomPoints[i * 2] = x
+            bottomPoints[i * 2 + 1] = centerY + half
         }
 
         val outline = AndroidPath()
-        addSmoothedPoints(outline, tracePoints, reversed = false, startNewPath = true)
+        addSmoothedPoints(outline, topPoints, reversed = false, startNewPath = true)
+        addSmoothedPoints(outline, bottomPoints, reversed = true, startNewPath = false)
+        outline.close()
 
-        val baseStrokeWidth = size.minDimension * 0.012f
-        val paint = AndroidPaint().apply {
+        val fillPaint = AndroidPaint().apply {
+            isAntiAlias = true
+            style = AndroidPaint.Style.FILL
+            color = WAVEFORM_COLOR.toArgb()
+            alpha = (255 * settings.intensity.coerceAtLeast(WaveformSettings.INTENSITY_MIN)).toInt()
+        }
+        trailCanvas.drawPath(outline, fillPaint)
+
+        val outlinePaint = AndroidPaint().apply {
             isAntiAlias = true
             style = AndroidPaint.Style.STROKE
             strokeJoin = AndroidPaint.Join.ROUND
             strokeCap = AndroidPaint.Cap.ROUND
-            strokeWidth = baseStrokeWidth * settings.strokeWeight
-            color = Color.White.toArgb()
-            alpha = (255 * settings.intensity.coerceAtLeast(OscilloscopeSettings.INTENSITY_MIN)).toInt()
+            strokeWidth = size.minDimension * 0.006f * settings.strokeWeight
+            color = WAVEFORM_HIGHLIGHT.toArgb()
+            alpha = (180 * settings.intensity.coerceAtLeast(WaveformSettings.INTENSITY_MIN)).toInt()
         }
-        trailCanvas.drawPath(outline, paint)
+        trailCanvas.drawPath(outline, outlinePaint)
 
         drawRect(color = BACKGROUND)
         drawImage(trail.asImageBitmap())

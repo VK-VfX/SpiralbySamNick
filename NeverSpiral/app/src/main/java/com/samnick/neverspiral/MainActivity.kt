@@ -17,7 +17,7 @@ class MainActivity : ComponentActivity() {
 
     /**
      * Android ties refresh rate to the window, not to individual views, so this is a best-effort
-     * hint for the whole app rather than something scoped to just the oscilloscope: on a 90Hz or
+     * hint for the whole app rather than something scoped to just the waveform view: on a 90Hz or
      * 120Hz display the system will pick its highest supported mode at or below this value; on a
      * 60Hz-only device it's silently ignored.
      */
