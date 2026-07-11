@@ -22,9 +22,9 @@ on the device: Spotify, YouTube Music, or anything else.
 - **Spectrum**: a real-time FFT bar spectrum, log-spaced across the audible range, with a dB
   reference grid and frequency labels for orientation across the range. *Settings: Cool (blue-to-
   white) or Classic (green-yellow-red) color scheme.*
-- **Waveform**: a classic linear waveform -- the amplitude envelope mirrored symmetrically top and
-  bottom around a horizontal centerline and filled solid in a warm cream tone, like a track
-  waveform in an audio editor. *Settings: Scale, Stroke Weight, Intensity, Afterglow.*
+- **Waveform**: a sparse row of wide, mirrored diamond bars sitting on a single baseline, in a warm
+  cream tone -- a handful of independently-decaying live levels, not a dense spectrum. *Settings:
+  Scale, Stroke Weight, Intensity, Afterglow.*
 - **Goniometer**: a stereo phase scope -- plots left/right on the mid/side axes, so mono content
   collapses to a vertical line and phase problems fan out sideways -- plus a running phase
   correlation readout. *Settings: trail persistence.*
@@ -76,24 +76,21 @@ spread across the whole range), and draws a dB reference grid plus frequency lab
 
 ## How the waveform view works
 
-`WaveformEngine` builds a *static* amplitude envelope snapshot the way a track-overview waveform
-looks, not a scrolling scope trace: each of 40 columns tracks the peak absolute amplitude seen in
-its slice of a fixed ~2 second window, but instead of shifting older columns left as new ones
-arrive, a full window's worth of columns is accumulated silently off to the side and the whole
-visible shape is swapped in at once when it's ready -- so it holds still and only jumps to a new
-still shape periodically, rather than continuously scrolling. Each committed column is also
-normalized against a slowly-decaying recent-peak reference (instant attack, ~3.5s release), so
-typical, consistently loud passages read as modest levels and only genuine accents approach full
-height. `WaveformScreen` renders this as a discrete, static audio-progress-bar -- not a continuous
-line: each column is its own isolated diamond, only drawn at all once its level clears a visibility
-threshold, sitting on a flat baseline with a visible gap to its neighbors on either side, the way a
-podcast or voice-message scrubber looks, rather than one smoothed path stitched across every
-column. A star-shaped playhead sweeps left to right across whichever static map is currently
-showing (driven by how far into the *next*, still-accumulating window capture has gotten, so it
-resets right as a new map commits), recoloring the diamonds it has passed gold and leaving the rest
-a faint beige. Diamonds and the playhead are rendered into a persistent off-screen bitmap that's
-faded (not cleared) every frame, which drives both the soft glow around each shape (a blurred
-duplicate drawn first) and the fade between one static map and the next. A gear icon shown only in
+`WaveformEngine` drives a small, fixed row of 12 independent envelope followers rather than any
+kind of scrolling or periodically-committed history -- deliberately sparse, like a handful of wide
+bars, not a dense FFT-style spectrum. Every bin tracks the *same* live input (the peak amplitude of
+whatever's just been captured, normalized against a slowly-decaying recent-peak reference so
+mastered/loud music doesn't just sit pinned near 1.0), but each bin has its own release time
+constant spread from snappy to lazy. Because they share one attack but decay at different rates, a
+single transient ripples across the bars and settles at different heights instead of every bar
+moving in lockstep -- which is what makes a handful of bars driven by one mono signal still read as
+organic, without an FFT, windowing, or gating. Bin *positions* never change; only their levels do,
+continuously, every buffer and every rendered frame, so there's nothing to pop or jump between.
+`WaveformScreen` renders each bin as a wide, isolated diamond -- baseline, up to the peak, baseline,
+mirrored peak, closed -- sitting on a single unbroken baseline that spans the full width edge to
+edge, all in one uniform warm tone (no progress split, no playhead). Diamonds and the baseline are
+rendered into a persistent off-screen bitmap that's faded (not cleared) every frame, which drives
+the soft glow around each shape (a blurred duplicate drawn first). A gear icon shown only in
 waveform mode opens a settings panel with Scale, Stroke Weight, Intensity, and Afterglow sliders.
 
 ## How the newer instruments work
