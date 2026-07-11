@@ -22,8 +22,8 @@ on the device: Spotify, YouTube Music, or anything else.
 - **Spectrum**: a real-time FFT bar spectrum, log-spaced across the audible range, with a dB
   reference grid and frequency labels for orientation across the range. *Settings: Cool (blue-to-
   white) or Classic (green-yellow-red) color scheme.*
-- **Waveform**: a sparse row of wide, mirrored diamond bars sitting on a single baseline, in a warm
-  cream tone -- a handful of independently-decaying live levels, not a dense spectrum. *Settings:
+- **Waveform**: a single continuous, streamlined white outline mirrored top and bottom, driven by
+  the same bass-to-treble FFT bands as Spectrum, filled solid instead of drawn as bars. *Settings:
   Scale, Stroke Weight, Intensity, Afterglow.*
 - **Goniometer**: a stereo phase scope -- plots left/right on the mid/side axes, so mono content
   collapses to a vertical line and phase problems fan out sideways -- plus a running phase
@@ -76,22 +76,19 @@ spread across the whole range), and draws a dB reference grid plus frequency lab
 
 ## How the waveform view works
 
-`WaveformEngine` drives a small, fixed row of 12 independent envelope followers rather than any
-kind of scrolling or periodically-committed history -- deliberately sparse, like a handful of wide
-bars, not a dense FFT-style spectrum. Every bin tracks the *same* live input (the peak amplitude of
-whatever's just been captured, normalized against a slowly-decaying recent-peak reference so
-mastered/loud music doesn't just sit pinned near 1.0), but each bin has its own release time
-constant spread from snappy to lazy. Because they share one attack but decay at different rates, a
-single transient ripples across the bars and settles at different heights instead of every bar
-moving in lockstep -- which is what makes a handful of bars driven by one mono signal still read as
-organic, without an FFT, windowing, or gating. Bin *positions* never change; only their levels do,
-continuously, every buffer and every rendered frame, so there's nothing to pop or jump between.
-`WaveformScreen` renders each bin as a wide, isolated diamond -- baseline, up to the peak, baseline,
-mirrored peak, closed -- sitting on a single unbroken baseline that spans the full width edge to
-edge, all in one uniform warm tone (no progress split, no playhead). Diamonds and the baseline are
-rendered into a persistent off-screen bitmap that's faded (not cleared) every frame, which drives
-the soft glow around each shape (a blurred duplicate drawn first). A gear icon shown only in
-waveform mode opens a settings panel with Scale, Stroke Weight, Intensity, and Afterglow sliders.
+`WaveformEngine` reuses the same log-spaced FFT bands [SpectrumEngine] draws as bars -- bass on the
+left through treble on the right, already normalized to a fixed dB floor/ceiling rather than a
+recent-peak-relative one -- instead of driving every point off one shared time-domain peak signal.
+That's what gives it genuine dynamic range: different content in different registers actually reads
+as different heights, rather than needing an artificial gate or per-point decay timing to fake
+variety. Smoothing uses the same fast-rise/slower-fall ballistics as Spectrum, so it reacts to
+transients immediately but settles without jitter. `WaveformScreen` renders this as a single
+continuous outline -- mirrored top and bottom around the centerline and filled solid in white, with
+quadratic midpoint smoothing keeping it a fluid curve rather than a jagged connect-the-dots line --
+instead of isolated per-band shapes. Rendered into a persistent off-screen bitmap that's faded (not
+cleared) every frame, which drives both the soft glow (a blurred duplicate drawn first) and the
+trailing afterglow. A gear icon shown only in waveform mode opens a settings panel with Scale,
+Stroke Weight, Intensity, and Afterglow sliders.
 
 ## How the newer instruments work
 
