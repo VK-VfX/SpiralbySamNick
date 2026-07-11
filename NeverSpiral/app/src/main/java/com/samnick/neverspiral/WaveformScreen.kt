@@ -1,10 +1,8 @@
 package com.samnick.neverspiral
 
 import android.graphics.Bitmap
-import android.graphics.BlurMaskFilter
 import android.graphics.Canvas as AndroidCanvas
 import android.graphics.Paint as AndroidPaint
-import android.graphics.Path as AndroidPath
 import android.graphics.PorterDuff
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,26 +12,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
-import kotlin.math.pow
 
-private const val BAND_HEIGHT_FRACTION = 0.62f
-private const val MIN_HALF_HEIGHT_FRACTION = 0.006f
-
-/** A light finishing curve on top of the real per-band dynamic range -- taller accents read a touch taller still. */
-private const val CONTRAST_GAMMA = 1.4f
+private const val BASELINE_FRACTION = 0.85f
+private const val MAX_BAR_HEIGHT_FRACTION = 0.75f
+private const val BAR_WIDTH_FRACTION = 0.55f
 
 private val BACKGROUND = VisualizerTheme.BACKGROUND
 private val WAVEFORM_COLOR = Color.White
 
 /**
- * A streamlined, frequency-resolved waveform: one continuous mirrored outline across
- * [WaveformEngine.bandLevel]'s bass-to-treble bands (the same log-spaced FFT levels
- * [SpectrumScreen] draws as bars), filled solid in white -- not isolated per-bin shapes. Real
- * content differences between registers are what give it dynamic range, not any artificial gating
- * or per-shape decay timing. Quadratic midpoint smoothing between points keeps the outline a single
- * fluid curve rather than a jagged connect-the-dots line. Rendered into a persistent off-screen
- * bitmap that's faded (not cleared) every frame, which drives both the soft glow (a blurred
- * duplicate drawn first) and the trailing afterglow.
+ * A classic single-sided bar waveform: [WaveformEngine.BAR_COUNT] thin white bars, rounded caps,
+ * anchored to a bottom baseline and scrolling left as new bars arrive on the right -- the familiar
+ * look of a track-overview or podcast-player waveform, not a mirrored continuous line. Each bar is
+ * a stroked line with a round cap rather than a filled rectangle, which is what gives it the
+ * rounded top (and a small round "dot" instead of vanishing entirely during quiet stretches).
+ * Rendered into a persistent off-screen bitmap that's faded (not cleared) every frame, which drives
+ * the trailing afterglow as bars scroll by.
  */
 @Composable
 fun WaveformScreen(engine: WaveformEngine, settings: WaveformSettings) {
@@ -55,95 +49,41 @@ fun WaveformScreen(engine: WaveformEngine, settings: WaveformSettings) {
         val trailCanvas = AndroidCanvas(trail)
 
         // Fading (rather than clearing) the previous frame is what creates the afterglow trail --
-        // a lower afterglow setting means a more opaque overlay, so the shape vanishes faster.
+        // a lower afterglow setting means a more opaque overlay, so bars vanish faster as they scroll.
         val fadeAlpha = ((1f - settings.afterglow).coerceIn(0.06f, 1f) * 255).toInt()
         val fadeColor = (fadeAlpha shl 24) or (BACKGROUND.toArgb() and 0x00FFFFFF)
         trailCanvas.drawColor(fadeColor, PorterDuff.Mode.SRC_OVER)
 
-        val centerY = size.height / 2f
-        val halfBand = size.height * BAND_HEIGHT_FRACTION / 2f
-        val maxHalf = size.height / 2f - 4f
-        val minHalf = size.height * MIN_HALF_HEIGHT_FRACTION / 2f
+        val baseline = size.height * BASELINE_FRACTION
+        val maxBarHeight = size.height * MAX_BAR_HEIGHT_FRACTION
         val intensity = settings.intensity.coerceAtLeast(WaveformSettings.INTENSITY_MIN)
 
-        val n = engine.bandLevel.size
+        val n = engine.barLevel.size
         val pitch = size.width / n
+        // strokeWeight's own default (1.6) is normalized back out here, so the slider scales bar
+        // width relative to the design baseline instead of relative to 1.0.
+        val barWidth = pitch * BAR_WIDTH_FRACTION * (settings.strokeWeight / 1.6f)
+        val minBarHeight = barWidth * 0.5f
 
-        val topPoints = FloatArray(n * 2)
-        val bottomPoints = FloatArray(n * 2)
-        for (i in 0 until n) {
-            val x = (i + 0.5f) * pitch
-            val contrasted = engine.bandLevel[i].coerceIn(0f, 1f).pow(CONTRAST_GAMMA)
-            val half = (contrasted * settings.scale * halfBand)
-                .coerceAtLeast(minHalf)
-                .coerceAtMost(maxHalf)
-            topPoints[i * 2] = x
-            topPoints[i * 2 + 1] = centerY - half
-            bottomPoints[i * 2] = x
-            bottomPoints[i * 2 + 1] = centerY + half
-        }
-
-        val outline = AndroidPath()
-        addSmoothedPoints(outline, topPoints, reversed = false, startNewPath = true)
-        addSmoothedPoints(outline, bottomPoints, reversed = true, startNewPath = false)
-        outline.close()
-
-        // A soft blurred duplicate behind the sharp fill gives the whole outline a gentle halo,
-        // like the glow around the peaks in the reference art, instead of a flat solid cutout.
-        val glowPaint = AndroidPaint().apply {
+        val barPaint = AndroidPaint().apply {
             isAntiAlias = true
-            style = AndroidPaint.Style.FILL
-            color = WAVEFORM_COLOR.toArgb()
-            alpha = (110 * intensity).toInt()
-            maskFilter = BlurMaskFilter(size.minDimension * 0.02f, BlurMaskFilter.Blur.NORMAL)
-        }
-        trailCanvas.drawPath(outline, glowPaint)
-
-        val fillPaint = AndroidPaint().apply {
-            isAntiAlias = true
-            style = AndroidPaint.Style.FILL
+            style = AndroidPaint.Style.STROKE
+            strokeCap = AndroidPaint.Cap.ROUND
+            strokeWidth = barWidth
             color = WAVEFORM_COLOR.toArgb()
             alpha = (255 * intensity).toInt()
         }
-        trailCanvas.drawPath(outline, fillPaint)
 
-        val outlinePaint = AndroidPaint().apply {
-            isAntiAlias = true
-            style = AndroidPaint.Style.STROKE
-            strokeJoin = AndroidPaint.Join.ROUND
-            strokeCap = AndroidPaint.Cap.ROUND
-            strokeWidth = size.minDimension * 0.005f * settings.strokeWeight
-            color = WAVEFORM_COLOR.toArgb()
-            alpha = (170 * intensity).toInt()
+        for (i in 0 until n) {
+            val amplitude = engine.barLevel[i].coerceIn(0f, 1f)
+            val height = (amplitude * settings.scale * maxBarHeight)
+                .coerceAtLeast(minBarHeight)
+                .coerceAtMost(maxBarHeight)
+            val cx = (i + 0.5f) * pitch
+            trailCanvas.drawLine(cx, baseline, cx, baseline - height, barPaint)
         }
-        trailCanvas.drawPath(outline, outlinePaint)
 
         drawRect(color = BACKGROUND)
         drawImage(trail.asImageBitmap())
     }
-}
-
-/** Appends [points] (packed x,y pairs) to [path] as a quadratic-smoothed curve through their midpoints. */
-private fun addSmoothedPoints(path: AndroidPath, points: FloatArray, reversed: Boolean, startNewPath: Boolean) {
-    val count = points.size / 2
-    if (count == 0) return
-    val order = if (reversed) (count - 1 downTo 0) else (0 until count)
-    var previousX = 0f
-    var previousY = 0f
-    var first = true
-    for (i in order) {
-        val x = points[i * 2]
-        val y = points[i * 2 + 1]
-        if (first) {
-            if (startNewPath) path.moveTo(x, y) else path.lineTo(x, y)
-            first = false
-        } else {
-            val midX = (previousX + x) / 2f
-            val midY = (previousY + y) / 2f
-            path.quadTo(previousX, previousY, midX, midY)
-        }
-        previousX = x
-        previousY = y
-    }
-    path.lineTo(previousX, previousY)
 }

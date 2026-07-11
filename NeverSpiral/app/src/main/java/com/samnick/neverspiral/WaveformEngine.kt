@@ -3,48 +3,71 @@ package com.samnick.neverspiral
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.setValue
-import kotlin.math.exp
+import kotlin.math.abs
+import kotlin.math.log10
 
 /**
- * A streamlined, frequency-resolved envelope: this reuses the same log-spaced FFT bands
- * [SpectrumEngine] draws as bars -- bass on the left through treble on the right, already
- * normalized to a fixed dB floor/ceiling rather than a recent-peak-relative one -- instead of
- * driving every point off the same overall time-domain peak. That's what gives it real dynamic
- * range: different content in different registers genuinely reads as different heights, rather
- * than needing an artificial gate or per-point decay timing to fake variety. Smoothing uses the
- * same fast-rise/slower-fall ballistics as [SpectrumEngine] so it reacts to transients immediately
- * but settles without jitter.
+ * A scrolling peak-amplitude history: each of [BAR_COUNT] bars tracks the peak absolute amplitude
+ * seen in its slice of a short rolling window, and completed bars shift left as new ones fill in on
+ * the right -- so genuinely quiet stretches (intros, breakdowns, breaths between phrases) and
+ * genuinely loud stretches both show up as real height differences across the history, the way a
+ * track-overview waveform looks.
+ *
+ * Height isn't a raw linear peak -- it's converted to a dBFS-style level first (20*log10(peak),
+ * normalized against a fixed floor), the same technique real level meters and waveform displays
+ * use. Mastered/loud music often sits close to 1.0 linear peak for long stretches, so mapping that
+ * linearly would read as a nearly solid block; the dB curve is what makes genuinely quieter
+ * passages read meaningfully shorter instead of merely "slightly less maxed."
  *
  * [elapsed] exists purely as a Compose-observable value so the Canvas redraws every frame even
- * though [bandLevel] itself is a plain, non-observable array (mutated in place to avoid allocating
- * a new array every frame).
+ * though [barLevel] itself is a plain, non-observable array (mutated in place to avoid allocating a
+ * new array every frame).
  */
 class WaveformEngine {
-    val bandLevel = FloatArray(SpectrumAnalyzer.BAND_COUNT)
+    val barLevel = FloatArray(BAR_COUNT)
 
     var elapsed by mutableFloatStateOf(0f)
         private set
 
-    /** Eases every band toward [target] (the latest FFT levels) and advances the redraw clock. */
-    fun step(dtSeconds: Float, target: FloatArray) {
-        val dt = dtSeconds.coerceIn(0f, 0.1f)
-        elapsed += dt
+    private var partialPeak = 0f
+    private var partialCount = 0
 
-        val riseAlpha = 1f - exp(-dt / RISE_TAU_SECONDS)
-        val fallAlpha = 1f - exp(-dt / FALL_TAU_SECONDS)
-        for (i in bandLevel.indices) {
-            val t = if (i < target.size) target[i] else 0f
-            val alpha = if (t > bandLevel[i]) riseAlpha else fallAlpha
-            bandLevel[i] += (t - bandLevel[i]) * alpha
+    /** Folds newly captured raw mono PCM (linear, -1..1) into the scrolling bar history. */
+    fun ingest(samples: FloatArray) {
+        for (s in samples) {
+            val magnitude = abs(s)
+            if (magnitude > partialPeak) partialPeak = magnitude
+            partialCount++
+            if (partialCount >= SAMPLES_PER_BAR) {
+                pushBar(partialPeak)
+                partialPeak = 0f
+                partialCount = 0
+            }
         }
     }
 
+    /** Advances the redraw clock; call once per frame regardless of whether new audio arrived. */
+    fun step(dtSeconds: Float) {
+        elapsed += dtSeconds.coerceIn(0f, 0.1f)
+    }
+
     fun reset() {
-        bandLevel.fill(0f)
+        barLevel.fill(0f)
+        partialPeak = 0f
+        partialCount = 0
+    }
+
+    private fun pushBar(peak: Float) {
+        barLevel.copyInto(barLevel, destinationOffset = 0, startIndex = 1, endIndex = BAR_COUNT)
+        val db = if (peak > 0f) 20f * log10(peak.toDouble()).toFloat() else FLOOR_DB
+        barLevel[BAR_COUNT - 1] = ((db - FLOOR_DB) / -FLOOR_DB).coerceIn(0f, 1f)
     }
 
     companion object {
-        private const val RISE_TAU_SECONDS = 0.05f
-        private const val FALL_TAU_SECONDS = 0.22f
+        const val BAR_COUNT = 56
+        private const val SAMPLE_RATE = 44100
+        private const val WINDOW_SECONDS = 6f
+        private val SAMPLES_PER_BAR = (SAMPLE_RATE * WINDOW_SECONDS / BAR_COUNT).toInt()
+        private const val FLOOR_DB = -46f
     }
 }

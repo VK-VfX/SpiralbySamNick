@@ -22,9 +22,9 @@ on the device: Spotify, YouTube Music, or anything else.
 - **Spectrum**: a real-time FFT bar spectrum, log-spaced across the audible range, with a dB
   reference grid and frequency labels for orientation across the range. *Settings: Cool (blue-to-
   white) or Classic (green-yellow-red) color scheme.*
-- **Waveform**: a single continuous, streamlined white outline mirrored top and bottom, driven by
-  the same bass-to-treble FFT bands as Spectrum, filled solid instead of drawn as bars. *Settings:
-  Scale, Stroke Weight, Intensity, Afterglow.*
+- **Waveform**: a classic single-sided bar waveform -- thin white bars, rounded caps, anchored to a
+  bottom baseline and scrolling left as new bars arrive, the familiar look of a track-overview or
+  podcast-player waveform. *Settings: Scale, Stroke Weight, Intensity, Afterglow.*
 - **Goniometer**: a stereo phase scope -- plots left/right on the mid/side axes, so mono content
   collapses to a vertical line and phase problems fan out sideways -- plus a running phase
   correlation readout. *Settings: trail persistence.*
@@ -76,19 +76,20 @@ spread across the whole range), and draws a dB reference grid plus frequency lab
 
 ## How the waveform view works
 
-`WaveformEngine` reuses the same log-spaced FFT bands [SpectrumEngine] draws as bars -- bass on the
-left through treble on the right, already normalized to a fixed dB floor/ceiling rather than a
-recent-peak-relative one -- instead of driving every point off one shared time-domain peak signal.
-That's what gives it genuine dynamic range: different content in different registers actually reads
-as different heights, rather than needing an artificial gate or per-point decay timing to fake
-variety. Smoothing uses the same fast-rise/slower-fall ballistics as Spectrum, so it reacts to
-transients immediately but settles without jitter. `WaveformScreen` renders this as a single
-continuous outline -- mirrored top and bottom around the centerline and filled solid in white, with
-quadratic midpoint smoothing keeping it a fluid curve rather than a jagged connect-the-dots line --
-instead of isolated per-band shapes. Rendered into a persistent off-screen bitmap that's faded (not
-cleared) every frame, which drives both the soft glow (a blurred duplicate drawn first) and the
-trailing afterglow. A gear icon shown only in waveform mode opens a settings panel with Scale,
-Stroke Weight, Intensity, and Afterglow sliders.
+`WaveformEngine` builds a scrolling peak-amplitude history: each of 56 bars tracks the peak absolute
+amplitude seen in its slice of a short rolling window, and completed bars shift left as new ones
+fill in on the right, the way a track-overview waveform looks. Height isn't a raw linear peak --
+it's converted to a dBFS-style level first (20·log10(peak), normalized against a fixed floor), the
+same technique real level meters and waveform displays use. Mastered/loud music often sits close to
+1.0 linear peak for long stretches, so mapping that linearly would read as a nearly solid block; the
+dB curve is what makes genuinely quieter passages (intros, breakdowns, breaths between phrases) read
+meaningfully shorter instead of merely "slightly less maxed." `WaveformScreen` renders each bar as a
+stroked line with a round cap -- not a filled rectangle, which is what gives it a rounded top and a
+small round "dot" during quiet stretches instead of the bar vanishing entirely -- anchored to a
+bottom baseline, the classic single-sided look of a track-overview or podcast-player waveform.
+Rendered into a persistent off-screen bitmap that's faded (not cleared) every frame, which drives
+the trailing afterglow as bars scroll by. A gear icon shown only in waveform mode opens a settings
+panel with Scale (bar height), Stroke Weight (bar width), Intensity, and Afterglow sliders.
 
 ## How the newer instruments work
 
