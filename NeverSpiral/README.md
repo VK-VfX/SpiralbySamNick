@@ -1,6 +1,6 @@
 # Sam's Visualizer
 
-Eight audio-reactive visualizer modes, styled as a modern dark mastering-suite instrument panel --
+Ten audio-reactive visualizer modes, styled as a modern dark mastering-suite instrument panel --
 flat near-black panels, thin hairline dividers, a cool desaturated accent, and red reserved strictly
 for clip/overload warnings, the way studio metering looks. All driven by whatever music is playing
 on the device: Spotify, YouTube Music, or anything else.
@@ -9,8 +9,8 @@ on the device: Spotify, YouTube Music, or anything else.
 
 - **Tap** anywhere on the visualization to crossfade to the next mode.
 - **Swipe** left or right to move either direction, for when the mode you want is behind you.
-- **Long-press** to open a picker grid and jump straight to any of the 8 modes.
-- A small dot row along the bottom shows which of the 8 modes you're on.
+- **Long-press** to open a picker grid and jump straight to any of the 10 modes.
+- A small dot row along the bottom shows which of the 10 modes you're on.
 - Five modes (VU Meter, Spectrum, Waveform, Goniometer, Loudness) have their own tunable
   settings behind a gear icon in the top-right corner; every setting persists across app restarts.
 - A hamburger icon (top-right, above the visualizer) opens app-wide Settings -- see below.
@@ -39,6 +39,11 @@ on the device: Spotify, YouTube Music, or anything else.
 - **Tonal Balance**: a long-averaged spectral curve against a dashed reference curve tracking the
   same bands with a much longer time constant, showing whether what's playing right now trends
   brighter/darker/bassier than the last minute or so, rather than a comparison to an arbitrary line.
+- **Rainbow Spectrum**: a mirrored FFT bar spectrum -- bars reflect top and bottom off a horizontal
+  center axis instead of growing from the bottom only -- with a fixed horizontal rainbow gradient
+  (blue/purple through magenta and orange to yellow) and a soft glow, on pure black.
+- **Neon Cyan Pulse**: the same mirrored-bar idea, denser and thinner, each bar its own cyan-to-
+  white gradient from the center out to its tip, with a stronger glow for a nightclub LED-wall feel.
 
 ## How the meter works
 
@@ -121,6 +126,15 @@ until Waveform (and now the 12-bar EQ) started depending on genuine per-band con
 - **Tonal Balance**: `TonalBalanceEngine` smooths the same bands as Spectrum with a multi-second
   time constant instead of a fast one, so it settles into overall tonal character rather than
   reacting to transients.
+- **Rainbow Spectrum** and **Neon Cyan Pulse**: `RainbowSpectrumScreen` and `NeonCyanPulseScreen`
+  both render the same [SpectrumEngine] bands directly, with no engine or DSP of their own -- the
+  mirrored top/bottom reflection, colors, bar density, and glow are pure rendering choices on
+  already-smoothed data. Neon Cyan Pulse's denser row comes from linearly interpolating between
+  adjacent bands rather than a higher-resolution FFT. Both draw into an off-screen bitmap cleared
+  (not faded) every frame, purely so `BlurMaskFilter` has a software canvas to blur against --
+  Android silently ignores mask filters on Compose's hardware-accelerated canvas, the same reason
+  Waveform and Goniometer's glow/afterglow go through a bitmap. Bar count, sensitivity gamma, and
+  glow radius/alpha for both are named constants at the top of each file for easy tuning.
 
 Every engine is stepped every frame regardless of which mode is showing, so switching among most
 modes shows a live reading immediately instead of a frozen one -- the two exceptions are Loudness

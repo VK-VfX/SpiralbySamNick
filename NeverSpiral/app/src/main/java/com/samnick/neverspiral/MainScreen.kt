@@ -59,6 +59,8 @@ private enum class VisualMode(val label: String) {
     GRAPHIC_EQ("Graphic EQ"),
     PEAK_RMS("Peak / RMS"),
     TONAL_BALANCE("Tonal Balance"),
+    RAINBOW_SPECTRUM("Rainbow Spectrum"),
+    NEON_CYAN_PULSE("Neon Cyan Pulse"),
     ;
 
     fun next(): VisualMode = entries[(ordinal + 1) % entries.size]
@@ -77,16 +79,18 @@ private val MODES_WITH_SETTINGS = setOf(
 private const val SWIPE_THRESHOLD_PX = 90f
 
 /**
- * Hosts all eight visualizer modes plus the single shared "Visualize music" capture toggle. Tap
+ * Hosts all ten visualizer modes plus the single shared "Visualize music" capture toggle. Tap
  * to cycle forward, swipe left/right to cycle either direction, or long-press to jump straight to
- * a mode via a picker grid -- tap-only stopped scaling once there were 8 modes to page through. A
- * hamburger icon in the top-right opens the app-wide [AppSettingsScreen] (player shortcuts,
- * keep-screen-on, OTA updates, about) -- distinct from each mode's own gear-icon tuning panel.
- * Every engine is stepped every frame regardless of which mode is showing (except Loudness and
- * Goniometer's per-sample work, which only runs while their mode is actually visible -- the
+ * a mode via a picker grid -- tap-only stopped scaling once there were this many modes to page
+ * through. A hamburger icon in the top-right opens the app-wide [AppSettingsScreen] (player
+ * shortcuts, keep-screen-on, OTA updates, about) -- distinct from each mode's own gear-icon tuning
+ * panel. Every engine is stepped every frame regardless of which mode is showing (except Loudness
+ * and Goniometer's per-sample work, which only runs while their mode is actually visible -- the
  * heaviest per-sample processing in the app, worth skipping when nothing is reading it), so
- * switching among the other six modes still feels instant rather than starting from a frozen
- * reading.
+ * switching among the other modes still feels instant rather than starting from a frozen reading.
+ * Rainbow Spectrum and Neon Cyan Pulse are pure rendering treatments of [SpectrumEngine]'s already
+ * fast-rise/slower-fall smoothed bands, the same data [SpectrumScreen] and [GraphicEqScreen] draw,
+ * so they need no dedicated engine or settings of their own.
  */
 @Composable
 fun MainScreen() {
@@ -255,6 +259,8 @@ fun MainScreen() {
                         VisualMode.GRAPHIC_EQ -> GraphicEqScreen(spectrum)
                         VisualMode.PEAK_RMS -> PeakRmsScreen(peakRms)
                         VisualMode.TONAL_BALANCE -> TonalBalanceScreen(tonalBalance)
+                        VisualMode.RAINBOW_SPECTRUM -> RainbowSpectrumScreen(spectrum)
+                        VisualMode.NEON_CYAN_PULSE -> NeonCyanPulseScreen(spectrum)
                     }
                 }
 
