@@ -27,9 +27,8 @@ private const val DOT_SAMPLE_STRIDE = 4
  * A goniometer, plotted on the mid/side axes rather than raw L/R: mono content collapses to a
  * vertical line, and drift to either side shows genuine stereo width or phase trouble -- the same
  * convention hardware phase scopes use. Dots are stamped into a persistent, fading bitmap trail
- * only when a new buffer actually arrives (tracked via [GoniometerEngine.generation]), same idea
- * as the waveform view's afterglow but gated per-buffer instead of per-frame since we're plotting
- * raw samples, not a fixed small point count.
+ * only when a new buffer actually arrives (tracked via [GoniometerEngine.generation]) and gated
+ * per-buffer rather than per-frame, since we're plotting raw samples, not a fixed small point count.
  */
 @Composable
 fun GoniometerScreen(engine: GoniometerEngine, settings: GoniometerSettings) {

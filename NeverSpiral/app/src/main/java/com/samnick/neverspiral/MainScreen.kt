@@ -74,6 +74,8 @@ private val MODES_WITH_SETTINGS = setOf(
     VisualMode.WAVEFORM,
     VisualMode.GONIOMETER,
     VisualMode.LOUDNESS,
+    VisualMode.RAINBOW_SPECTRUM,
+    VisualMode.NEON_CYAN_PULSE,
 )
 
 private const val SWIPE_THRESHOLD_PX = 90f
@@ -90,7 +92,8 @@ private const val SWIPE_THRESHOLD_PX = 90f
  * switching among the other modes still feels instant rather than starting from a frozen reading.
  * Rainbow Spectrum and Neon Cyan Pulse are pure rendering treatments of [SpectrumEngine]'s already
  * fast-rise/slower-fall smoothed bands, the same data [SpectrumScreen] and [GraphicEqScreen] draw,
- * so they need no dedicated engine or settings of their own.
+ * so they need no dedicated engine of their own -- just their own [BarSpectrumSettings] for Scale,
+ * Stroke Weight, and Height, same as every other mode's gear-icon panel.
  */
 @Composable
 fun MainScreen() {
@@ -107,11 +110,12 @@ fun MainScreen() {
     }
     val waveform = remember { WaveformEngine() }
     val waveformSettings = remember {
+        val ordinal = SettingsStore.getInt(context, KEY_WAVEFORM_COLOR_SCHEME, WaveformColorScheme.WHITE.ordinal)
         WaveformSettings(
             initialScale = SettingsStore.getFloat(context, KEY_WAVEFORM_SCALE, 1f),
             initialStrokeWeight = SettingsStore.getFloat(context, KEY_WAVEFORM_STROKE_WEIGHT, 1.6f),
             initialIntensity = SettingsStore.getFloat(context, KEY_WAVEFORM_INTENSITY, 1f),
-            initialAfterglow = SettingsStore.getFloat(context, KEY_WAVEFORM_AFTERGLOW, 0.35f),
+            initialColorScheme = WaveformColorScheme.entries.getOrElse(ordinal) { WaveformColorScheme.WHITE },
         )
     }
     val goniometer = remember { GoniometerEngine() }
@@ -125,6 +129,20 @@ fun MainScreen() {
     }
     val peakRms = remember { PeakRmsEngine() }
     val tonalBalance = remember { TonalBalanceEngine(SpectrumAnalyzer.BAND_COUNT) }
+    val rainbowSpectrumSettings = remember {
+        BarSpectrumSettings(
+            initialScale = SettingsStore.getFloat(context, KEY_RAINBOW_SCALE, 1f),
+            initialStrokeWeight = SettingsStore.getFloat(context, KEY_RAINBOW_STROKE_WEIGHT, 1f),
+            initialHeight = SettingsStore.getFloat(context, KEY_RAINBOW_HEIGHT, 0.46f),
+        )
+    }
+    val neonCyanPulseSettings = remember {
+        BarSpectrumSettings(
+            initialScale = SettingsStore.getFloat(context, KEY_NEON_SCALE, 1f),
+            initialStrokeWeight = SettingsStore.getFloat(context, KEY_NEON_STROKE_WEIGHT, 1f),
+            initialHeight = SettingsStore.getFloat(context, KEY_NEON_HEIGHT, 0.46f),
+        )
+    }
 
     var visualizerOn by remember { mutableStateOf(false) }
     var mode by remember { mutableStateOf(VisualMode.VU_METER) }
@@ -259,8 +277,8 @@ fun MainScreen() {
                         VisualMode.GRAPHIC_EQ -> GraphicEqScreen(spectrum)
                         VisualMode.PEAK_RMS -> PeakRmsScreen(peakRms)
                         VisualMode.TONAL_BALANCE -> TonalBalanceScreen(tonalBalance)
-                        VisualMode.RAINBOW_SPECTRUM -> RainbowSpectrumScreen(spectrum)
-                        VisualMode.NEON_CYAN_PULSE -> NeonCyanPulseScreen(spectrum)
+                        VisualMode.RAINBOW_SPECTRUM -> RainbowSpectrumScreen(spectrum, rainbowSpectrumSettings)
+                        VisualMode.NEON_CYAN_PULSE -> NeonCyanPulseScreen(spectrum, neonCyanPulseSettings)
                     }
                 }
 
@@ -317,6 +335,8 @@ fun MainScreen() {
                                 waveformSettings = waveformSettings,
                                 goniometerSettings = goniometerSettings,
                                 loudnessSettings = loudnessSettings,
+                                rainbowSpectrumSettings = rainbowSpectrumSettings,
+                                neonCyanPulseSettings = neonCyanPulseSettings,
                             )
                         }
                     }
@@ -389,6 +409,8 @@ private fun SettingsPanelContent(
     waveformSettings: WaveformSettings,
     goniometerSettings: GoniometerSettings,
     loudnessSettings: LoudnessSettings,
+    rainbowSpectrumSettings: BarSpectrumSettings,
+    neonCyanPulseSettings: BarSpectrumSettings,
 ) {
     when (mode) {
         VisualMode.VU_METER -> {
@@ -436,13 +458,13 @@ private fun SettingsPanelContent(
                 waveformSettings.intensity = it
                 SettingsStore.putFloat(context, KEY_WAVEFORM_INTENSITY, it)
             }
-            SettingSliderRow(
-                "Afterglow",
-                waveformSettings.afterglow,
-                0f..WaveformSettings.AFTERGLOW_MAX,
+            SettingChoiceRow(
+                "Colors",
+                WaveformColorScheme.entries.map { it to it.label },
+                waveformSettings.colorScheme,
             ) {
-                waveformSettings.afterglow = it
-                SettingsStore.putFloat(context, KEY_WAVEFORM_AFTERGLOW, it)
+                waveformSettings.colorScheme = it
+                SettingsStore.putInt(context, KEY_WAVEFORM_COLOR_SCHEME, it.ordinal)
             }
         }
         VisualMode.GONIOMETER -> {
@@ -465,7 +487,44 @@ private fun SettingsPanelContent(
                 SettingsStore.putInt(context, KEY_LOUDNESS_TARGET, it.ordinal)
             }
         }
+        VisualMode.RAINBOW_SPECTRUM -> BarSpectrumSettingsPanel(rainbowSpectrumSettings, context, KEY_RAINBOW_SCALE, KEY_RAINBOW_STROKE_WEIGHT, KEY_RAINBOW_HEIGHT)
+        VisualMode.NEON_CYAN_PULSE -> BarSpectrumSettingsPanel(neonCyanPulseSettings, context, KEY_NEON_SCALE, KEY_NEON_STROKE_WEIGHT, KEY_NEON_HEIGHT)
         else -> Unit
+    }
+}
+
+/** Scale/Stroke Weight/Height sliders shared by Rainbow Spectrum and Neon Cyan Pulse's settings panels. */
+@Composable
+private fun BarSpectrumSettingsPanel(
+    settings: BarSpectrumSettings,
+    context: Context,
+    keyScale: String,
+    keyStrokeWeight: String,
+    keyHeight: String,
+) {
+    SettingSliderRow(
+        "Scale",
+        settings.scale,
+        BarSpectrumSettings.SCALE_MIN..BarSpectrumSettings.SCALE_MAX,
+    ) {
+        settings.scale = it
+        SettingsStore.putFloat(context, keyScale, it)
+    }
+    SettingSliderRow(
+        "Stroke Weight",
+        settings.strokeWeight,
+        BarSpectrumSettings.STROKE_WEIGHT_MIN..BarSpectrumSettings.STROKE_WEIGHT_MAX,
+    ) {
+        settings.strokeWeight = it
+        SettingsStore.putFloat(context, keyStrokeWeight, it)
+    }
+    SettingSliderRow(
+        "Height",
+        settings.height,
+        BarSpectrumSettings.HEIGHT_MIN..BarSpectrumSettings.HEIGHT_MAX,
+    ) {
+        settings.height = it
+        SettingsStore.putFloat(context, keyHeight, it)
     }
 }
 
@@ -535,6 +594,12 @@ private const val KEY_SPECTRUM_COLOR_SCHEME = "spectrum_color_scheme"
 private const val KEY_WAVEFORM_SCALE = "waveform_scale"
 private const val KEY_WAVEFORM_STROKE_WEIGHT = "waveform_stroke_weight"
 private const val KEY_WAVEFORM_INTENSITY = "waveform_intensity"
-private const val KEY_WAVEFORM_AFTERGLOW = "waveform_afterglow"
+private const val KEY_WAVEFORM_COLOR_SCHEME = "waveform_color_scheme"
 private const val KEY_GONIOMETER_TRAIL = "goniometer_trail_persistence"
 private const val KEY_LOUDNESS_TARGET = "loudness_target"
+private const val KEY_RAINBOW_SCALE = "rainbow_spectrum_scale"
+private const val KEY_RAINBOW_STROKE_WEIGHT = "rainbow_spectrum_stroke_weight"
+private const val KEY_RAINBOW_HEIGHT = "rainbow_spectrum_height"
+private const val KEY_NEON_SCALE = "neon_cyan_pulse_scale"
+private const val KEY_NEON_STROKE_WEIGHT = "neon_cyan_pulse_stroke_weight"
+private const val KEY_NEON_HEIGHT = "neon_cyan_pulse_height"

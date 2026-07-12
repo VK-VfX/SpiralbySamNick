@@ -11,8 +11,9 @@ on the device: Spotify, YouTube Music, or anything else.
 - **Swipe** left or right to move either direction, for when the mode you want is behind you.
 - **Long-press** to open a picker grid and jump straight to any of the 10 modes.
 - A small dot row along the bottom shows which of the 10 modes you're on.
-- Five modes (VU Meter, Spectrum, Waveform, Goniometer, Loudness) have their own tunable
-  settings behind a gear icon in the top-right corner; every setting persists across app restarts.
+- Seven modes (VU Meter, Spectrum, Waveform, Goniometer, Loudness, Rainbow Spectrum, Neon Cyan
+  Pulse) have their own tunable settings behind a gear icon in the top-right corner; every setting
+  persists across app restarts.
 - A hamburger icon (top-right, above the visualizer) opens app-wide Settings -- see below.
 
 - **VU Meter**: an analog needle meter with correctly calibrated ballistics (not a fake wobble), a
@@ -24,7 +25,8 @@ on the device: Spotify, YouTube Music, or anything else.
   white) or Classic (green-yellow-red) color scheme.*
 - **Waveform**: a classic 12-bar graphic equalizer -- bars sit at fixed positions and only their
   height reacts live, each with its own falling "droplet" peak marker that drops under gravity like
-  a water droplet instead of a linear decay. *Settings: Scale, Stroke Weight, Intensity, Afterglow.*
+  a water droplet instead of a linear decay. *Settings: Scale, Stroke Weight, Intensity, Colors
+  (White, Rainbow, Neon Cyan).*
 - **Goniometer**: a stereo phase scope -- plots left/right on the mid/side axes, so mono content
   collapses to a vertical line and phase problems fan out sideways -- plus a running phase
   correlation readout. *Settings: trail persistence.*
@@ -41,9 +43,11 @@ on the device: Spotify, YouTube Music, or anything else.
   brighter/darker/bassier than the last minute or so, rather than a comparison to an arbitrary line.
 - **Rainbow Spectrum**: a mirrored FFT bar spectrum -- bars reflect top and bottom off a horizontal
   center axis instead of growing from the bottom only -- with a fixed horizontal rainbow gradient
-  (blue/purple through magenta and orange to yellow) and a soft glow, on pure black.
+  (blue/purple through magenta and orange to yellow) and a soft glow, on pure black. *Settings:
+  Scale, Stroke Weight, Height.*
 - **Neon Cyan Pulse**: the same mirrored-bar idea, denser and thinner, each bar its own cyan-to-
   white gradient from the center out to its tip, with a stronger glow for a nightclub LED-wall feel.
+  *Settings: Scale, Stroke Weight, Height.*
 
 ## How the meter works
 
@@ -89,10 +93,13 @@ bar also carries its own falling "droplet" peak marker: it snaps to a bar's new 
 falls back down under constant acceleration -- not a fixed linear or exponential rate -- exactly
 like a real water droplet, resting back on top of the bar once it catches up. `WaveformScreen`
 draws each bar as a stroked line with a round cap, and each droplet as a small circle that stretches
-into a teardrop shape in proportion to its current fall speed. Rendered into a persistent off-screen
-bitmap that's faded (not cleared) every frame, which drives both the soft glow (a blurred duplicate
-drawn first) and the trailing afterglow. A gear icon shown only in waveform mode opens a settings
-panel with Scale (bar height), Stroke Weight (bar/droplet width), Intensity, and Afterglow sliders.
+into a teardrop shape in proportion to its current fall speed, in either solid white, a horizontal
+rainbow gradient across the row, or a per-bar cyan-to-white gradient from base to tip, per
+`WaveformSettings.colorScheme`. Bars and droplets are drawn once, solid, into their own bitmap; the
+glow is a *single* blurred copy of that whole layer rather than a per-shape blur, since
+`BlurMaskFilter`'s cost is dominated by per-call overhead -- the same technique Rainbow Spectrum and
+Neon Cyan Pulse use (see below). A gear icon shown only in waveform mode opens a settings panel with
+Scale (bar height), Stroke Weight (bar/droplet width), Intensity, and Colors sliders.
 
 FFT band levels are now properly normalized by FFT size before being converted to dB (see
 `SpectrumAnalyzer.computeBands`) -- without that division, raw magnitude scales with FFT size, so
@@ -129,12 +136,17 @@ until Waveform (and now the 12-bar EQ) started depending on genuine per-band con
 - **Rainbow Spectrum** and **Neon Cyan Pulse**: `RainbowSpectrumScreen` and `NeonCyanPulseScreen`
   both render the same [SpectrumEngine] bands directly, with no engine or DSP of their own -- the
   mirrored top/bottom reflection, colors, bar density, and glow are pure rendering choices on
-  already-smoothed data. Neon Cyan Pulse's denser row comes from linearly interpolating between
-  adjacent bands rather than a higher-resolution FFT. Both draw into an off-screen bitmap cleared
-  (not faded) every frame, purely so `BlurMaskFilter` has a software canvas to blur against --
-  Android silently ignores mask filters on Compose's hardware-accelerated canvas, the same reason
-  Waveform and Goniometer's glow/afterglow go through a bitmap. Bar count, sensitivity gamma, and
-  glow radius/alpha for both are named constants at the top of each file for easy tuning.
+  already-smoothed data, tunable through their own `BarSpectrumSettings` (Scale, Stroke Weight,
+  Height). Neon Cyan Pulse's denser row comes from linearly interpolating between adjacent bands
+  rather than a higher-resolution FFT. Both draw all bars solid into one bitmap, then blur *that
+  whole composited layer once* for the glow, rather than blurring each bar individually --
+  `BlurMaskFilter`'s cost is dominated by per-call overhead, so one blur pass over the full row is
+  far cheaper than 28-56 separate ones while looking effectively identical, which is what keeps
+  both modes smooth on mid-range devices. (The bitmap itself, cleared rather than faded each frame,
+  exists purely so `BlurMaskFilter` has a software canvas to blur against -- Android silently
+  ignores mask filters on Compose's hardware-accelerated canvas, the same reason Waveform and
+  Goniometer's glow/trail go through a bitmap.) Bar count, sensitivity gamma, and glow radius/alpha
+  for both are named constants at the top of each file.
 
 Every engine is stepped every frame regardless of which mode is showing, so switching among most
 modes shows a live reading immediately instead of a frozen one -- the two exceptions are Loudness
@@ -166,6 +178,18 @@ app-wide settings screen:
   private repo's releases API returns 404/403, so a failed check just says so rather than crashing.
   An "Check Automatically" toggle runs the same check silently once when Settings opens.
 - **About**: version number and "vibe coded with love by Samuel Nicholas Salvador/Veera Krishnan."
+
+## App icon
+
+A proper Android adaptive icon (`mipmap-anydpi-v26/ic_launcher.xml`, layering
+`drawable/ic_launcher_background` and `ic_launcher_foreground`) rather than a single flat drawable
+-- a plain flat icon gets wrapped in a launcher-synthesized white circle with the whole icon shrunk
+to fit inside it, which is why it used to show up as a small square VU gauge floating in an
+unrelated white circle. The foreground is a circular gauge face (ticks, needle, pivot) sized to sit
+within the adaptive icon's 66dp safe zone, so it reads as an intentional circular badge and isn't
+clipped regardless of which mask shape (circle, squircle, rounded square) a given launcher uses.
+`mipmap/ic_launcher.xml` (no density qualifier) is a flattened fallback for API 24-25, which can't
+load the adaptive icon format.
 
 ## Building
 

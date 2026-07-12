@@ -28,22 +28,23 @@ private const val SENSITIVITY_GAMMA = 0.85f
 
 /** Larger radius and alpha than Rainbow Spectrum's glow -- the "stronger glow" nightclub LED-wall feel. */
 private const val GLOW_RADIUS_FRACTION = 0.028f
-private const val GLOW_ALPHA = 170
-
-private val CYAN = Color(0xFF25E6FF)
-private val WHITE_HOT = Color(0xFFFFFFFF)
+private const val GLOW_ALPHA = 190
 
 /**
  * A mirrored FFT bar spectrum, denser and thinner than [RainbowSpectrumScreen]: each bar is its
  * own cyan-to-white gradient running from the center axis out to its tip on both halves, with a
  * stronger glow, on a pure black background. Bar count is doubled past [SpectrumEngine]'s own band
- * count by linearly interpolating between adjacent bands -- a rendering-only choice, not new DSP --
- * for a smoother, denser-looking row than one bar per band would give. Rendered into a bitmap
- * cleared (not faded) every frame, purely so [BlurMaskFilter] has a software canvas to blur against.
+ * count by linearly interpolating between adjacent bands -- a rendering-only choice, not new DSP.
+ *
+ * Bars are drawn once, solid (each with its own gradient), into their own bitmap; the glow is a
+ * *single* blurred copy of that whole composited layer, not a per-bar blur -- the same technique
+ * [RainbowSpectrumScreen] uses, since `BlurMaskFilter`'s cost is dominated by per-call overhead and
+ * this mode already draws twice as many bars.
  */
 @Composable
-fun NeonCyanPulseScreen(engine: SpectrumEngine) {
-    val trailHolder = remember { arrayOfNulls<Bitmap>(1) }
+fun NeonCyanPulseScreen(engine: SpectrumEngine, settings: BarSpectrumSettings) {
+    val barsHolder = remember { arrayOfNulls<Bitmap>(1) }
+    val glowHolder = remember { arrayOfNulls<Bitmap>(1) }
 
     Canvas(modifier = Modifier.fillMaxSize()) {
         // Reading elapsed (Compose state) here is what makes this Canvas redraw every frame --
@@ -53,19 +54,23 @@ fun NeonCyanPulseScreen(engine: SpectrumEngine) {
 
         val widthPx = size.width.toInt().coerceAtLeast(1)
         val heightPx = size.height.toInt().coerceAtLeast(1)
-        var trail = trailHolder[0]
-        if (trail == null || trail.width != widthPx || trail.height != heightPx) {
-            trail = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
-            trailHolder[0] = trail
+        var bars = barsHolder[0]
+        if (bars == null || bars.width != widthPx || bars.height != heightPx) {
+            bars = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
+            barsHolder[0] = bars
         }
-        val trailCanvas = AndroidCanvas(trail)
-        trailCanvas.drawColor(0, PorterDuff.Mode.CLEAR)
+        var glow = glowHolder[0]
+        if (glow == null || glow.width != widthPx || glow.height != heightPx) {
+            glow = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
+            glowHolder[0] = glow
+        }
+        val barsCanvas = AndroidCanvas(bars)
+        barsCanvas.drawColor(0, PorterDuff.Mode.CLEAR)
 
         val centerY = size.height / 2f
-        val maxHalf = size.height * 0.46f
+        val maxHalf = size.height * settings.height
         val pitch = size.width / BAR_COUNT
-        val barWidth = pitch * BAR_WIDTH_FRACTION
-        val glowRadius = size.minDimension * GLOW_RADIUS_FRACTION
+        val barWidth = pitch * BAR_WIDTH_FRACTION * settings.strokeWeight
 
         val barPaint = AndroidPaint().apply {
             isAntiAlias = true
@@ -75,7 +80,8 @@ fun NeonCyanPulseScreen(engine: SpectrumEngine) {
         }
 
         for (i in 0 until BAR_COUNT) {
-            val level = interpolatedBand(engine.bands, i, BAR_COUNT).coerceIn(0f, 1f).pow(SENSITIVITY_GAMMA)
+            val level = (interpolatedBand(engine.bands, i, BAR_COUNT).coerceIn(0f, 1f).pow(SENSITIVITY_GAMMA) * settings.scale)
+                .coerceIn(0f, 1f)
             val half = (level * maxHalf).coerceAtLeast(barWidth * 0.3f)
             val cx = (i + 0.5f) * pitch
             val topY = centerY - half
@@ -83,22 +89,25 @@ fun NeonCyanPulseScreen(engine: SpectrumEngine) {
 
             barPaint.shader = LinearGradient(
                 cx, topY, cx, bottomY,
-                intArrayOf(WHITE_HOT.toArgb(), CYAN.toArgb(), WHITE_HOT.toArgb()),
+                intArrayOf(NEON_WHITE_HOT.toArgb(), NEON_CYAN.toArgb(), NEON_WHITE_HOT.toArgb()),
                 floatArrayOf(0f, 0.5f, 1f),
                 Shader.TileMode.CLAMP,
             )
-
-            barPaint.maskFilter = BlurMaskFilter(glowRadius, BlurMaskFilter.Blur.NORMAL)
-            barPaint.alpha = GLOW_ALPHA
-            trailCanvas.drawLine(cx, topY, cx, bottomY, barPaint)
-
-            barPaint.maskFilter = null
-            barPaint.alpha = 255
-            trailCanvas.drawLine(cx, topY, cx, bottomY, barPaint)
+            barsCanvas.drawLine(cx, topY, cx, bottomY, barPaint)
         }
 
+        val glowCanvas = AndroidCanvas(glow)
+        glowCanvas.drawColor(0, PorterDuff.Mode.CLEAR)
+        val glowPaint = AndroidPaint().apply {
+            isAntiAlias = true
+            alpha = GLOW_ALPHA
+            maskFilter = BlurMaskFilter(size.minDimension * GLOW_RADIUS_FRACTION, BlurMaskFilter.Blur.NORMAL)
+        }
+        glowCanvas.drawBitmap(bars, 0f, 0f, glowPaint)
+
         drawRect(color = Color.Black)
-        drawImage(trail.asImageBitmap())
+        drawImage(glow.asImageBitmap())
+        drawImage(bars.asImageBitmap())
     }
 }
 
