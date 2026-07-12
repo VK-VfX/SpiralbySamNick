@@ -22,13 +22,19 @@ internal fun rainbowColor(t: Float): Color {
         val (t1, c1) = RAINBOW_STOPS[i + 1]
         if (clamped <= t1 || i == RAINBOW_STOPS.size - 2) {
             val localT = ((clamped - t0) / (t1 - t0)).coerceIn(0f, 1f)
-            return lerpColor(c0, c1, localT)
+            return lerpGradientColor(c0, c1, localT)
         }
     }
     return RAINBOW_STOPS.last().second
 }
 
-internal fun lerpColor(a: Color, b: Color, t: Float): Color = Color(
+/**
+ * Named distinctly from the several file-private `lerpColor` helpers elsewhere (SpectrumScreen,
+ * VuMeterScreen) -- Kotlin flags identically-signatured top-level functions in the same package as
+ * conflicting overloads even when all but one are private, since visibility only controls
+ * accessibility, not whether the compiler treats them as the same overload set.
+ */
+internal fun lerpGradientColor(a: Color, b: Color, t: Float): Color = Color(
     red = a.red + (b.red - a.red) * t,
     green = a.green + (b.green - a.green) * t,
     blue = a.blue + (b.blue - a.blue) * t,
