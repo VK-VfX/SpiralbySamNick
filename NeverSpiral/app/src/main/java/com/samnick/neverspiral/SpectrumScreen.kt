@@ -1,5 +1,10 @@
 package com.samnick.neverspiral
 
+import android.graphics.Bitmap
+import android.graphics.BlurMaskFilter
+import android.graphics.Canvas as AndroidCanvas
+import android.graphics.Paint as AndroidPaint
+import android.graphics.PorterDuff
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -10,6 +15,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontFamily
@@ -31,9 +38,13 @@ private val CLASSIC_ORANGE = Color(0xFFF08A2E)
 
 /** Renders [engine]'s smoothed frequency bands as a bar spectrum, in either the cool blue-to-white
  * studio palette (red reserved for the clip zone right at the top) or a classic green-yellow-red
- * gradient, per [settings]. */
+ * gradient, per [settings]. Bars get a soft blurred glow, a single blurred copy of the whole row
+ * composited before the crisp bars rather than a per-bar blur -- the same technique the mirrored
+ * bar spectrum modes use, since blurring 28 bars individually every frame is far more expensive
+ * than blurring one composited layer once. */
 @Composable
 fun SpectrumScreen(engine: SpectrumEngine, settings: SpectrumSettings) {
+    val glowHolder = remember { arrayOfNulls<Bitmap>(1) }
     val textMeasurer = rememberTextMeasurer()
     val gridLabels = remember(textMeasurer) {
         GRID_DB_LINES.map { db ->
@@ -68,6 +79,29 @@ fun SpectrumScreen(engine: SpectrumEngine, settings: SpectrumSettings) {
         val barWidth = (usableWidth - gap * (bandCount - 1)) / bandCount
         val baseline = size.height * 0.82f
         val maxBarHeight = size.height * 0.62f
+
+        // A single blurred composite of every bar, drawn once before the crisp bars themselves --
+        // far cheaper than blurring each of the bandCount bars individually every frame.
+        var glow = glowHolder[0]
+        if (glow == null || glow.width != size.width.toInt() || glow.height != size.height.toInt()) {
+            glow = Bitmap.createBitmap(size.width.toInt().coerceAtLeast(1), size.height.toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
+            glowHolder[0] = glow
+        }
+        val glowCanvas = AndroidCanvas(glow)
+        glowCanvas.drawColor(0, PorterDuff.Mode.CLEAR)
+        val glowPaint = AndroidPaint().apply {
+            isAntiAlias = true
+            alpha = 140
+            maskFilter = BlurMaskFilter(size.minDimension * 0.02f, BlurMaskFilter.Blur.NORMAL)
+        }
+        for (i in 0 until bandCount) {
+            val level = engine.bands[i].coerceIn(0f, 1f)
+            val barHeight = (level * maxBarHeight).coerceAtLeast(barWidth * 0.3f)
+            val x = paddingX + i * (barWidth + gap)
+            glowPaint.color = colorForLevel(level, settings.colorScheme).toArgb()
+            glowCanvas.drawRect(x, baseline - barHeight, x + barWidth, baseline, glowPaint)
+        }
+        drawImage(glow.asImageBitmap())
 
         // dB reference grid, drawn first so bars sit on top of it.
         for ((db, label) in gridLabels) {

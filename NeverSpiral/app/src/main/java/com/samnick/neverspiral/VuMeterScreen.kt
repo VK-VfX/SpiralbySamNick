@@ -1,5 +1,10 @@
 package com.samnick.neverspiral
 
+import android.graphics.Bitmap
+import android.graphics.BlurMaskFilter
+import android.graphics.Canvas as AndroidCanvas
+import android.graphics.Paint as AndroidPaint
+import android.graphics.PorterDuff
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -10,8 +15,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -41,9 +48,14 @@ private val REDLINE_COLOR = VisualizerTheme.CRITICAL
 private val LED_OFF_COLOR = Color(0xFF2A1214)
 private val LED_ON_COLOR = VisualizerTheme.CRITICAL
 
-/** Pure rendering of [meter]'s current reading; stepping happens in the shared frame loop. */
+/**
+ * Pure rendering of [meter]'s current reading; stepping happens in the shared frame loop. The
+ * needle gets a soft blurred glow behind it, the same single-bitmap-blur technique the mirrored
+ * bar spectrum modes use.
+ */
 @Composable
 fun VuMeterScreen(meter: VuMeterEngine) {
+    val glowHolder = remember { arrayOfNulls<Bitmap>(1) }
     val textMeasurer = rememberTextMeasurer()
     val tickLayouts = remember(textMeasurer) {
         TICK_VALUES.map { value ->
@@ -75,6 +87,39 @@ fun VuMeterScreen(meter: VuMeterEngine) {
             (size.width - meterWidth) / 2f,
             (size.height - meterHeight) / 2f,
         )
+
+        // A single blurred copy of the needle, composited before the crisp native drawing below,
+        // so it reads as a soft glow behind the needle -- BlurMaskFilter needs a software canvas
+        // (Android silently ignores mask filters on Compose's hardware-accelerated one), which is
+        // why this goes through an offscreen bitmap cleared fresh every frame.
+        val widthPx = size.width.toInt().coerceAtLeast(1)
+        val heightPx = size.height.toInt().coerceAtLeast(1)
+        var glow = glowHolder[0]
+        if (glow == null || glow.width != widthPx || glow.height != heightPx) {
+            glow = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
+            glowHolder[0] = glow
+        }
+        val glowCanvas = AndroidCanvas(glow)
+        glowCanvas.drawColor(0, PorterDuff.Mode.CLEAR)
+
+        val pivot = Offset(topLeft.x + meterWidth / 2f, topLeft.y + meterHeight * 1.05f)
+        val needleLength = meterHeight * 0.90f
+        val needleAngle = Math.toRadians(90.0 - leanForDbVu(meter.dbVu))
+        val tip = Offset(
+            pivot.x + needleLength * cos(needleAngle).toFloat(),
+            pivot.y - needleLength * sin(needleAngle).toFloat(),
+        )
+        val glowPaint = AndroidPaint().apply {
+            isAntiAlias = true
+            style = AndroidPaint.Style.STROKE
+            strokeCap = AndroidPaint.Cap.ROUND
+            strokeWidth = 6f
+            color = NEEDLE_COLOR.toArgb()
+            alpha = 190
+            maskFilter = BlurMaskFilter(size.minDimension * 0.022f, BlurMaskFilter.Blur.NORMAL)
+        }
+        glowCanvas.drawLine(pivot.x, pivot.y, tip.x, tip.y, glowPaint)
+        drawImage(glow.asImageBitmap())
 
         drawVuMeter(textMeasurer, tickLayouts, vuLabelLayout, topLeft, meterWidth, meterHeight, meter.dbVu, meter.peakLedBrightness())
     }

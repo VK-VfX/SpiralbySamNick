@@ -1,5 +1,10 @@
 package com.samnick.neverspiral
 
+import android.graphics.Bitmap
+import android.graphics.BlurMaskFilter
+import android.graphics.Canvas as AndroidCanvas
+import android.graphics.Paint as AndroidPaint
+import android.graphics.PorterDuff
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -9,6 +14,8 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontFamily
@@ -30,10 +37,13 @@ private val FREQ_LABELS_HZ = listOf(60f, 250f, 1000f, 4000f, 16000f)
  * receivers and separates -- rather than smooth continuous bars: each band lights up a stack of
  * individual segments bottom-to-top, with a bright peak-hold segment riding above them. Reuses
  * the same [SpectrumEngine] data as the Spectrum view (fast-rise/slow-fall bands, peak-hold caps)
- * so this is a different rendering treatment of already-proven data, not new DSP.
+ * so this is a different rendering treatment of already-proven data, not new DSP. Lit segments get
+ * a soft blurred glow -- a single blurred composite of just the lit segments, drawn once before the
+ * crisp LED columns -- the same single-bitmap-blur technique the bar spectrum modes use.
  */
 @Composable
 fun GraphicEqScreen(engine: SpectrumEngine) {
+    val glowHolder = remember { arrayOfNulls<Bitmap>(1) }
     val textMeasurer = rememberTextMeasurer()
     val gridLabels = remember(textMeasurer) {
         GRID_DB_LINES.map { db ->
@@ -72,6 +82,32 @@ fun GraphicEqScreen(engine: SpectrumEngine) {
         val totalHeight = bottom - top
         val segmentPitch = totalHeight / SEGMENT_COUNT
         val segmentHeight = segmentPitch * (1f - SEGMENT_GAP_FRACTION)
+
+        // A single blurred composite of just the lit segments, drawn once before the crisp LED
+        // columns -- far cheaper than blurring each lit segment individually every frame.
+        var glow = glowHolder[0]
+        if (glow == null || glow.width != size.width.toInt() || glow.height != size.height.toInt()) {
+            glow = Bitmap.createBitmap(size.width.toInt().coerceAtLeast(1), size.height.toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
+            glowHolder[0] = glow
+        }
+        val glowCanvas = AndroidCanvas(glow)
+        glowCanvas.drawColor(0, PorterDuff.Mode.CLEAR)
+        val glowPaint = AndroidPaint().apply {
+            isAntiAlias = true
+            alpha = 140
+            maskFilter = BlurMaskFilter(size.minDimension * 0.02f, BlurMaskFilter.Blur.NORMAL)
+        }
+        for (i in 0 until bandCount) {
+            val level = engine.bands[i].coerceIn(0f, 1f)
+            val litSegments = (level * SEGMENT_COUNT).toInt().coerceIn(0, SEGMENT_COUNT)
+            val x = paddingX + i * columnPitch + (columnPitch - columnWidth) / 2f
+            for (s in 0 until litSegments) {
+                val y = bottom - (s + 1) * segmentPitch + (segmentPitch - segmentHeight)
+                glowPaint.color = colorForSegment(s.toFloat() / SEGMENT_COUNT).toArgb()
+                glowCanvas.drawRect(x, y, x + columnWidth, y + segmentHeight, glowPaint)
+            }
+        }
+        drawImage(glow.asImageBitmap())
 
         // dB reference grid, drawn first so the LED columns sit on top of it.
         for ((db, label) in gridLabels) {

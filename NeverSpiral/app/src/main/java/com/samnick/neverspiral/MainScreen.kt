@@ -50,28 +50,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.isActive
 
-private enum class VisualMode(val label: String) {
-    VU_METER("VU Meter"),
-    SPECTRUM("Spectrum"),
-    WAVEFORM("Waveform"),
-    GONIOMETER("Goniometer"),
-    LOUDNESS("Loudness"),
-    GRAPHIC_EQ("Graphic EQ"),
-    PEAK_RMS("Peak / RMS"),
-    TONAL_BALANCE("Tonal Balance"),
-    RAINBOW_SPECTRUM("Rainbow Spectrum"),
-    NEON_CYAN_PULSE("Neon Cyan Pulse"),
-    ;
-
-    fun next(): VisualMode = entries[(ordinal + 1) % entries.size]
-    fun previous(): VisualMode = entries[(ordinal - 1 + entries.size) % entries.size]
-}
-
 /** Modes with their own gear-icon settings panel. */
 private val MODES_WITH_SETTINGS = setOf(
     VisualMode.VU_METER,
     VisualMode.SPECTRUM,
-    VisualMode.WAVEFORM,
     VisualMode.GONIOMETER,
     VisualMode.LOUDNESS,
     VisualMode.RAINBOW_SPECTRUM,
@@ -81,19 +63,21 @@ private val MODES_WITH_SETTINGS = setOf(
 private const val SWIPE_THRESHOLD_PX = 90f
 
 /**
- * Hosts all ten visualizer modes plus the single shared "Visualize music" capture toggle. Tap
- * to cycle forward, swipe left/right to cycle either direction, or long-press to jump straight to
- * a mode via a picker grid -- tap-only stopped scaling once there were this many modes to page
- * through. A hamburger icon in the top-right opens the app-wide [AppSettingsScreen] (player
- * shortcuts, keep-screen-on, OTA updates, about) -- distinct from each mode's own gear-icon tuning
- * panel. Every engine is stepped every frame regardless of which mode is showing (except Loudness
- * and Goniometer's per-sample work, which only runs while their mode is actually visible -- the
- * heaviest per-sample processing in the app, worth skipping when nothing is reading it), so
- * switching among the other modes still feels instant rather than starting from a frozen reading.
- * Rainbow Spectrum and Neon Cyan Pulse are pure rendering treatments of [SpectrumEngine]'s already
- * fast-rise/slower-fall smoothed bands, the same data [SpectrumScreen] and [GraphicEqScreen] draw,
- * so they need no dedicated engine of their own -- just their own [BarSpectrumSettings] for Scale,
- * Stroke Weight, and Height, same as every other mode's gear-icon panel.
+ * Hosts up to nine visualizer modes (fewer if the user's hidden some via the "Modes" section in
+ * [AppSettingsScreen], see [ModePreferences]) plus the single shared "Visualize music" capture
+ * toggle. Tap to cycle forward, swipe left/right to cycle either direction, or long-press to jump
+ * straight to a mode via a picker grid -- tap-only stopped scaling once there were this many
+ * modes to page through. A hamburger icon in the top-right opens the app-wide [AppSettingsScreen]
+ * (player shortcuts, keep-screen-on, OTA updates, mode customization, about) -- distinct from
+ * each mode's own gear-icon tuning panel. Every engine is stepped every frame regardless of which
+ * mode is showing (except Loudness and Goniometer's per-sample work, which only runs while their
+ * mode is actually visible -- the heaviest per-sample processing in the app, worth skipping when
+ * nothing is reading it), so switching among the other modes still feels instant rather than
+ * starting from a frozen reading. Rainbow Spectrum and Neon Cyan Pulse are pure rendering
+ * treatments of [SpectrumEngine]'s already fast-rise/slower-fall smoothed bands, the same data
+ * [SpectrumScreen] and [GraphicEqScreen] draw, so they need no dedicated engine of their own --
+ * just their own [BarSpectrumSettings] for Scale, Stroke Weight, and Height, same as every other
+ * mode's gear-icon panel.
  */
 @Composable
 fun MainScreen() {
@@ -107,16 +91,6 @@ fun MainScreen() {
     val spectrumSettings = remember {
         val ordinal = SettingsStore.getInt(context, KEY_SPECTRUM_COLOR_SCHEME, SpectrumColorScheme.COOL.ordinal)
         SpectrumSettings(SpectrumColorScheme.entries.getOrElse(ordinal) { SpectrumColorScheme.COOL })
-    }
-    val waveform = remember { WaveformEngine() }
-    val waveformSettings = remember {
-        val ordinal = SettingsStore.getInt(context, KEY_WAVEFORM_COLOR_SCHEME, WaveformColorScheme.WHITE.ordinal)
-        WaveformSettings(
-            initialScale = SettingsStore.getFloat(context, KEY_WAVEFORM_SCALE, 1f),
-            initialStrokeWeight = SettingsStore.getFloat(context, KEY_WAVEFORM_STROKE_WEIGHT, 1.6f),
-            initialIntensity = SettingsStore.getFloat(context, KEY_WAVEFORM_INTENSITY, 1f),
-            initialColorScheme = WaveformColorScheme.entries.getOrElse(ordinal) { WaveformColorScheme.WHITE },
-        )
     }
     val goniometer = remember { GoniometerEngine() }
     val goniometerSettings = remember {
@@ -145,7 +119,8 @@ fun MainScreen() {
     }
 
     var visualizerOn by remember { mutableStateOf(false) }
-    var mode by remember { mutableStateOf(VisualMode.VU_METER) }
+    var visibleModes by remember { mutableStateOf(ModePreferences.loadVisible(context)) }
+    var mode by remember { mutableStateOf(visibleModes.firstOrNull() ?: VisualMode.VU_METER) }
     var showSettings by remember { mutableStateOf(false) }
     var showModePicker by remember { mutableStateOf(false) }
     var showAppSettings by remember { mutableStateOf(false) }
@@ -167,7 +142,7 @@ fun MainScreen() {
         }
     }
 
-    LaunchedEffect(vuMeter, spectrum, waveform, goniometer, loudness, peakRms, tonalBalance) {
+    LaunchedEffect(vuMeter, spectrum, goniometer, loudness, peakRms, tonalBalance) {
         var lastFrameNanos = 0L
         var lastWaveform: FloatArray? = null
         var lastLeft: FloatArray? = null
@@ -180,10 +155,6 @@ fun MainScreen() {
                 spectrum.step(dt, snapshot.bands)
                 peakRms.step(dt, snapshot.raw, snapshot.peak)
                 tonalBalance.step(dt, snapshot.bands)
-                // Waveform is now a 12-bar EQ driven by the same FFT bands as Spectrum, so it just
-                // eases toward the latest snapshot every frame -- no dedupe needed, unlike raw
-                // sample buffers, since re-easing toward the same target is harmless.
-                waveform.step(dt, snapshot.bands)
                 // Audio buffers arrive slower than the display refreshes, so most frames see the
                 // same snapshot as last time -- only fold a chunk in once, the first frame it
                 // shows up, or it would get double-counted into whichever scrolling history reads
@@ -241,7 +212,7 @@ fun MainScreen() {
                     .fillMaxWidth()
                     .pointerInput(Unit) {
                         detectTapGestures(
-                            onTap = { mode = mode.next() },
+                            onTap = { mode = mode.nextIn(visibleModes) },
                             onLongPress = { showModePicker = true },
                         )
                     }
@@ -255,9 +226,9 @@ fun MainScreen() {
                             },
                             onDragEnd = {
                                 if (totalDragX <= -SWIPE_THRESHOLD_PX) {
-                                    mode = mode.next()
+                                    mode = mode.nextIn(visibleModes)
                                 } else if (totalDragX >= SWIPE_THRESHOLD_PX) {
-                                    mode = mode.previous()
+                                    mode = mode.previousIn(visibleModes)
                                 }
                             },
                         )
@@ -271,7 +242,6 @@ fun MainScreen() {
                     when (current) {
                         VisualMode.VU_METER -> VuMeterScreen(vuMeter)
                         VisualMode.SPECTRUM -> SpectrumScreen(spectrum, spectrumSettings)
-                        VisualMode.WAVEFORM -> WaveformScreen(waveform, waveformSettings)
                         VisualMode.GONIOMETER -> GoniometerScreen(goniometer, goniometerSettings)
                         VisualMode.LOUDNESS -> LoudnessScreen(loudness, loudnessSettings)
                         VisualMode.GRAPHIC_EQ -> GraphicEqScreen(spectrum)
@@ -296,6 +266,7 @@ fun MainScreen() {
 
                 ModeIndicatorDots(
                     currentMode = mode,
+                    modes = visibleModes,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .padding(bottom = 10.dp),
@@ -332,7 +303,6 @@ fun MainScreen() {
                                 context = context,
                                 vuMeterSettings = vuMeterSettings,
                                 spectrumSettings = spectrumSettings,
-                                waveformSettings = waveformSettings,
                                 goniometerSettings = goniometerSettings,
                                 loudnessSettings = loudnessSettings,
                                 rainbowSpectrumSettings = rainbowSpectrumSettings,
@@ -345,6 +315,7 @@ fun MainScreen() {
                 if (showModePicker) {
                     ModePickerOverlay(
                         currentMode = mode,
+                        modes = visibleModes,
                         onSelect = {
                             mode = it
                             showModePicker = false
@@ -361,7 +332,6 @@ fun MainScreen() {
                             AudioCaptureService.stop(context)
                             vuMeter.reset()
                             spectrum.reset()
-                            waveform.reset()
                             goniometer.reset()
                             loudness.reset()
                             peakRms.reset()
@@ -395,7 +365,15 @@ fun MainScreen() {
         }
 
         if (showAppSettings) {
-            AppSettingsScreen(onDismiss = { showAppSettings = false })
+            AppSettingsScreen(
+                onDismiss = {
+                    showAppSettings = false
+                    visibleModes = ModePreferences.loadVisible(context)
+                    if (mode !in visibleModes) {
+                        mode = visibleModes.firstOrNull() ?: mode
+                    }
+                },
+            )
         }
     }
 }
@@ -406,7 +384,6 @@ private fun SettingsPanelContent(
     context: Context,
     vuMeterSettings: VuMeterSettings,
     spectrumSettings: SpectrumSettings,
-    waveformSettings: WaveformSettings,
     goniometerSettings: GoniometerSettings,
     loudnessSettings: LoudnessSettings,
     rainbowSpectrumSettings: BarSpectrumSettings,
@@ -431,40 +408,6 @@ private fun SettingsPanelContent(
             ) {
                 spectrumSettings.colorScheme = it
                 SettingsStore.putInt(context, KEY_SPECTRUM_COLOR_SCHEME, it.ordinal)
-            }
-        }
-        VisualMode.WAVEFORM -> {
-            SettingSliderRow(
-                "Scale",
-                waveformSettings.scale,
-                WaveformSettings.SCALE_MIN..WaveformSettings.SCALE_MAX,
-            ) {
-                waveformSettings.scale = it
-                SettingsStore.putFloat(context, KEY_WAVEFORM_SCALE, it)
-            }
-            SettingSliderRow(
-                "Stroke Weight",
-                waveformSettings.strokeWeight,
-                WaveformSettings.STROKE_WEIGHT_MIN..WaveformSettings.STROKE_WEIGHT_MAX,
-            ) {
-                waveformSettings.strokeWeight = it
-                SettingsStore.putFloat(context, KEY_WAVEFORM_STROKE_WEIGHT, it)
-            }
-            SettingSliderRow(
-                "Intensity",
-                waveformSettings.intensity,
-                WaveformSettings.INTENSITY_MIN..1f,
-            ) {
-                waveformSettings.intensity = it
-                SettingsStore.putFloat(context, KEY_WAVEFORM_INTENSITY, it)
-            }
-            SettingChoiceRow(
-                "Colors",
-                WaveformColorScheme.entries.map { it to it.label },
-                waveformSettings.colorScheme,
-            ) {
-                waveformSettings.colorScheme = it
-                SettingsStore.putInt(context, KEY_WAVEFORM_COLOR_SCHEME, it.ordinal)
             }
         }
         VisualMode.GONIOMETER -> {
@@ -529,9 +472,9 @@ private fun BarSpectrumSettingsPanel(
 }
 
 @Composable
-private fun ModeIndicatorDots(currentMode: VisualMode, modifier: Modifier = Modifier) {
+private fun ModeIndicatorDots(currentMode: VisualMode, modes: List<VisualMode>, modifier: Modifier = Modifier) {
     Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        for (m in VisualMode.entries) {
+        for (m in modes) {
             val isCurrent = m == currentMode
             Box(
                 modifier = Modifier
@@ -543,9 +486,9 @@ private fun ModeIndicatorDots(currentMode: VisualMode, modifier: Modifier = Modi
     }
 }
 
-/** A full-screen picker grid, opened via long-press, for jumping straight to any of the 8 modes. */
+/** A full-screen picker grid, opened via long-press, for jumping straight to any visible mode. */
 @Composable
-private fun ModePickerOverlay(currentMode: VisualMode, onSelect: (VisualMode) -> Unit, onDismiss: () -> Unit) {
+private fun ModePickerOverlay(currentMode: VisualMode, modes: List<VisualMode>, onSelect: (VisualMode) -> Unit, onDismiss: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -560,7 +503,7 @@ private fun ModePickerOverlay(currentMode: VisualMode, onSelect: (VisualMode) ->
                 .border(1.dp, VisualizerTheme.HAIRLINE, RoundedCornerShape(16.dp))
                 .padding(16.dp),
         ) {
-            for (rowModes in VisualMode.entries.chunked(2)) {
+            for (rowModes in modes.chunked(2)) {
                 Row {
                     for (m in rowModes) {
                         val isCurrent = m == currentMode
@@ -591,10 +534,6 @@ private fun ModePickerOverlay(currentMode: VisualMode, onSelect: (VisualMode) ->
 
 private const val KEY_VU_CALIBRATION = "vu_calibration_offset_db"
 private const val KEY_SPECTRUM_COLOR_SCHEME = "spectrum_color_scheme"
-private const val KEY_WAVEFORM_SCALE = "waveform_scale"
-private const val KEY_WAVEFORM_STROKE_WEIGHT = "waveform_stroke_weight"
-private const val KEY_WAVEFORM_INTENSITY = "waveform_intensity"
-private const val KEY_WAVEFORM_COLOR_SCHEME = "waveform_color_scheme"
 private const val KEY_GONIOMETER_TRAIL = "goniometer_trail_persistence"
 private const val KEY_LOUDNESS_TARGET = "loudness_target"
 private const val KEY_RAINBOW_SCALE = "rainbow_spectrum_scale"

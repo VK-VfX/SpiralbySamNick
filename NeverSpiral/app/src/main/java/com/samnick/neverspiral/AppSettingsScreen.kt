@@ -163,6 +163,19 @@ fun AppSettingsScreen(onDismiss: () -> Unit) {
                 }
 
                 Spacer(modifier = Modifier.height(20.dp))
+                SettingsSectionTitle("Modes")
+                Text(
+                    text = "Hide modes you don't use, or reorder them -- tap/swipe cycling, the " +
+                        "long-press picker, and the dots at the bottom of the screen all follow " +
+                        "this order. At least one mode has to stay visible.",
+                    color = VisualizerTheme.TEXT_SECONDARY,
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.padding(bottom = 10.dp),
+                )
+                ModeCustomizationSection(context)
+
+                Spacer(modifier = Modifier.height(20.dp))
                 SettingsSectionTitle("Updates")
                 SettingsToggleRow(
                     label = "Check Automatically",
@@ -260,6 +273,114 @@ private fun PlayerRow(player: PlayerApp, context: Context) {
             fontSize = 11.sp,
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
+/**
+ * Lets the user hide modes and reorder the rest via up/down arrows -- a persisted list is
+ * simpler and less error-prone on a touchscreen than drag-to-reorder, and there are only nine
+ * modes to page through. Reads/writes through [ModePreferences] on every change so [MainScreen]
+ * picks up the new order/visibility the next time this screen is dismissed.
+ */
+@Composable
+private fun ModeCustomizationSection(context: Context) {
+    var order by remember { mutableStateOf(ModePreferences.loadOrder(context)) }
+    var hidden by remember { mutableStateOf(ModePreferences.loadHidden(context)) }
+
+    for ((index, m) in order.withIndex()) {
+        ModeRow(
+            mode = m,
+            enabled = m !in hidden,
+            canMoveUp = index > 0,
+            canMoveDown = index < order.lastIndex,
+            onToggle = { checked ->
+                val visibleCount = order.size - hidden.size
+                if (!checked && visibleCount <= 1) return@ModeRow
+                hidden = if (checked) hidden - m else hidden + m
+                ModePreferences.saveHidden(context, hidden)
+            },
+            onMoveUp = {
+                if (index > 0) {
+                    order = order.toMutableList().apply {
+                        val moved = removeAt(index)
+                        add(index - 1, moved)
+                    }
+                    ModePreferences.saveOrder(context, order)
+                }
+            },
+            onMoveDown = {
+                if (index < order.lastIndex) {
+                    order = order.toMutableList().apply {
+                        val moved = removeAt(index)
+                        add(index + 1, moved)
+                    }
+                    ModePreferences.saveOrder(context, order)
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun ModeRow(
+    mode: VisualMode,
+    enabled: Boolean,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    onToggle: (Boolean) -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(VisualizerTheme.PANEL_RAISED)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = mode.label,
+            color = if (enabled) VisualizerTheme.TEXT_PRIMARY else VisualizerTheme.TEXT_SECONDARY,
+            fontSize = 13.sp,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.weight(1f),
+        )
+        ReorderArrow("▲", canMoveUp, onMoveUp)
+        Spacer(modifier = Modifier.width(4.dp))
+        ReorderArrow("▼", canMoveDown, onMoveDown)
+        Spacer(modifier = Modifier.width(10.dp))
+        Switch(
+            checked = enabled,
+            onCheckedChange = onToggle,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = VisualizerTheme.PANEL,
+                checkedTrackColor = VisualizerTheme.ACCENT,
+                uncheckedThumbColor = VisualizerTheme.TEXT_SECONDARY,
+                uncheckedTrackColor = VisualizerTheme.PANEL_RAISED,
+            ),
+        )
+    }
+}
+
+@Composable
+private fun ReorderArrow(glyph: String, enabled: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(28.dp)
+            .clip(CircleShape)
+            .background(VisualizerTheme.PANEL)
+            .then(if (enabled) Modifier.clickable { onClick() } else Modifier),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = glyph,
+            color = if (enabled) VisualizerTheme.ACCENT else VisualizerTheme.HAIRLINE,
+            fontSize = 12.sp,
+            fontFamily = FontFamily.Monospace,
         )
     }
 }

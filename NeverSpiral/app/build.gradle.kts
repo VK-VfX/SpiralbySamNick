@@ -11,8 +11,8 @@ android {
         applicationId = "com.samnick.neverspiral"
         minSdk = 24
         targetSdk = 34
-        versionCode = 3
-        versionName = "2.0.0"
+        versionCode = 4
+        versionName = "2.1.0"
     }
 
     buildTypes {
@@ -55,4 +55,8 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.animation:animation")
     implementation("androidx.compose.material3:material3")
+
+    // Every engine's ballistics/DSP math is plain Kotlin (no Android framework calls), so these
+    // run as fast plain-JVM tests -- no Robolectric or emulator needed.
+    testImplementation("junit:junit:4.13.2")
 }

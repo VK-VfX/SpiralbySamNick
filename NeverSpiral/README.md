@@ -1,6 +1,6 @@
 # Sam's Visualizer
 
-Ten audio-reactive visualizer modes, styled as a modern dark mastering-suite instrument panel --
+Nine audio-reactive visualizer modes, styled as a modern dark mastering-suite instrument panel --
 flat near-black panels, thin hairline dividers, a cool desaturated accent, and red reserved strictly
 for clip/overload warnings, the way studio metering looks. All driven by whatever music is playing
 on the device: Spotify, YouTube Music, or anything else.
@@ -9,12 +9,15 @@ on the device: Spotify, YouTube Music, or anything else.
 
 - **Tap** anywhere on the visualization to crossfade to the next mode.
 - **Swipe** left or right to move either direction, for when the mode you want is behind you.
-- **Long-press** to open a picker grid and jump straight to any of the 10 modes.
-- A small dot row along the bottom shows which of the 10 modes you're on.
-- Seven modes (VU Meter, Spectrum, Waveform, Goniometer, Loudness, Rainbow Spectrum, Neon Cyan
-  Pulse) have their own tunable settings behind a gear icon in the top-right corner; every setting
-  persists across app restarts.
-- A hamburger icon (top-right, above the visualizer) opens app-wide Settings -- see below.
+- **Long-press** to open a picker grid and jump straight to any visible mode.
+- A small dot row along the bottom shows which mode you're on, among however many are visible.
+- Six modes (VU Meter, Spectrum, Goniometer, Loudness, Rainbow Spectrum, Neon Cyan Pulse) have
+  their own tunable settings behind a gear icon in the top-right corner; every setting persists
+  across app restarts.
+- A hamburger icon (top-right, above the visualizer) opens app-wide Settings -- see below. Its
+  **Modes** section lets you hide modes you don't use and reorder the rest; tap/swipe cycling, the
+  long-press picker, and the dot row all follow that customized order (`ModePreferences`, backed
+  by `SettingsStore`). There are nine modes total when nothing's hidden.
 
 - **VU Meter**: an analog needle meter with correctly calibrated ballistics (not a fake wobble), a
   digital dB readout alongside the needle, and a peak LED that hard-flashes to full brightness the
@@ -23,10 +26,6 @@ on the device: Spotify, YouTube Music, or anything else.
 - **Spectrum**: a real-time FFT bar spectrum, log-spaced across the audible range, with a dB
   reference grid and frequency labels for orientation across the range. *Settings: Cool (blue-to-
   white) or Classic (green-yellow-red) color scheme.*
-- **Waveform**: a classic 12-bar graphic equalizer -- bars sit at fixed positions and only their
-  height reacts live, each with its own falling "droplet" peak marker that drops under gravity like
-  a water droplet instead of a linear decay. *Settings: Scale, Stroke Weight, Intensity, Colors
-  (White, Rainbow, Neon Cyan).*
 - **Goniometer**: a stereo phase scope -- plots left/right on the mid/side axes, so mono content
   collapses to a vertical line and phase problems fan out sideways -- plus a running phase
   correlation readout. *Settings: trail persistence.*
@@ -71,6 +70,9 @@ on the device: Spotify, YouTube Music, or anything else.
 - **Peak LED**: a hard flash, not a gradual pulse -- brightness snaps to full the instant the
   needle hits the top of the scale, then decays smoothly on its own, independent of the needle's
   own much slower ballistic fall, so a single loud hit still reads as a crisp flash.
+- **Glow**: the needle gets a soft blurred glow behind it, drawn as a single blurred copy of just
+  the needle composited before the crisp native needle/panel/ticks/readout -- the same
+  single-bitmap-blur technique described under Rainbow Spectrum and Neon Cyan Pulse below.
 
 ## How the spectrum view works
 
@@ -81,31 +83,15 @@ so bars react instantly to transients but settle down smoothly instead of jitter
 colors each bar per the selected `SpectrumColorScheme` (a cool blue-to-cyan-to-white gradient, or a
 classic green-to-red one -- red is always reserved for the clip zone right at the top rather than
 spread across the whole range), and draws a dB reference grid plus frequency labels (60Hz, 250Hz,
-1kHz, 4kHz, 16kHz) for orientation.
+1kHz, 4kHz, 16kHz) for orientation. Bars get the same single-composited-bitmap blur glow described
+under Rainbow Spectrum and Neon Cyan Pulse below, drawn once behind the crisp bars/grid/labels
+rather than blurred individually.
 
-## How the waveform view works
-
-`WaveformEngine` is a classic 12-bar graphic equalizer: bar *positions* never move, only their
-height reacts, live, to the same log-spaced FFT bands [SpectrumEngine] draws (grouped down from 28
-to 12, bass on the left through treble on the right), using the same fast-rise/slower-fall
-ballistics so it reacts to transients immediately but settles smoothly instead of jittering. Each
-bar also carries its own falling "droplet" peak marker: it snaps to a bar's new peak instantly, then
-falls back down under constant acceleration -- not a fixed linear or exponential rate -- exactly
-like a real water droplet, resting back on top of the bar once it catches up. `WaveformScreen`
-draws each bar as a stroked line with a round cap, and each droplet as a small circle that stretches
-into a teardrop shape in proportion to its current fall speed, in either solid white, a horizontal
-rainbow gradient across the row, or a per-bar cyan-to-white gradient from base to tip, per
-`WaveformSettings.colorScheme`. Bars and droplets are drawn once, solid, into their own bitmap; the
-glow is a *single* blurred copy of that whole layer rather than a per-shape blur, since
-`BlurMaskFilter`'s cost is dominated by per-call overhead -- the same technique Rainbow Spectrum and
-Neon Cyan Pulse use (see below). A gear icon shown only in waveform mode opens a settings panel with
-Scale (bar height), Stroke Weight (bar/droplet width), Intensity, and Colors sliders.
-
-FFT band levels are now properly normalized by FFT size before being converted to dB (see
+FFT band levels are properly normalized by FFT size before being converted to dB (see
 `SpectrumAnalyzer.computeBands`) -- without that division, raw magnitude scales with FFT size, so
 every band read pinned near the 0dB ceiling regardless of what was actually playing. That bug had
 been present since Spectrum was first built; it just never produced an obviously-wrong picture
-until Waveform (and now the 12-bar EQ) started depending on genuine per-band contrast to work at all.
+until other modes started depending on genuine per-band contrast to work at all.
 
 ## How the newer instruments work
 
@@ -125,7 +111,9 @@ until Waveform (and now the 12-bar EQ) started depending on genuine per-band con
 - **Graphic EQ**: `GraphicEqScreen` renders the same [SpectrumEngine] bands and peak-hold caps as
   the Spectrum view, but as a bank of discrete lit/unlit segments per band instead of continuous
   bars -- the classic look of a receiver's built-in spectrum display -- so it's a different
-  rendering treatment of already-proven data rather than a new capture or DSP path.
+  rendering treatment of already-proven data rather than a new capture or DSP path. Lit segments
+  (unlit ones are skipped) get the same single-composited-bitmap blur glow as the other bar-based
+  modes.
 - **Peak / RMS**: `PeakRmsEngine` gives peak a near-instant attack and a slower release (unlike the
   VU meter's symmetric ballistics), so it actually catches transients, plus a hold cap that latches
   and slowly falls. RMS uses the same ~300ms window as the VU meter. The gap between them, the
@@ -144,9 +132,9 @@ until Waveform (and now the 12-bar EQ) started depending on genuine per-band con
   far cheaper than 28-56 separate ones while looking effectively identical, which is what keeps
   both modes smooth on mid-range devices. (The bitmap itself, cleared rather than faded each frame,
   exists purely so `BlurMaskFilter` has a software canvas to blur against -- Android silently
-  ignores mask filters on Compose's hardware-accelerated canvas, the same reason Waveform and
-  Goniometer's glow/trail go through a bitmap.) Bar count, sensitivity gamma, and glow radius/alpha
-  for both are named constants at the top of each file.
+  ignores mask filters on Compose's hardware-accelerated canvas, the same reason Goniometer's
+  trail goes through a bitmap.) Bar count, sensitivity gamma, and glow radius/alpha for both are
+  named constants at the top of each file.
 
 Every engine is stepped every frame regardless of which mode is showing, so switching among most
 modes shows a live reading immediately instead of a frozen one -- the two exceptions are Loudness
@@ -170,6 +158,11 @@ app-wide settings screen:
 - **Display**: a "Keep Screen On" toggle. Android doesn't let third-party apps change the system
   screen-timeout duration directly (that needs the sensitive `WRITE_SETTINGS` permission), so this
   uses `View.keepScreenOn` -- the standard, non-invasive way to prevent sleep while the app is open.
+- **Modes**: hide modes you don't use, and reorder the rest via up/down arrows next to each one
+  (drag-to-reorder felt riskier on a touchscreen than arrows for a list this short). At least one
+  mode always stays visible. Persisted through `ModePreferences` as an ordered mode-name list plus
+  a hidden set, so a future app update that adds a new mode just appends it to the end rather than
+  losing the user's customization.
 - **Updates**: a GitHub-Releases-based OTA update path, the same pattern F-Droid-style apps use
   outside the Play Store. `UpdateChecker` queries the repo's latest release via GitHub's public
   REST API, and "Download & Install" fetches the attached APK through `DownloadManager` and hands
@@ -191,6 +184,21 @@ clipped regardless of which mask shape (circle, squircle, rounded square) a give
 `mipmap/ic_launcher.xml` (no density qualifier) is a flattened fallback for API 24-25, which can't
 load the adaptive icon format.
 
+## Testing
+
+Every engine (`VuMeterEngine`, `SpectrumEngine`, `SpectrumAnalyzer`, `PeakRmsEngine`,
+`GoniometerEngine`, `LoudnessEngine`, `TonalBalanceEngine`) is plain Kotlin with no Android
+framework calls, so their ballistics/DSP math has plain-JVM JUnit coverage under
+`app/src/test/java/` -- no Robolectric or emulator needed. `SpectrumAnalyzerTest` in particular is
+a regression guard for the FFT-magnitude-normalization bug described above: without dividing raw
+FFT magnitude back down by `FFT_SIZE` before the dB conversion, every band reads pinned near the
+ceiling regardless of what's actually playing.
+
+```
+cd NeverSpiral
+./gradlew testDebugUnitTest
+```
+
 ## Building
 
 Open `NeverSpiral/` in Android Studio, or from the command line:
@@ -202,5 +210,10 @@ cd NeverSpiral
 
 The debug APK will be at `app/build/outputs/apk/debug/app-debug.apk`.
 
-CI (`.github/workflows/android-build.yml`) builds the debug APK on every push touching this
-directory and uploads it as a workflow artifact named `never-spiral-debug-apk`.
+CI (`.github/workflows/android-build.yml`) runs the unit tests and builds the debug APK on every
+push touching this directory, uploading it as a workflow artifact named `never-spiral-debug-apk`
+and publishing it as a GitHub Release and to the `never-spiral-apk-builds` branch. It intentionally
+does *not* also trigger on `pull_request` -- since this branch is developed via an always-open PR,
+a `pull_request` trigger would fire a second, redundant build for the same commit as the `push`
+trigger on every push, doubling CI time and racing the two runs to force-push the same APK to
+`never-spiral-apk-builds`.
