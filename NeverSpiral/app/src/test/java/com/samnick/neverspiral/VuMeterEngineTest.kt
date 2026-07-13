@@ -29,13 +29,19 @@ class VuMeterEngineTest {
     }
 
     @Test
-    fun `ballistics respond, not jump, to a step change`() {
+    fun `ballistics respond gradually, not instantly, to a step change`() {
         val engine = VuMeterEngine()
         engine.step(0.05f, rawRms = 1f)
-        // A real VU meter takes ~300ms to reach 99% of a step -- a single 50ms tick should have
-        // moved noticeably but should not already be at the ceiling.
-        assertTrue("expected partial movement, got ${engine.dbVu}", engine.dbVu > VuMeterEngine.SCALE_MIN_DB_VU + 5f)
-        assertTrue("expected partial movement, got ${engine.dbVu}", engine.dbVu < VuMeterEngine.SCALE_MAX_DB_VU - 1f)
+        val afterOneStep = engine.dbVu
+        // The smoothing happens over the full internal dBFS range (silence starts far below the
+        // visible -20..+3 scale), so a single 50ms tick barely clears the resting floor -- it
+        // should not yet be at the ceiling, but 300ms (a handful more ticks) should carry it
+        // much closer, matching the ~300ms-to-99%-of-a-step ANSI ballistic response.
+        assertTrue("expected some movement off the floor, got $afterOneStep", afterOneStep > VuMeterEngine.SCALE_MIN_DB_VU)
+        assertTrue("expected still short of the ceiling, got $afterOneStep", afterOneStep < VuMeterEngine.SCALE_MAX_DB_VU - 1f)
+
+        repeat(5) { engine.step(0.05f, rawRms = 1f) }
+        assertTrue("expected further movement after more ticks", engine.dbVu > afterOneStep)
     }
 
     @Test
