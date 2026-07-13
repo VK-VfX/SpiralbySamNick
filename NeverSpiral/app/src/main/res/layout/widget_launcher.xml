@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A static, tap-to-open widget: there's no way to render the live Compose Canvas visualizer
-     into a RemoteViews layout, so this is branding plus a fast-path launcher rather than a live
-     preview. Colors are hardcoded to match VisualizerTheme since widget layouts can't reference
-     the app's Compose theme. -->
+<!-- A tap-to-open widget: there's no way to render the live Compose Canvas visualizer into a
+     RemoteViews layout, so this is branding plus a fast-path launcher rather than an audio-
+     reactive preview. The bar icon still animates though, since ViewFlipper with autoStart="true"
+     cycles through four bar-height frames entirely inside the widget host's own process, once
+     inflated, with no periodic updates or background service needed from our app. Colors are
+     hardcoded to match VisualizerTheme since widget layouts can't reference the app's Compose
+     theme. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
@@ -12,11 +15,34 @@
     android:background="#FF15161B"
     android:padding="12dp">
 
-    <ImageView
+    <ViewFlipper
+        android:id="@+id/widget_bars_flipper"
         android:layout_width="28dp"
         android:layout_height="28dp"
-        android:src="@drawable/ic_tile_bars"
-        android:tint="#FF5AC8E0" />
+        android:autoStart="true"
+        android:flipInterval="220">
+
+        <ImageView
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:src="@drawable/ic_widget_bars_1"
+            android:tint="#FF5AC8E0" />
+        <ImageView
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:src="@drawable/ic_widget_bars_2"
+            android:tint="#FF5AC8E0" />
+        <ImageView
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:src="@drawable/ic_widget_bars_3"
+            android:tint="#FF5AC8E0" />
+        <ImageView
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:src="@drawable/ic_widget_bars_4"
+            android:tint="#FF5AC8E0" />
+    </ViewFlipper>
 
     <TextView
         android:id="@+id/widget_label"

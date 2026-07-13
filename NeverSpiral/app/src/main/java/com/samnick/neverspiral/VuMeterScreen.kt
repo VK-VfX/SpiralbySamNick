@@ -8,7 +8,10 @@ import android.graphics.PorterDuff
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -19,12 +22,15 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.sp
 import kotlin.math.cos
 import kotlin.math.min
@@ -49,6 +55,23 @@ private val LED_OFF_COLOR = Color(0xFF2A1214)
 private val LED_ON_COLOR = VisualizerTheme.CRITICAL
 
 /**
+ * Tick labels used to be a fixed 13sp/22sp regardless of how big the meter itself actually
+ * rendered -- fine on a typical tall portrait phone, but the meter shrinks a lot in landscape (and
+ * on some smaller/narrower portrait screens too), while the fixed-size text didn't, so the widest
+ * labels ("-20", "-10") could crowd or overlap neighbors. These fractions instead size the tick
+ * font relative to the meter's own rendered height, so the fit stays consistent at any size: with
+ * labels spaced at even angles (see [TICK_VALUES]) around labelRadius = 0.70*meterHeight, adjacent
+ * label centers are 0.70*meterHeight*(110°/10 in radians) ≈ 0.134*meterHeight of arc apart, and a
+ * 4-character monospace label like "-20" is roughly 2.4*fontSize wide -- so keeping fontSize under
+ * about 0.056*meterHeight (0.134/2.4) leaves adjacent labels just touching at worst; this uses a
+ * comfortably smaller fraction than that bound.
+ */
+private const val TICK_FONT_HEIGHT_FRACTION = 0.048f
+private const val VU_LABEL_FONT_HEIGHT_FRACTION = 0.081f
+private val TICK_FONT_SIZE_RANGE = 9f..17f
+private val VU_LABEL_FONT_SIZE_RANGE = 14f..26f
+
+/**
  * Pure rendering of [meter]'s current reading; stepping happens in the shared frame loop. The
  * needle gets a soft blurred glow behind it, the same single-bitmap-blur technique the mirrored
  * bar spectrum modes use.
@@ -57,7 +80,25 @@ private val LED_ON_COLOR = VisualizerTheme.CRITICAL
 fun VuMeterScreen(meter: VuMeterEngine) {
     val glowHolder = remember { arrayOfNulls<Bitmap>(1) }
     val textMeasurer = rememberTextMeasurer()
-    val tickLayouts = remember(textMeasurer) {
+    val density = LocalDensity.current
+    var canvasSize by remember { mutableStateOf(IntSize.Zero) }
+
+    // Derived from the actual rendered canvas size so tick/label font sizes track the meter's own
+    // size (see TICK_FONT_HEIGHT_FRACTION) instead of staying fixed while the meter shrinks.
+    val meterHeightPx = remember(canvasSize) {
+        val meterWidth = min(canvasSize.width * 0.84f, canvasSize.height * 0.72f)
+        meterWidth * 0.62f
+    }
+    val tickFontSizeSp = remember(meterHeightPx, density) {
+        with(density) { (meterHeightPx * TICK_FONT_HEIGHT_FRACTION).toDp().toSp() }
+            .value.coerceIn(TICK_FONT_SIZE_RANGE.start, TICK_FONT_SIZE_RANGE.endInclusive).sp
+    }
+    val vuLabelFontSizeSp = remember(meterHeightPx, density) {
+        with(density) { (meterHeightPx * VU_LABEL_FONT_HEIGHT_FRACTION).toDp().toSp() }
+            .value.coerceIn(VU_LABEL_FONT_SIZE_RANGE.start, VU_LABEL_FONT_SIZE_RANGE.endInclusive).sp
+    }
+
+    val tickLayouts = remember(textMeasurer, tickFontSizeSp) {
         TICK_VALUES.map { value ->
             val label = if (value == 0f) "0" else if (value > 0f) "+${value.toInt()}" else value.toInt().toString()
             val color = if (value > 0f) REDLINE_COLOR else TICK_COLOR
@@ -66,19 +107,23 @@ fun VuMeterScreen(meter: VuMeterEngine) {
                 color,
                 textMeasurer.measure(
                     label,
-                    style = TextStyle(fontSize = 13.sp, color = color, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium),
+                    style = TextStyle(fontSize = tickFontSizeSp, color = color, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium),
                 ),
             )
         }
     }
-    val vuLabelLayout = remember(textMeasurer) {
+    val vuLabelLayout = remember(textMeasurer, vuLabelFontSizeSp) {
         textMeasurer.measure(
             "VU",
-            style = TextStyle(fontSize = 22.sp, color = VisualizerTheme.TEXT_SECONDARY, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold),
+            style = TextStyle(fontSize = vuLabelFontSizeSp, color = VisualizerTheme.TEXT_SECONDARY, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold),
         )
     }
 
-    Canvas(modifier = Modifier.fillMaxSize()) {
+    Canvas(
+        modifier = Modifier
+            .fillMaxSize()
+            .onSizeChanged { canvasSize = it },
+    ) {
         drawRect(color = VisualizerTheme.BACKGROUND)
 
         val meterWidth = min(size.width * 0.84f, size.height * 0.72f)

@@ -16,6 +16,7 @@ enum class VisualMode(val label: String) {
     TONAL_BALANCE("Tonal Balance"),
     RAINBOW_SPECTRUM("Rainbow Spectrum"),
     NEON_CYAN_PULSE("Neon Cyan Pulse"),
+    CIRCULAR_SPECTRUM("Circular Spectrum"),
 }
 
 private const val KEY_MODE_ORDER = "mode_order"

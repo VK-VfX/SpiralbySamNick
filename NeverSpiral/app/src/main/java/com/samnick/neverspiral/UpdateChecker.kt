@@ -67,6 +67,37 @@ object UpdateChecker {
         }
     }
 
+    /**
+     * Whether [release] is actually newer than the installed app, comparing [release]'s tag
+     * (`v3.0.1`, matching [android.content.pm.PackageInfo.versionName] once the leading `v` is
+     * stripped) against the installed `versionName` component-by-component. Without this, every
+     * reachable release looked "available" even when it was the exact build already installed --
+     * the CI workflow tags releases with the real app version specifically so this comparison is
+     * possible; a release tagged some other way (or an unparseable version) is conservatively
+     * treated as not newer, so a check never wrongly nags about a phantom update.
+     */
+    fun isNewerThanInstalled(context: Context, release: LatestRelease): Boolean {
+        val installed = try {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+        } catch (e: Exception) {
+            null
+        } ?: return false
+        val remoteParts = parseVersion(release.tagName) ?: return false
+        val installedParts = parseVersion(installed) ?: return false
+        for (i in 0 until maxOf(remoteParts.size, installedParts.size)) {
+            val remote = remoteParts.getOrElse(i) { 0 }
+            val current = installedParts.getOrElse(i) { 0 }
+            if (remote != current) return remote > current
+        }
+        return false
+    }
+
+    private fun parseVersion(raw: String): List<Int>? {
+        val cleaned = raw.removePrefix("v")
+        val parts = cleaned.split(".").map { it.toIntOrNull() }
+        return if (parts.any { it == null }) null else parts.map { it!! }
+    }
+
     /** Whether this app is currently allowed to prompt an APK install (always true below Android 8). */
     fun canInstallPackages(context: Context): Boolean =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

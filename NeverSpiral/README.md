@@ -1,6 +1,6 @@
 # Sam's Music Viz
 
-Nine audio-reactive visualizer modes, styled as a modern dark mastering-suite instrument panel --
+Ten audio-reactive visualizer modes, styled as a modern dark mastering-suite instrument panel --
 flat near-black panels, thin hairline dividers, a cool desaturated accent, and red reserved strictly
 for clip/overload warnings, the way studio metering looks. All driven by whatever music is playing
 on the device: Spotify, YouTube Music, or anything else.
@@ -13,13 +13,19 @@ on the device: Spotify, YouTube Music, or anything else.
   chip in view.
 - **Swipe** left or right on the visualization to move either direction, for quick cycling without
   looking down at the strip.
-- Seven modes (VU Meter, Spectrum, Goniometer, Loudness, Graphic EQ, Rainbow Spectrum, Neon Cyan
-  Pulse) have their own tunable settings behind a gear icon in the top-right corner; every setting
-  persists across app restarts.
+- Eight modes (VU Meter, Spectrum, Goniometer, Loudness, Graphic EQ, Rainbow Spectrum, Neon Cyan
+  Pulse, Circular Spectrum) have their own tunable settings behind a gear icon in the top-right
+  corner; every setting persists across app restarts.
 - A hamburger icon (top-right, above the visualizer) opens app-wide Settings -- see below. Its
   **Modes** section lets you hide modes you don't use and reorder the rest; both the mode strip and
   swipe cycling follow that customized order (`ModePreferences`, backed by `SettingsStore`). There
-  are nine modes total when nothing's hidden.
+  are ten modes total when nothing's hidden.
+- **Landscape** only works for Spectrum, Rainbow Spectrum, and Neon Cyan Pulse -- the modes that
+  actually gain something from the extra width. Every other mode (a circular gauge, a radial
+  layout, a scrolling history trend, and so on) is locked back to portrait the instant it's
+  selected, via `Activity.requestedOrientation` set per mode in `MainScreen`, not a single
+  manifest-wide lock. The manifest's `configChanges="orientation|screenSize"` means switching
+  never recreates the Activity or interrupts capture, it just physically rotates the display.
 
 - **VU Meter**: an analog needle meter with correctly calibrated ballistics (not a fake wobble), a
   digital dB readout alongside the needle, and a peak LED that hard-flashes to full brightness the
@@ -54,6 +60,11 @@ on the device: Spotify, YouTube Music, or anything else.
   toward a color keyed to its own frequency band as its level rises -- bass flashes red, low-mid
   orange, mids yellow-green, presence stays cyan, treble goes violet -- rather than one flat color
   across the whole row. *Settings: Scale, Stroke Weight, Height.*
+- **Circular Spectrum**: Rainbow Spectrum bent into a ring -- the same bands, the same fixed
+  rainbow gradient and glow, but bars grow radially outward from a circle instead of reflecting
+  top/bottom off a horizontal axis. Band 0 (bass) starts at 12 o'clock and sweeps clockwise through
+  to the highest band. Portrait only -- a circular layout doesn't gain anything from extra width.
+  *Settings: Scale, Stroke Weight, Height.*
 
 ## How the meter works
 
@@ -73,7 +84,12 @@ on the device: Spotify, YouTube Music, or anything else.
 - **Scale layout**: tick marks (-20, -10, -7, -5, -3, -2, -1, 0, 1, 2, 3) are spaced *evenly by
   position*, not by dB value -- matching a real VU meter's dial, where the wide -20-to-10 gap and
   the narrow 0-to-1 gap take up roughly the same arc. The needle interpolates smoothly between
-  whichever two ticks bracket the current reading.
+  whichever two ticks bracket the current reading. Tick label font size scales with the meter's own
+  rendered height (tracked via `Modifier.onSizeChanged`) rather than staying a fixed sp value --
+  the meter renders much smaller in landscape (and on some narrower portrait screens), and a fixed
+  font size didn't shrink with it, so the widest labels ("-20", "-10") could crowd or overlap at
+  smaller sizes. The scaling fraction is derived from the actual tick-label arc geometry (see
+  `VuMeterScreen.kt`'s `TICK_FONT_HEIGHT_FRACTION` doc comment), not just eyeballed.
 - **Peak LED**: a hard flash, not a gradual pulse -- brightness snaps to full the instant the
   needle hits the top of the scale, then decays smoothly on its own, independent of the needle's
   own much slower ballistic fall, so a single loud hit still reads as a crisp flash.
@@ -130,25 +146,28 @@ until other modes started depending on genuine per-band contrast to work at all.
 - **Tonal Balance**: `TonalBalanceEngine` smooths the same bands as Spectrum with a multi-second
   time constant instead of a fast one, so it settles into overall tonal character rather than
   reacting to transients.
-- **Rainbow Spectrum** and **Neon Cyan Pulse**: `RainbowSpectrumScreen` and `NeonCyanPulseScreen`
-  both render the same [SpectrumEngine] bands directly, with no engine or DSP of their own -- the
-  mirrored top/bottom reflection, colors, bar density, and glow are pure rendering choices on
-  already-smoothed data, tunable through their own `BarSpectrumSettings` (Scale, Stroke Weight,
-  Height). Neon Cyan Pulse's denser row comes from linearly interpolating between adjacent bands
-  rather than a higher-resolution FFT. Its color is frequency-reactive rather than fixed: a bar's
-  position in the row stands in for its frequency band (bands are laid out log-spaced low-to-high),
-  so `frequencyZoneColor` (in `GradientColors.kt`) maps that position to a color -- red for bass
-  through violet for treble -- and each bar blends from resting cyan toward its zone color as its
-  own level rises, rather than every bar sharing one flat gradient. Both modes draw all bars solid
-  into one bitmap, then blur *that
+- **Rainbow Spectrum**, **Neon Cyan Pulse**, and **Circular Spectrum**: `RainbowSpectrumScreen`,
+  `NeonCyanPulseScreen`, and `CircularSpectrumScreen` all render the same [SpectrumEngine] bands
+  directly, with no engine or DSP of their own -- the mirrored/radial layout, colors, bar density,
+  and glow are pure rendering choices on already-smoothed data, tunable through their own
+  `BarSpectrumSettings` (Scale, Stroke Weight, Height). Neon Cyan Pulse's denser row comes from
+  linearly interpolating between adjacent bands rather than a higher-resolution FFT. Neon Cyan
+  Pulse's color is frequency-reactive rather than fixed: a bar's position in the row stands in for
+  its frequency band (bands are laid out log-spaced low-to-high), so `frequencyZoneColor` (in
+  `GradientColors.kt`) maps that position to a color -- red for bass through violet for treble --
+  and each bar blends from resting cyan toward its zone color as its own level rises, rather than
+  every bar sharing one flat gradient. Circular Spectrum instead reuses Rainbow Spectrum's fixed
+  `rainbowColor` gradient exactly, just mapped around the ring by angular position (band 0 at 12
+  o'clock, sweeping clockwise) instead of left-to-right. All three draw their bars solid into one
+  bitmap, then blur *that
   whole composited layer once* for the glow, rather than blurring each bar individually --
   `BlurMaskFilter`'s cost is dominated by per-call overhead, so one blur pass over the full row is
   far cheaper than 28-56 separate ones while looking effectively identical, which is what keeps
-  both modes smooth on mid-range devices. (The bitmap itself, cleared rather than faded each frame,
-  exists purely so `BlurMaskFilter` has a software canvas to blur against -- Android silently
-  ignores mask filters on Compose's hardware-accelerated canvas, the same reason Goniometer's
-  trail goes through a bitmap.) Bar count, sensitivity gamma, and glow radius/alpha for both are
-  named constants at the top of each file.
+  all three modes smooth on mid-range devices. (The bitmap itself, cleared rather than faded each
+  frame, exists purely so `BlurMaskFilter` has a software canvas to blur against -- Android
+  silently ignores mask filters on Compose's hardware-accelerated canvas, the same reason
+  Goniometer's trail goes through a bitmap.) Bar count, sensitivity gamma, and glow radius/alpha
+  for all three are named constants at the top of each file.
 
 Every engine is stepped every frame regardless of which mode is showing, so switching among most
 modes shows a live reading immediately instead of a frozen one -- the two exceptions are Loudness
@@ -203,7 +222,12 @@ app-wide settings screen:
   Again" state instead of quietly resetting as if nothing happened. This only works while the repo
   is public -- an unauthenticated request to a private repo's releases API returns 404/403, so a
   failed check just says so rather than crashing. An "Check Automatically" toggle runs the same
-  check silently once when Settings opens.
+  check silently once when Settings opens. `UpdateChecker.isNewerThanInstalled` compares the
+  release's version against the installed app's `versionName` component-by-component, so a release
+  that matches what's already installed correctly shows "You're on the latest version" instead of
+  always offering to reinstall the same build -- that comparison only works because the CI workflow
+  tags each release `v<versionName>` (extracted straight from `build.gradle.kts`) instead of the
+  old run-number-based `build-<N>` tag, which had no relationship to the app's actual version at all.
 - **Diagnostics**: the most recent uncaught exception, if any -- `VisualizerApplication` installs a
   custom `Thread.UncaughtExceptionHandler` that writes the crash's stack trace to a local file
   (`CrashLog`) before re-raising to the system default handler, so the app still crashes normally,
@@ -218,11 +242,20 @@ underlying reason: `RemoteViews` (what both widgets and notifications render thr
 live Compose `Canvas`, and starting capture requires [`MediaProjection`](https://developer.android.com/reference/android/media/projection/MediaProjection)'s
 system "start recording or casting" consent dialog, which needs a foreground `Activity` to show and
 isn't persisted across app restarts -- so neither surface can silently start visualizing on its own.
-- **Widget** (`VisualizerWidgetProvider`): a static branded `RemoteViews` layout that opens the app
-  on tap.
+- **Widget** (`VisualizerWidgetProvider`): a branded `RemoteViews` layout that opens the app on tap.
+  The bar icon still animates, though: `widget_launcher.xml` uses a `ViewFlipper` with
+  `autoStart="true"` cycling through four bar-height frames (`ic_widget_bars_1..4`). This isn't a
+  push-updated bitmap or a background service -- once the widget host (the launcher) inflates the
+  layout, `ViewFlipper` drives its own flip loop entirely inside the launcher's own process, so it
+  keeps animating with zero ongoing cost to our app, whether or not it's even running.
 - **Quick Settings tile** (`VisualizerTileService`): reflects whether capture is currently running
   via `AudioCaptureService.isRunning` (a small Compose-state flag set in `onStartCommand`/`onDestroy`
   specifically so the tile can read it without binding to the service), and opens the app on tap.
+  Unlike the widget, the tile's icon can't animate -- `Tile.icon` is a single static
+  `android.graphics.drawable.Icon`, and `TileService`'s API has no `RemoteViews`-style layout or
+  frame-cycling mechanism to hook into; it's a fixed system-rendered icon/label/subtitle/state
+  format, not an inflatable view hierarchy. There's no legitimate way around that within the public
+  API, so the tile's icon just stays static.
 
 ## App icon
 

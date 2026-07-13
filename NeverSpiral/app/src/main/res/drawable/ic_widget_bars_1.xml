@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Frame 1 of 4 in the home-screen widget's bar-bounce animation, see widget_launcher.xml's
+     ViewFlipper, which cycles these with no per-app updates needed. Same style as ic_tile_bars.xml,
+     just with different bar heights per frame. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path android:fillColor="#FFFFFFFF" android:pathData="M3,13 h3 v7 h-3 z" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M8.5,8 h3 v12 h-3 z" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M14,11 h3 v9 h-3 z" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M19.5,4 h3 v16 h-3 z" />
+</vector>

@@ -51,12 +51,23 @@ jobs:
           path: NeverSpiral/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
+      # The release tag used to be build-${{ github.run_number }}, which has no relationship to
+      # the app's own versionName -- UpdateChecker on-device had no reliable way to tell "already
+      # installed" from "genuinely newer" and would always offer the latest release as installable.
+      # Tagging with the real app version (from build.gradle.kts) is what makes that comparison
+      # possible.
+      - name: Extract app version
+        id: appversion
+        run: |
+          VERSION_NAME=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts)
+          echo "versionName=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+
       - name: Publish GitHub Release with APK
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ github.run_number }}
-          name: "Spiral build ${{ github.run_number }}"
+          tag_name: v${{ steps.appversion.outputs.versionName }}
+          name: "Sam's Music Viz v${{ steps.appversion.outputs.versionName }}"
           body: |
             Automated debug build from commit ${{ github.sha }} on branch `${{ github.ref_name }}`.
           generate_release_notes: true

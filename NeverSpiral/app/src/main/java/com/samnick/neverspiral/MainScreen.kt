@@ -3,6 +3,7 @@ package com.samnick.neverspiral
 import android.Manifest
 import android.app.Activity
 import android.content.Context
+import android.content.pm.ActivityInfo
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -65,12 +66,22 @@ private val MODES_WITH_SETTINGS = setOf(
     VisualMode.GRAPHIC_EQ,
     VisualMode.RAINBOW_SPECTRUM,
     VisualMode.NEON_CYAN_PULSE,
+    VisualMode.CIRCULAR_SPECTRUM,
 )
 
 private const val SWIPE_THRESHOLD_PX = 90f
 
+/** Modes that render well wide -- everything else forces portrait, since a VU meter's arc, a
+ * radial layout, or a scrolling history trend either don't gain anything from landscape or (VU
+ * Meter) actively look worse stretched that wide. */
+private val MODES_ALLOWING_LANDSCAPE = setOf(
+    VisualMode.SPECTRUM,
+    VisualMode.RAINBOW_SPECTRUM,
+    VisualMode.NEON_CYAN_PULSE,
+)
+
 /**
- * Hosts up to nine visualizer modes (fewer if the user's hidden some via the "Modes" section in
+ * Hosts up to ten visualizer modes (fewer if the user's hidden some via the "Modes" section in
  * [AppSettingsScreen], see [ModePreferences]) plus the single shared "Visualize music" capture
  * toggle. A persistent, horizontally-scrollable row of mode chips below the visualizer is the
  * primary way to switch -- tap the specific mode you want directly, rather than repeatedly tapping
@@ -131,6 +142,13 @@ fun MainScreen() {
             initialHeight = SettingsStore.getFloat(context, KEY_NEON_HEIGHT, 0.46f),
         )
     }
+    val circularSpectrumSettings = remember {
+        BarSpectrumSettings(
+            initialScale = SettingsStore.getFloat(context, KEY_CIRCULAR_SCALE, 1f),
+            initialStrokeWeight = SettingsStore.getFloat(context, KEY_CIRCULAR_STROKE_WEIGHT, 1f),
+            initialHeight = SettingsStore.getFloat(context, KEY_CIRCULAR_HEIGHT, 0.46f),
+        )
+    }
 
     var visualizerOn by remember { mutableStateOf(false) }
     var visibleModes by remember { mutableStateOf(ModePreferences.loadVisible(context)) }
@@ -147,6 +165,20 @@ fun MainScreen() {
             controller.hide(WindowInsetsCompat.Type.systemBars())
         } else {
             controller.show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    // Only a few modes actually benefit from landscape (see MODES_ALLOWING_LANDSCAPE); everything
+    // else is locked back to portrait the moment it's selected. requestedOrientation (not a
+    // manifest-level lock) is what lets this vary per mode instead of for the whole app, and the
+    // manifest's configChanges="orientation|screenSize" means this never recreates the Activity or
+    // loses state, it just physically rotates the display if needed.
+    LaunchedEffect(mode) {
+        val activity = view.context as? Activity ?: return@LaunchedEffect
+        activity.requestedOrientation = if (mode in MODES_ALLOWING_LANDSCAPE) {
+            ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        } else {
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
     }
 
@@ -268,6 +300,7 @@ fun MainScreen() {
                         VisualMode.TONAL_BALANCE -> TonalBalanceScreen(tonalBalance)
                         VisualMode.RAINBOW_SPECTRUM -> RainbowSpectrumScreen(spectrum, rainbowSpectrumSettings)
                         VisualMode.NEON_CYAN_PULSE -> NeonCyanPulseScreen(spectrum, neonCyanPulseSettings)
+                        VisualMode.CIRCULAR_SPECTRUM -> CircularSpectrumScreen(spectrum, circularSpectrumSettings)
                     }
                 }
 
@@ -319,6 +352,7 @@ fun MainScreen() {
                                 graphicEqSettings = graphicEqSettings,
                                 rainbowSpectrumSettings = rainbowSpectrumSettings,
                                 neonCyanPulseSettings = neonCyanPulseSettings,
+                                circularSpectrumSettings = circularSpectrumSettings,
                             )
                         }
                     }
@@ -396,6 +430,7 @@ private fun SettingsPanelContent(
     graphicEqSettings: GraphicEqSettings,
     rainbowSpectrumSettings: BarSpectrumSettings,
     neonCyanPulseSettings: BarSpectrumSettings,
+    circularSpectrumSettings: BarSpectrumSettings,
 ) {
     when (mode) {
         VisualMode.VU_METER -> {
@@ -450,6 +485,7 @@ private fun SettingsPanelContent(
         }
         VisualMode.RAINBOW_SPECTRUM -> BarSpectrumSettingsPanel(rainbowSpectrumSettings, context, KEY_RAINBOW_SCALE, KEY_RAINBOW_STROKE_WEIGHT, KEY_RAINBOW_HEIGHT)
         VisualMode.NEON_CYAN_PULSE -> BarSpectrumSettingsPanel(neonCyanPulseSettings, context, KEY_NEON_SCALE, KEY_NEON_STROKE_WEIGHT, KEY_NEON_HEIGHT)
+        VisualMode.CIRCULAR_SPECTRUM -> BarSpectrumSettingsPanel(circularSpectrumSettings, context, KEY_CIRCULAR_SCALE, KEY_CIRCULAR_STROKE_WEIGHT, KEY_CIRCULAR_HEIGHT)
         else -> Unit
     }
 }
@@ -543,3 +579,6 @@ private const val KEY_RAINBOW_HEIGHT = "rainbow_spectrum_height"
 private const val KEY_NEON_SCALE = "neon_cyan_pulse_scale"
 private const val KEY_NEON_STROKE_WEIGHT = "neon_cyan_pulse_stroke_weight"
 private const val KEY_NEON_HEIGHT = "neon_cyan_pulse_height"
+private const val KEY_CIRCULAR_SCALE = "circular_spectrum_scale"
+private const val KEY_CIRCULAR_STROKE_WEIGHT = "circular_spectrum_stroke_weight"
+private const val KEY_CIRCULAR_HEIGHT = "circular_spectrum_height"

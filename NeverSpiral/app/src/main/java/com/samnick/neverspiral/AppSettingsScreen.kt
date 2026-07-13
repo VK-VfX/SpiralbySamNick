@@ -63,9 +63,18 @@ private sealed interface UpdateCheckState {
     object Idle : UpdateCheckState
     object Checking : UpdateCheckState
     object UpToDateOrUnknown : UpdateCheckState
+    data class UpToDate(val release: UpdateChecker.LatestRelease) : UpdateCheckState
     data class Available(val release: UpdateChecker.LatestRelease) : UpdateCheckState
     data class Downloading(val release: UpdateChecker.LatestRelease) : UpdateCheckState
     data class DownloadFailed(val release: UpdateChecker.LatestRelease) : UpdateCheckState
+}
+
+/** Classifies a just-fetched [release] against the installed app -- null covers "no release
+ * reachable at all", distinct from a release that's reachable but not actually newer. */
+private fun classifyRelease(context: Context, release: UpdateChecker.LatestRelease?): UpdateCheckState = when {
+    release == null -> UpdateCheckState.UpToDateOrUnknown
+    UpdateChecker.isNewerThanInstalled(context, release) -> UpdateCheckState.Available(release)
+    else -> UpdateCheckState.UpToDate(release)
 }
 
 /**
@@ -98,8 +107,7 @@ fun AppSettingsScreen(onDismiss: () -> Unit) {
     LaunchedEffect(Unit) {
         if (autoCheckUpdates) {
             updateState = UpdateCheckState.Checking
-            val release = UpdateChecker.checkLatest()
-            updateState = if (release != null) UpdateCheckState.Available(release) else UpdateCheckState.UpToDateOrUnknown
+            updateState = classifyRelease(context, UpdateChecker.checkLatest())
         }
     }
 
@@ -213,8 +221,7 @@ fun AppSettingsScreen(onDismiss: () -> Unit) {
                     onCheckNow = {
                         scope.launch {
                             updateState = UpdateCheckState.Checking
-                            val release = UpdateChecker.checkLatest()
-                            updateState = if (release != null) UpdateCheckState.Available(release) else UpdateCheckState.UpToDateOrUnknown
+                            updateState = classifyRelease(context, UpdateChecker.checkLatest())
                         }
                     },
                     onInstall = { release ->
@@ -592,6 +599,16 @@ private fun UpdateSection(
                 modifier = Modifier.padding(bottom = 8.dp),
             )
             SettingsActionButton("Check Now", onClick = onCheckNow)
+        }
+        is UpdateCheckState.UpToDate -> {
+            Text(
+                text = "You're on the latest version (${state.release.name}).",
+                color = VisualizerTheme.TEXT_SECONDARY,
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+            SettingsActionButton("Recheck", onClick = onCheckNow)
         }
         is UpdateCheckState.Available -> {
             Text(
