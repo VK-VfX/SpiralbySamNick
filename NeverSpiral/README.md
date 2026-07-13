@@ -65,18 +65,19 @@ on the device: Spotify, YouTube Music, or anything else.
   top/bottom off a horizontal axis. Band 0 (bass) starts at 12 o'clock and sweeps clockwise through
   to the highest band. Portrait only -- a circular layout doesn't gain anything from extra width.
   *Settings: Scale, Stroke Weight, Height.*
-- **Radial Pulse Ring**: a Specterr-style sunburst -- a thin, perfectly circular ring stays fixed
-  at the center (audio never deforms it), while thin needle spikes shoot straight outward from its
-  edge, one per angular position, each independently driven by that position's own FFT band. Quiet
-  bands barely show past the ring edge; loud ones spike out sharply. The whole spike pattern spins
-  slowly and continuously around the fixed ring (a constant degrees-per-second rotation, not
-  audio-driven), and a small static music-note glyph sits anchored in the open center, never moving
-  or reacting itself. A true 360-degree rainbow hue sweep runs around the circumference (not the
-  app's usual non-looping rainbow, which would show a seam on a closed shape) -- ring and spikes
-  share one shader, so each spike's color always matches its current position on the wheel as it
-  rotates through it. Rendered as a glowing stroked outline with a bright hot edge and a softer
-  outer bloom falloff. Portrait only, same reasoning as Circular Spectrum. *Settings: Scale, Stroke
-  Weight, Height.*
+- **Radial Pulse Ring**: a Specterr-style ring -- one single, continuously undulating closed curve,
+  like a circle traced with a fine wave running all the way around it rather than a smooth
+  near-circle with one or two bumps. Many small peaks and troughs are visible around the whole
+  circumference at once (a gear/scalloped-flower look), deepening with the music and relaxing
+  toward a gently-rippled near-circle at rest -- built so no single loud frequency band can dominate
+  the outline into one or two big lobes. The whole wave pattern spins slowly and continuously (a
+  constant degrees-per-second rotation, not audio-driven), and a small static music-note glyph sits
+  anchored in the open center, never moving or reacting itself. A true 360-degree rainbow hue sweep
+  runs around the circumference (not the app's usual non-looping rainbow, which would show a seam on
+  a closed shape) -- every point along the ring shares one shader, so color always matches current
+  position on the wheel as it rotates through it. Rendered as a glowing stroked outline with a
+  bright hot edge and a softer outer bloom falloff. Portrait only, same reasoning as Circular
+  Spectrum. *Settings: Scale, Stroke Weight, Height.*
 
 ## How the meter works
 
@@ -184,32 +185,43 @@ until other modes started depending on genuine per-band contrast to work at all.
   with its own second smoothing pass on top -- a per-point "push level" (`FloatArray(POINT_COUNT)`)
   that's independently exponentially smoothed frame to frame with a fast attack and a slower decay,
   both expressed as time constants (`ATTACK_TAU_SECONDS`, `DECAY_TAU_SECONDS`) converted through
-  real delta time exactly like every engine's own `step(dt, ...)`. This is deliberate: how punchy
-  *the spikes themselves* feel is a property of this mode's rendering, distinct from the shared band
-  smoothing underneath it that every other mode also reads. `circularInterpolatedBand` maps
+  real delta time exactly like every engine's own `step(dt, ...)`. `circularInterpolatedBand` maps
   [SpectrumEngine]'s bands onto `POINT_COUNT` angular positions with wraparound interpolation
-  (unlike Neon Cyan Pulse's denser row, a closed ring has no start/end edge to clamp against). The
-  base circle is drawn once as its own plain `drawCircle` call at a fixed radius that audio data
-  never reaches -- it's the one shape in the mode with no per-frame variation at all. Each spike is
-  a separate straight `drawLine` from the base circle's edge outward to `baseRadius + pushLevel *
-  maxPush`, not a curve blended into a single outline, so quiet bands read as bare ring edge and
-  loud ones as a sharp needle rather than a smooth bump. A slow constant rotation
-  (`ROTATION_DEGREES_PER_SECOND`, converted through delta time like everything else) is added to
-  every spike's angle each frame -- since color is a true closed 360-degree hue wheel
-  (`fullHueSweepColors` in `GradientColors.kt`, built from `android.graphics.Color.HSVToColor` at
-  even hue steps) applied as one `android.graphics.SweepGradient` shared by the base circle and
-  every spike, color is keyed to canvas-space angle rather than band index, so the rotation alone
-  makes each spike's hue visibly drift without touching the color logic at all. Unlike
-  `RAINBOW_STOPS`, which is a deliberately non-looping gradient tuned for a straight bar row, a
-  closed ring needs a gradient that wraps back to its own start with no visible seam. The glow is
-  two separate blurred copies of the solid ring+spikes layer composited underneath the crisp one --
-  a wide, low-alpha outer pass and a tight, high-alpha inner pass -- for a bright hot edge with a
-  softer outer falloff, rather than one uniform blur radius. A small static music-note glyph (a
-  filled head, a stem, and a bezier flag, all Compose `drawCircle`/`drawLine`/`drawPath` calls) is
-  drawn last, on top of everything else -- it's the one thing in the mode that doesn't touch the
-  bitmap/blur pipeline at all, since it never moves and never needs to blur. Base radius, point
-  count, amplitude sensitivity gamma, both smoothing time constants, rotation rate, stroke width,
-  glow radius/alpha, and the note's size are all named constants at the top of the file.
+  (unlike Neon Cyan Pulse's denser row, a closed ring has no start/end edge to clamp against). A raw
+  level-to-radius mapping (every point just pushes outward by its own level) turned out to look like
+  "one or two big lobes" in practice, since real spectra concentrate most of their energy in a
+  handful of bands at any given instant rather than spreading evenly -- so the per-point level is
+  turned into a *wave offset* instead of a straight push: each frame, a light circular blur across
+  neighboring points (`SPATIAL_BLUR_RADIUS`, deliberately narrow so it smooths transitions without
+  merging separate lobes together) feeds into the ring's own average level that frame, and each
+  point's offset becomes `(itsLevel - averageLevel) * REACTIVE_GAIN` -- above-average points push
+  out, below-average points pull in, producing genuine peaks *and* troughs instead of every point
+  only ever bulging from zero. A fixed-frequency idle ripple (`WAVE_LOBES` cycles wrapped around the
+  full circumference, amplitude-modulated by that same average level via
+  `IDLE_RIPPLE_BASE_FRACTION`/`IDLE_RIPPLE_REACTIVE_FRACTION`) is layered on top, so many small waves
+  stay visible everywhere around the ring even when the music's actual energy sits in just one or
+  two bands, and the ring keeps a subtle ripple rather than ever going perfectly flat at rest. The
+  outline is a closed quadratic-bezier-through-midpoints path -- `moveTo` the midpoint before point
+  0, then `quadTo` each point with the following midpoint as its endpoint, all the way around --
+  rather than a jagged point-to-point polygon, so it reads as one fluid curve. A slow constant
+  rotation (`ROTATION_DEGREES_PER_SECOND`, converted through delta time like everything else) is
+  added to every point's angle each frame, and to the idle ripple's phase so the two stay in
+  lockstep -- since color is a true closed 360-degree hue wheel (`fullHueSweepColors` in
+  `GradientColors.kt`, built from `android.graphics.Color.HSVToColor` at even hue steps) applied as
+  one `android.graphics.SweepGradient` shared by the whole ring, color is keyed to canvas-space angle
+  rather than point index, so the rotation alone makes hues visibly drift with no changes needed to
+  the color logic at all. Unlike `RAINBOW_STOPS`, which is a deliberately non-looping gradient tuned
+  for a straight bar row, a closed ring needs a gradient that wraps back to its own start with no
+  visible seam. The glow is two separate blurred copies of the solid ring layer composited
+  underneath the crisp one -- a wide, low-alpha outer pass and a tight, high-alpha inner pass -- for
+  a bright hot edge with a softer outer falloff, rather than one uniform blur radius. A small static
+  music-note glyph (a filled head, a stem, and a bezier flag, all Compose
+  `drawCircle`/`drawLine`/`drawPath` calls) is drawn last, on top of everything else -- it's the one
+  thing in the mode that doesn't touch the bitmap/blur pipeline at all, since it never moves and
+  never needs to blur. Base radius, point count, wave lobe count, idle ripple depth, reactive gain,
+  spatial blur radius, amplitude sensitivity gamma, both smoothing time constants, rotation rate,
+  stroke width, glow radius/alpha, and the note's size are all named constants at the top of the
+  file.
 
 Every engine is stepped every frame regardless of which mode is showing, so switching among most
 modes shows a live reading immediately instead of a frozen one -- the two exceptions are Loudness

@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.BlurMaskFilter
 import android.graphics.Canvas as AndroidCanvas
 import android.graphics.Paint as AndroidPaint
+import android.graphics.Path as AndroidPath
 import android.graphics.PorterDuff
 import android.graphics.SweepGradient
 import androidx.compose.foundation.Canvas
@@ -22,21 +23,24 @@ import kotlin.math.exp
 import kotlin.math.pow
 import kotlin.math.sin
 
-/** Angular resolution -- how many spike positions ring the base circle. Denser than
- * [SpectrumEngine]'s own band count (wrapped with interpolation, same idea as Neon Cyan Pulse's
- * denser bar row), so the sunburst reads as a fine needle pattern rather than a handful of fat
- * spokes. */
+/** Angular resolution -- how many points make up the ring. Needs to comfortably resolve
+ * [WAVE_LOBES] individual ripples around the full circumference (roughly `POINT_COUNT /
+ * WAVE_LOBES` points per lobe) as well as [SpectrumEngine]'s own band count (wrapped with
+ * interpolation, same idea as Neon Cyan Pulse's denser bar row), so the bezier-smoothed outline
+ * reads as many distinct small waves rather than a faceted polygon or one blurred-out lobe. */
 private const val POINT_COUNT = 96
 
-/** The fixed base circle's radius as a fraction of the canvas's shorter dimension -- this is the
- * one thing in the whole mode that audio data never touches. */
+/** The ring's rest radius as a fraction of the canvas's shorter dimension -- the curve oscillates
+ * around this, it isn't a separate fixed shape of its own. */
 private const val BASE_RADIUS_FRACTION = 0.30f
 
-/** How far a spike can extend beyond the base circle's edge at full level, before [BarSpectrumSettings.height]. */
+/** How far a wave crest can push outward (or a trough pull inward) at full reactive level, before
+ * [BarSpectrumSettings.height]. */
 private const val MAX_PUSH_FRACTION = 0.34f
 
-/** Exponent applied to each spike's amplitude before it drives length: <1 lifts quiet content so
- * the ring visibly breathes even at moderate volume, matching the other bar-spectrum modes. */
+/** Exponent applied to each point's amplitude before it drives its wave contribution: <1 lifts
+ * quiet content so the ring visibly breathes even at moderate volume, matching the other
+ * bar-spectrum modes. */
 private const val AMPLITUDE_SENSITIVITY_GAMMA = 0.85f
 
 /** Fast push-out, expressed as a time-based rate (a decay/rise "tau", not a flat per-frame
@@ -44,16 +48,47 @@ private const val AMPLITUDE_SENSITIVITY_GAMMA = 0.85f
  * see MainActivity's refresh-rate handling and every engine's step(dt, ...) for the same pattern. */
 private const val ATTACK_TAU_SECONDS = 0.05f
 
-/** Slower settle back to zero length once a transient passes -- roughly 8x [ATTACK_TAU_SECONDS]. */
+/** Slower settle back to rest once a transient passes -- roughly 8x [ATTACK_TAU_SECONDS]. */
 private const val DECAY_TAU_SECONDS = 0.4f
 
 private const val STROKE_WIDTH_FRACTION = 0.014f
 
 /** One full turn every 60 seconds -- slow enough to read as ambient motion, not a spin. Like every
  * other rate in this mode, expressed per-second and applied via delta time, so it turns at the
- * same real-world speed regardless of the display's refresh rate. The base circle looks identical
- * at any rotation (it's a perfect circle), so only the spike pattern's slow spin is visible. */
+ * same real-world speed regardless of the display's refresh rate. Applied to both the wave pattern
+ * and the idle ripple's phase (see [WAVE_LOBES]) so the whole shape spins as one coherent unit. */
 private const val ROTATION_DEGREES_PER_SECOND = 6f
+
+/** How many ripple cycles wrap the full circumference -- the "gear/scalloped flower" tooth count.
+ * Deliberately a fixed geometric parameter, not derived from which specific bands happen to be
+ * loud: real spectra concentrate most of their energy in just a few bands at any instant, and
+ * mapping band index straight to angle let one or two loud bands dominate the whole outline as one
+ * or two big lobes. A fixed multi-lobe carrier, amplitude-modulated by the ring's own average
+ * level each frame, guarantees many small waves are visible everywhere around the ring regardless
+ * of the moment's spectral shape. */
+private const val WAVE_LOBES = 18
+
+/** Idle ripple depth, as a fraction of [MAX_PUSH_FRACTION], present even in near-silence -- the
+ * curve never flattens to a perfectly bare circle. */
+private const val IDLE_RIPPLE_BASE_FRACTION = 0.05f
+
+/** Additional idle-ripple depth that scales with overall level (0 at silence, this much added at
+ * full level) -- this is what makes the waves visibly deepen as the music gets louder. */
+private const val IDLE_RIPPLE_REACTIVE_FRACTION = 0.4f
+
+/** Gain on each point's level relative to the ring's own average level that frame. Demeaning
+ * (rather than mapping raw level straight to outward push) is what turns "one loud band" into a
+ * genuine peak-and-trough pattern -- above-average points push out, below-average points pull in
+ * -- instead of every point only ever bulging outward from zero. */
+private const val REACTIVE_GAIN = 1.5f
+
+/** Light circular blur across neighboring points' levels before they become wave offsets --
+ * enough to keep transitions smooth and organic, deliberately not wide enough to merge separate
+ * lobes back into one blurred hill (that would undo [WAVE_LOBES]'s whole purpose). */
+private const val SPATIAL_BLUR_RADIUS = 1
+
+private const val WAVE_OFFSET_MIN = -0.65f
+private const val WAVE_OFFSET_MAX = 1.1f
 
 /** Soft, wide falloff behind the crisp line -- the "softer outer glow falloff" half of the bloom. */
 private const val GLOW_OUTER_RADIUS_FRACTION = 0.05f
@@ -67,32 +102,44 @@ private const val GLOW_INNER_ALPHA = 200
  * more than a handful of stops to read as a clean rainbow rather than muddy blended off-hues. */
 private const val HUE_STEPS = 12
 
-/** The static center note glyph's own bounding box, as a fraction of the base circle's diameter --
- * comfortably inside the ring, clear of the spikes at rest. */
+/** The static center note glyph's own bounding box, as a fraction of the ring's rest diameter --
+ * comfortably inside it, clear of the waves even at full amplitude. */
 private const val NOTE_SIZE_FRACTION = 0.45f
 private val NOTE_COLOR = Color(0xFFF2F2F2)
 
 /**
- * A sunburst radial waveform -- Specterr-style -- built around a fixed, perfectly round base
- * circle that audio never deforms, with thin needle spikes shooting outward from its edge. Each of
- * [POINT_COUNT] angular positions gets its own target length (bands interpolated with wraparound,
- * since the ring has no start/end seam), independently smoothed with a fast attack / slower decay
- * so bass hits punch spikes outward quickly and they ease back to zero length rather than
- * snapping -- reusing exactly [SpectrumEngine]'s bands, just with a second, spike-specific
- * smoothing pass on top for how punchy the spikes themselves feel, same as every other
- * bar-spectrum mode's own rendering-level tuning.
+ * A single, continuously undulating closed ring -- Specterr-style -- not discrete spikes off a
+ * separate fixed circle. Each of [POINT_COUNT] angular positions gets its own target level (bands
+ * interpolated with wraparound, since the ring has no start/end seam), independently smoothed with
+ * a fast attack / slower decay so bass hits push their section of the ring out quickly and it eases
+ * back to rest rather than snapping -- reusing exactly [SpectrumEngine]'s bands, just with a
+ * second, ring-specific smoothing pass on top, same as every other bar-spectrum mode's own
+ * rendering-level tuning.
  *
- * The base circle and every spike share one `SweepGradient` shader, so color always matches
- * canvas-space angle -- a spike picks up whatever hue sits at its current position, which is what
- * makes the slow constant rotation (applied as a degrees-per-second offset added to each spike's
- * angle, converted via delta time like everything else) actually visible without needing to touch
- * the color logic at all.
+ * Turning that per-point level into a *wave offset* (rather than a straight outward push) is what
+ * keeps the ring from being dominated by whichever one or two bands happen to be loudest at a given
+ * instant, which is what a straight level-to-radius mapping produces (real spectra concentrate
+ * energy in a few bands, not evenly across all of them): each point's level is compared against the
+ * ring's own average level that frame ([REACTIVE_GAIN]), so above-average points bulge out and
+ * below-average points pull in -- genuine peaks *and* troughs -- and a fixed-frequency idle ripple
+ * ([WAVE_LOBES]) is layered underneath, amplitude-modulated by that same average level, so many
+ * small waves are visible everywhere around the ring even when the music's energy happens to sit in
+ * only one or two bands, and the ring still has a subtle ripple rather than going perfectly flat at
+ * rest. The outline itself is a closed quadratic-bezier-through-midpoints path (moveTo the midpoint
+ * before point 0, then quadTo each point with the following midpoint as the endpoint) so it reads
+ * as one fluid curve, not a jagged polygon.
  *
- * Glow is two blurred copies of the same solid ring+spikes layer composited underneath the crisp
- * one -- a wide soft outer pass and a tight bright inner pass -- for a bright hot edge with a
- * softer outer falloff. A small static music-note glyph sits in the open center as the fixed
- * visual anchor, drawn last (after the glow and crisp layers) with Compose's own draw calls since
- * it needs no blur and never moves -- unlike the ring, it doesn't react to level or rotation.
+ * The ring shares one `SweepGradient` shader across its whole length, so color always matches
+ * canvas-space angle -- any point picks up whatever hue sits at its current position, which is what
+ * makes the slow constant rotation (applied as a degrees-per-second offset added to every point's
+ * angle -- and to the idle ripple's phase, so the two stay in lockstep -- converted via delta time
+ * like everything else) actually visible without needing to touch the color logic at all.
+ *
+ * Glow is two blurred copies of the same solid ring layer composited underneath the crisp one -- a
+ * wide soft outer pass and a tight bright inner pass -- for a bright hot edge with a softer outer
+ * falloff. A small static music-note glyph sits in the open center as the fixed visual anchor,
+ * drawn last (after the glow and crisp layers) with Compose's own draw calls since it needs no blur
+ * and never moves -- unlike the ring, it doesn't react to level or rotation.
  */
 @Composable
 fun RadialPulseRingScreen(engine: SpectrumEngine, settings: BarSpectrumSettings) {
@@ -100,6 +147,7 @@ fun RadialPulseRingScreen(engine: SpectrumEngine, settings: BarSpectrumSettings)
     val glowOuterHolder = remember { arrayOfNulls<Bitmap>(1) }
     val glowInnerHolder = remember { arrayOfNulls<Bitmap>(1) }
     val pushLevels = remember { FloatArray(POINT_COUNT) }
+    val blurredLevels = remember { FloatArray(POINT_COUNT) }
     val lastElapsedHolder = remember { floatArrayOf(0f) }
     val rotationHolder = remember { floatArrayOf(0f) }
     val hueColors = remember { fullHueSweepColors(HUE_STEPS) }
@@ -142,35 +190,69 @@ fun RadialPulseRingScreen(engine: SpectrumEngine, settings: BarSpectrumSettings)
         val ringStrokeWidth = size.minDimension * STROKE_WIDTH_FRACTION * settings.strokeWeight
         val sweepShader = SweepGradient(center.x, center.y, hueColors, huePositions)
 
-        val ringCanvas = AndroidCanvas(ring)
-        ringCanvas.drawColor(0, PorterDuff.Mode.CLEAR)
-        val strokePaint = AndroidPaint().apply {
-            isAntiAlias = true
-            style = AndroidPaint.Style.STROKE
-            strokeCap = AndroidPaint.Cap.ROUND
-            strokeWidth = ringStrokeWidth
-            shader = sweepShader
-        }
-
-        // The base ring is a plain, perfectly round circle that audio data never touches --
-        // drawn once as its own path, entirely independent of the spike loop below.
-        ringCanvas.drawCircle(center.x, center.y, baseRadius, strokePaint)
-
+        // Pass 1: each point's own level, temporally smoothed with a fast attack / slower decay --
+        // the same per-point ballistics as before, just no longer drawn as an independent spike.
         for (i in 0 until POINT_COUNT) {
             val target = (circularInterpolatedBand(engine.bands, i, POINT_COUNT)
                 .pow(AMPLITUDE_SENSITIVITY_GAMMA) * settings.scale).coerceIn(0f, 1f)
             val tau = if (target > pushLevels[i]) ATTACK_TAU_SECONDS else DECAY_TAU_SECONDS
             val smoothingAlpha = 1f - exp(-dt / tau)
             pushLevels[i] += (target - pushLevels[i]) * smoothingAlpha
-
-            val angle = Math.toRadians((i.toFloat() / POINT_COUNT) * 360.0 - 90.0 + rotationHolder[0])
-            val dx = cos(angle).toFloat()
-            val dy = sin(angle).toFloat()
-            val spikeLength = pushLevels[i] * maxPush
-            val inner = Offset(center.x + baseRadius * dx, center.y + baseRadius * dy)
-            val outer = Offset(center.x + (baseRadius + spikeLength) * dx, center.y + (baseRadius + spikeLength) * dy)
-            ringCanvas.drawLine(inner.x, inner.y, outer.x, outer.y, strokePaint)
         }
+
+        // Pass 2: a light circular blur across neighbors so the curve's transitions are smooth
+        // rather than jagged, without smearing separate lobes into one another.
+        for (i in 0 until POINT_COUNT) {
+            var sum = 0f
+            var weight = 0f
+            for (k in -SPATIAL_BLUR_RADIUS..SPATIAL_BLUR_RADIUS) {
+                val tap = (i + k + POINT_COUNT) % POINT_COUNT
+                val tapWeight = if (k == 0) 2f else 1f
+                sum += pushLevels[tap] * tapWeight
+                weight += tapWeight
+            }
+            blurredLevels[i] = sum / weight
+        }
+
+        // The ring's own average level this frame stands in for "how loud is it right now" --
+        // used both to demean each point (turning raw level into peaks *and* troughs) and to scale
+        // the idle ripple, without needing a separate overall-loudness input.
+        var meanLevel = 0f
+        for (i in 0 until POINT_COUNT) meanLevel += blurredLevels[i]
+        meanLevel /= POINT_COUNT
+        val idleRippleDepth = IDLE_RIPPLE_BASE_FRACTION + IDLE_RIPPLE_REACTIVE_FRACTION * meanLevel
+
+        val points = Array(POINT_COUNT) { i ->
+            val angle = Math.toRadians((i.toFloat() / POINT_COUNT) * 360.0 - 90.0 + rotationHolder[0])
+            val reactive = (blurredLevels[i] - meanLevel) * REACTIVE_GAIN
+            val idleRipple = sin(WAVE_LOBES * angle).toFloat() * idleRippleDepth
+            val offset = (reactive + idleRipple).coerceIn(WAVE_OFFSET_MIN, WAVE_OFFSET_MAX)
+            val radius = baseRadius + offset * maxPush
+            Offset(center.x + radius * cos(angle).toFloat(), center.y + radius * sin(angle).toFloat())
+        }
+
+        val path = AndroidPath()
+        val firstMid = midpoint(points[0], points[POINT_COUNT - 1])
+        path.moveTo(firstMid.x, firstMid.y)
+        for (i in 0 until POINT_COUNT) {
+            val current = points[i]
+            val next = points[(i + 1) % POINT_COUNT]
+            val mid = midpoint(current, next)
+            path.quadTo(current.x, current.y, mid.x, mid.y)
+        }
+        path.close()
+
+        val ringCanvas = AndroidCanvas(ring)
+        ringCanvas.drawColor(0, PorterDuff.Mode.CLEAR)
+        val ringPaint = AndroidPaint().apply {
+            isAntiAlias = true
+            style = AndroidPaint.Style.STROKE
+            strokeCap = AndroidPaint.Cap.ROUND
+            strokeJoin = AndroidPaint.Join.ROUND
+            strokeWidth = ringStrokeWidth
+            shader = sweepShader
+        }
+        ringCanvas.drawPath(path, ringPaint)
 
         val glowOuterCanvas = AndroidCanvas(glowOuter)
         glowOuterCanvas.drawColor(0, PorterDuff.Mode.CLEAR)
@@ -198,11 +280,13 @@ fun RadialPulseRingScreen(engine: SpectrumEngine, settings: BarSpectrumSettings)
     }
 }
 
+private fun midpoint(a: Offset, b: Offset) = Offset((a.x + b.x) / 2f, (a.y + b.y) / 2f)
+
 /**
  * Same idea as Neon Cyan Pulse's `interpolatedBand`, but wraps around instead of clamping at the
  * ends -- point 0 and point [totalPoints] - 1 are angular neighbors on a closed ring, not the two
  * unrelated edges of a bar row, so the interpolation has to be circular or there'd be a visible
- * seam where the spike pattern meets itself.
+ * seam where the ring meets itself.
  */
 private fun circularInterpolatedBand(bands: FloatArray, i: Int, totalPoints: Int): Float {
     if (bands.isEmpty()) return 0f
@@ -215,9 +299,9 @@ private fun circularInterpolatedBand(bands: FloatArray, i: Int, totalPoints: Int
 
 /**
  * A simple static eighth-note glyph (filled head, stem, curved flag) centered on [center] and
- * sized off [baseRadius] -- the fixed anchor the ring and spikes surround. Deliberately drawn with
- * Compose's own draw calls rather than through the bitmap/blur pipeline above: it never moves and
- * never blurs, so it doesn't need to be part of that composited layer at all.
+ * sized off [baseRadius] -- the fixed anchor the ring surrounds. Deliberately drawn with Compose's
+ * own draw calls rather than through the bitmap/blur pipeline above: it never moves and never
+ * blurs, so it doesn't need to be part of that composited layer at all.
  */
 private fun DrawScope.drawMusicNote(center: Offset, baseRadius: Float) {
     val s = 2f * baseRadius * NOTE_SIZE_FRACTION
