@@ -25,8 +25,8 @@ import kotlin.math.sin
 
 /** Angular resolution -- how many points make up the ring. Needs to comfortably resolve
  * [WAVE_LOBES] individual ripples around the full circumference (roughly `POINT_COUNT /
- * WAVE_LOBES` points per lobe) as well as [SpectrumEngine]'s own band count (wrapped with
- * interpolation, same idea as Neon Cyan Pulse's denser bar row), so the bezier-smoothed outline
+ * WAVE_LOBES` points per lobe) as well as [SpectrumEngine]'s own band count (mirrored and
+ * interpolated onto the ring, see [mirroredInterpolatedBand]), so the bezier-smoothed outline
  * reads as many distinct small waves rather than a faceted polygon or one blurred-out lobe. */
 private const val POINT_COUNT = 96
 
@@ -109,12 +109,12 @@ private val NOTE_COLOR = Color(0xFFF2F2F2)
 
 /**
  * A single, continuously undulating closed ring -- Specterr-style -- not discrete spikes off a
- * separate fixed circle. Each of [POINT_COUNT] angular positions gets its own target level (bands
- * interpolated with wraparound, since the ring has no start/end seam), independently smoothed with
- * a fast attack / slower decay so bass hits push their section of the ring out quickly and it eases
- * back to rest rather than snapping -- reusing exactly [SpectrumEngine]'s bands, just with a
- * second, ring-specific smoothing pass on top, same as every other bar-spectrum mode's own
- * rendering-level tuning.
+ * separate fixed circle. Each of [POINT_COUNT] angular positions gets its own target level via
+ * [mirroredInterpolatedBand], which maps [SpectrumEngine]'s bands onto the ring with left-right
+ * mirror symmetry (bass at the seam, low-to-high playing out identically in both directions) rather
+ * than one continuous sweep all the way around -- independently smoothed with a fast attack /
+ * slower decay so bass hits push their section of the ring out quickly and it eases back to rest
+ * rather than snapping, same as every other bar-spectrum mode's own rendering-level tuning.
  *
  * Turning that per-point level into a *wave offset* (rather than a straight outward push) is what
  * keeps the ring from being dominated by whichever one or two bands happen to be loudest at a given
@@ -193,7 +193,7 @@ fun RadialPulseRingScreen(engine: SpectrumEngine, settings: BarSpectrumSettings)
         // Pass 1: each point's own level, temporally smoothed with a fast attack / slower decay --
         // the same per-point ballistics as before, just no longer drawn as an independent spike.
         for (i in 0 until POINT_COUNT) {
-            val target = (circularInterpolatedBand(engine.bands, i, POINT_COUNT)
+            val target = (mirroredInterpolatedBand(engine.bands, i, POINT_COUNT)
                 .pow(AMPLITUDE_SENSITIVITY_GAMMA) * settings.scale).coerceIn(0f, 1f)
             val tau = if (target > pushLevels[i]) ATTACK_TAU_SECONDS else DECAY_TAU_SECONDS
             val smoothingAlpha = 1f - exp(-dt / tau)
@@ -283,17 +283,29 @@ fun RadialPulseRingScreen(engine: SpectrumEngine, settings: BarSpectrumSettings)
 private fun midpoint(a: Offset, b: Offset) = Offset((a.x + b.x) / 2f, (a.y + b.y) / 2f)
 
 /**
- * Same idea as Neon Cyan Pulse's `interpolatedBand`, but wraps around instead of clamping at the
- * ends -- point 0 and point [totalPoints] - 1 are angular neighbors on a closed ring, not the two
- * unrelated edges of a bar row, so the interpolation has to be circular or there'd be a visible
- * seam where the ring meets itself.
+ * Maps [bands] onto [totalPoints] angular positions with left-right mirror symmetry: bass sits at
+ * the seam (point 0, 12 o'clock after the -90-degree placement offset) and the band sequence plays
+ * out low-to-high across *both* halves of the ring simultaneously, meeting again at the bottom
+ * where the highest band lands on both sides -- a symmetric "wings" look rather than one continuous
+ * sweep all the way around.
+ *
+ * [i] is folded through a triangle wave (0 -> [totalPoints] / 2 -> 0) before being mapped onto the
+ * band array, so both directions from the seam play the identical low-to-high sequence. Unlike a
+ * naive `mirroredIndex % bands.size` lookup, the fold is linearly interpolated the same way
+ * Neon Cyan Pulse's `interpolatedBand` is (clamped at the ends, not circular) -- circular wrapping
+ * would be wrong here since the fold itself already provides the "return trip" back to the seam;
+ * wrapping through the band array *as well* would double up the symmetry into a seam every time
+ * `totalPoints / 2` doesn't divide evenly into `bands.size`, which is guaranteed given this app's
+ * band and point counts and produces a visible hard jump rather than a smooth mirror.
  */
-private fun circularInterpolatedBand(bands: FloatArray, i: Int, totalPoints: Int): Float {
+private fun mirroredInterpolatedBand(bands: FloatArray, i: Int, totalPoints: Int): Float {
     if (bands.isEmpty()) return 0f
-    val sourcePos = i.toFloat() * bands.size / totalPoints
-    val lowIndex = sourcePos.toInt() % bands.size
-    val highIndex = (lowIndex + 1) % bands.size
-    val frac = sourcePos - sourcePos.toInt()
+    val half = totalPoints / 2f
+    val folded = if (i <= half) i.toFloat() else totalPoints - i.toFloat()
+    val sourcePos = (folded / half) * (bands.size - 1)
+    val lowIndex = sourcePos.toInt().coerceIn(0, bands.size - 1)
+    val highIndex = (lowIndex + 1).coerceAtMost(bands.size - 1)
+    val frac = sourcePos - lowIndex
     return bands[lowIndex] + (bands[highIndex] - bands[lowIndex]) * frac
 }
 

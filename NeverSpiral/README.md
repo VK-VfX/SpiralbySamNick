@@ -70,7 +70,9 @@ on the device: Spotify, YouTube Music, or anything else.
   near-circle with one or two bumps. Many small peaks and troughs are visible around the whole
   circumference at once (a gear/scalloped-flower look), deepening with the music and relaxing
   toward a gently-rippled near-circle at rest -- built so no single loud frequency band can dominate
-  the outline into one or two big lobes. The whole wave pattern spins slowly and continuously (a
+  the outline into one or two big lobes. Bass sits at the top and the frequency sweep mirrors
+  left-right from there, so the two halves of the ring always move as symmetric wings rather than
+  one continuous sweep around the whole circle. The whole wave pattern spins slowly and continuously (a
   constant degrees-per-second rotation, not audio-driven), and a small static music-note glyph sits
   anchored in the open center, never moving or reacting itself. A true 360-degree rainbow hue sweep
   runs around the circumference (not the app's usual non-looping rainbow, which would show a seam on
@@ -185,10 +187,17 @@ until other modes started depending on genuine per-band contrast to work at all.
   with its own second smoothing pass on top -- a per-point "push level" (`FloatArray(POINT_COUNT)`)
   that's independently exponentially smoothed frame to frame with a fast attack and a slower decay,
   both expressed as time constants (`ATTACK_TAU_SECONDS`, `DECAY_TAU_SECONDS`) converted through
-  real delta time exactly like every engine's own `step(dt, ...)`. `circularInterpolatedBand` maps
-  [SpectrumEngine]'s bands onto `POINT_COUNT` angular positions with wraparound interpolation
-  (unlike Neon Cyan Pulse's denser row, a closed ring has no start/end edge to clamp against). A raw
-  level-to-radius mapping (every point just pushes outward by its own level) turned out to look like
+  real delta time exactly like every engine's own `step(dt, ...)`. `mirroredInterpolatedBand` maps
+  [SpectrumEngine]'s bands onto `POINT_COUNT` angular positions with left-right mirror symmetry --
+  bass sits at the seam (12 o'clock) and the band sequence plays out low-to-high identically in both
+  directions from there, meeting again at the bottom, rather than one continuous sweep all the way
+  around. The angular index is folded through a triangle wave (0 -> `POINT_COUNT / 2` -> 0) before
+  being linearly interpolated onto the band array the same way Neon Cyan Pulse's `interpolatedBand`
+  is -- clamped at the ends, not circular, since the fold itself already provides the "return trip"
+  back to the seam; wrapping through the bands *as well* would reintroduce a hard seam every time
+  `POINT_COUNT / 2` doesn't divide evenly into the band count (it doesn't: 48 points per half against
+  28 bands). A raw level-to-radius mapping (every point just pushes outward by its own level) turned
+  out to look like
   "one or two big lobes" in practice, since real spectra concentrate most of their energy in a
   handful of bands at any given instant rather than spreading evenly -- so the per-point level is
   turned into a *wave offset* instead of a straight push: each frame, a light circular blur across
