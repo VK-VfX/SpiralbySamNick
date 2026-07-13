@@ -148,7 +148,7 @@ fun RadialPulseRingScreen(engine: SpectrumEngine, settings: BarSpectrumSettings)
         }
         path.close()
 
-        val strokeWidth = size.minDimension * STROKE_WIDTH_FRACTION * settings.strokeWeight
+        val ringStrokeWidth = size.minDimension * STROKE_WIDTH_FRACTION * settings.strokeWeight
         val sweepShader = SweepGradient(center.x, center.y, hueColors, huePositions)
 
         val ringCanvas = AndroidCanvas(ring)
@@ -158,7 +158,7 @@ fun RadialPulseRingScreen(engine: SpectrumEngine, settings: BarSpectrumSettings)
             style = AndroidPaint.Style.STROKE
             strokeCap = AndroidPaint.Cap.ROUND
             strokeJoin = AndroidPaint.Join.ROUND
-            strokeWidth = strokeWidth
+            strokeWidth = ringStrokeWidth
             shader = sweepShader
         }
         ringCanvas.drawPath(path, ringPaint)
