@@ -171,13 +171,6 @@ app-wide settings screen:
   just quick-launch shortcuts to jump straight to those apps (or their Play Store listing if not
   installed); it deliberately does *not* do OAuth account linking, since that wouldn't improve the
   visualizer and would mean embedding API credentials in the app for no real benefit.
-- **Now Playing**: shows the track/artist playing, in a small line above the visualizer, read from
-  the system's active media session via `NowPlayingListenerService` (a `NotificationListenerService`)
-  and published through `NowPlaying`'s Compose state. Needs the special notification-listener
-  permission -- the same one every lock-screen media-control widget needs, since there's no
-  narrower API for a third-party app to read another app's now-playing metadata -- granted via
-  `Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS`; access status re-checks itself whenever Settings
-  resumes (e.g. coming back from that system screen), since Android has no callback for it.
 - **Display**: a "Keep Screen On" toggle (`View.keepScreenOn` -- Android doesn't let third-party
   apps change the system screen-timeout duration directly, that needs the sensitive
   `WRITE_SETTINGS` permission) and an "Immersive Mode" toggle that hides the status/navigation bars

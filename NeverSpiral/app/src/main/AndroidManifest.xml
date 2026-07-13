@@ -68,16 +68,6 @@
             </intent-filter>
         </service>
 
-        <service
-            android:name=".NowPlayingListenerService"
-            android:label="@string/app_name"
-            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.service.notification.NotificationListenerService" />
-            </intent-filter>
-        </service>
-
         <!-- Grants the system package installer read access to the OTA APK downloaded into our
              private external-files storage; DownloadManager's own getUriForDownloadedFile() is
              built for the public Downloads collection and doesn't reliably work for that. -->

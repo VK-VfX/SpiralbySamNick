@@ -49,7 +49,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
@@ -230,26 +229,6 @@ fun MainScreen() {
                 ) {
                     Text("☰", color = VisualizerTheme.ACCENT, fontSize = 15.sp)
                 }
-            }
-
-            val nowPlaying = NowPlaying.current.value
-            if (nowPlaying != null) {
-                Text(
-                    text = if (nowPlaying.artist.isNotBlank()) {
-                        "${nowPlaying.title} — ${nowPlaying.artist}"
-                    } else {
-                        nowPlaying.title
-                    },
-                    color = VisualizerTheme.TEXT_SECONDARY,
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
-                        .padding(bottom = 6.dp),
-                )
             }
 
             Box(

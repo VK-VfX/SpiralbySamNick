@@ -1,12 +1,9 @@
 package com.samnick.neverspiral
 
 import android.content.ActivityNotFoundException
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.provider.Settings
-import android.service.notification.NotificationListenerService
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -30,7 +27,6 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -42,15 +38,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.app.NotificationManagerCompat
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.launch
 
 private data class PlayerApp(val label: String, val packageName: String)
@@ -163,10 +155,6 @@ fun AppSettingsScreen(onDismiss: () -> Unit) {
                 for (player in PLAYER_APPS) {
                     PlayerRow(player, context)
                 }
-
-                Spacer(modifier = Modifier.height(20.dp))
-                SettingsSectionTitle("Now Playing")
-                NowPlayingSection(context)
 
                 Spacer(modifier = Modifier.height(20.dp))
                 SettingsSectionTitle("Display")
@@ -529,58 +517,6 @@ private fun DiagnosticsSection(context: Context) {
         }
     }
 }
-
-/**
- * Grants/reflects access to [NowPlayingListenerService], which needs the special notification-
- * listener permission -- the same one every lock-screen media-control widget needs, since there's
- * no narrower API for a third-party app to read another app's now-playing metadata. Re-checks
- * grant status on every resume (e.g. returning from the system settings screen) since there's no
- * callback for it.
- */
-@Composable
-private fun NowPlayingSection(context: Context) {
-    var granted by remember { mutableStateOf(isNotificationListenerEnabled(context)) }
-    val lifecycleOwner = LocalLifecycleOwner.current
-
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                granted = isNotificationListenerEnabled(context)
-                if (granted) {
-                    NotificationListenerService.requestRebind(ComponentName(context, NowPlayingListenerService::class.java))
-                }
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-
-    Text(
-        text = "Shows the track and artist playing in the mode header, read from the system's " +
-            "active media session -- the same special permission every lock-screen media widget " +
-            "needs, since there's no narrower way to read another app's now-playing metadata.",
-        color = VisualizerTheme.TEXT_SECONDARY,
-        fontSize = 12.sp,
-        fontFamily = FontFamily.Monospace,
-        modifier = Modifier.padding(bottom = 10.dp),
-    )
-    if (granted) {
-        Text(
-            text = "Access granted.",
-            color = VisualizerTheme.ACCENT,
-            fontSize = 12.sp,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(bottom = 8.dp),
-        )
-    }
-    SettingsActionButton(if (granted) "Change Access" else "Grant Access") {
-        context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-    }
-}
-
-private fun isNotificationListenerEnabled(context: Context): Boolean =
-    NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
 
 private fun openPlayStoreListing(context: Context, packageName: String) {
     try {
