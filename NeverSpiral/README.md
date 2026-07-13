@@ -44,9 +44,11 @@ on the device: Spotify, YouTube Music, or anything else.
   center axis instead of growing from the bottom only -- with a fixed horizontal rainbow gradient
   (blue/purple through magenta and orange to yellow) and a soft glow, on pure black. *Settings:
   Scale, Stroke Weight, Height.*
-- **Neon Cyan Pulse**: the same mirrored-bar idea, denser and thinner, each bar its own cyan-to-
-  white gradient from the center out to its tip, with a stronger glow for a nightclub LED-wall feel.
-  *Settings: Scale, Stroke Weight, Height.*
+- **Neon Cyan Pulse**: the same mirrored-bar idea, denser and thinner, with a stronger glow for a
+  nightclub LED-wall feel. Frequency-reactive color: each bar rests at cyan when quiet and blends
+  toward a color keyed to its own frequency band as its level rises -- bass flashes red, low-mid
+  orange, mids yellow-green, presence stays cyan, treble goes violet -- rather than one flat color
+  across the whole row. *Settings: Scale, Stroke Weight, Height.*
 
 ## How the meter works
 
@@ -126,7 +128,12 @@ until other modes started depending on genuine per-band contrast to work at all.
   mirrored top/bottom reflection, colors, bar density, and glow are pure rendering choices on
   already-smoothed data, tunable through their own `BarSpectrumSettings` (Scale, Stroke Weight,
   Height). Neon Cyan Pulse's denser row comes from linearly interpolating between adjacent bands
-  rather than a higher-resolution FFT. Both draw all bars solid into one bitmap, then blur *that
+  rather than a higher-resolution FFT. Its color is frequency-reactive rather than fixed: a bar's
+  position in the row stands in for its frequency band (bands are laid out log-spaced low-to-high),
+  so `frequencyZoneColor` (in `GradientColors.kt`) maps that position to a color -- red for bass
+  through violet for treble -- and each bar blends from resting cyan toward its zone color as its
+  own level rises, rather than every bar sharing one flat gradient. Both modes draw all bars solid
+  into one bitmap, then blur *that
   whole composited layer once* for the glow, rather than blurring each bar individually --
   `BlurMaskFilter`'s cost is dominated by per-call overhead, so one blur pass over the full row is
   far cheaper than 28-56 separate ones while looking effectively identical, which is what keeps

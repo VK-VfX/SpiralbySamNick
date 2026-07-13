@@ -30,11 +30,25 @@ private const val SENSITIVITY_GAMMA = 0.85f
 private const val GLOW_RADIUS_FRACTION = 0.028f
 private const val GLOW_ALPHA = 190
 
+/** How much a bar's color leans into its frequency-zone color at full level, vs. staying resting
+ * cyan -- <1 so even a maxed-out bar keeps a little of the mode's namesake cyan in the blend. */
+private const val ZONE_COLOR_MAX_MIX = 0.92f
+
+/** Exponent applied to level before it drives the color blend: <1 so bars visibly tint well before
+ * they're maxed out, matching "the bar flashes color when that frequency hits" rather than only
+ * at the very loudest instant. */
+private const val COLOR_REACTIVITY_GAMMA = 0.55f
+
 /**
  * A mirrored FFT bar spectrum, denser and thinner than [RainbowSpectrumScreen]: each bar is its
- * own cyan-to-white gradient running from the center axis out to its tip on both halves, with a
- * stronger glow, on a pure black background. Bar count is doubled past [SpectrumEngine]'s own band
- * count by linearly interpolating between adjacent bands -- a rendering-only choice, not new DSP.
+ * own gradient running from the center axis out to its tip on both halves, with a stronger glow,
+ * on a pure black background. Bar count is doubled past [SpectrumEngine]'s own band count by
+ * linearly interpolating between adjacent bands -- a rendering-only choice, not new DSP.
+ *
+ * Color is frequency-reactive: each bar rests at the mode's namesake cyan when quiet, then blends
+ * toward a color drawn from [frequencyZoneColor] -- keyed to that bar's position in the row, which
+ * stands in for its frequency band -- as its own level rises. A bass hit flashes its bars red, a
+ * treble hit flashes its bars violet, and so on, rather than the whole row sharing one color.
  *
  * Bars are drawn once, solid (each with its own gradient), into their own bitmap; the glow is a
  * *single* blurred copy of that whole composited layer, not a per-bar blur -- the same technique
@@ -80,16 +94,20 @@ fun NeonCyanPulseScreen(engine: SpectrumEngine, settings: BarSpectrumSettings) {
         }
 
         for (i in 0 until BAR_COUNT) {
-            val level = (interpolatedBand(engine.bands, i, BAR_COUNT).coerceIn(0f, 1f).pow(SENSITIVITY_GAMMA) * settings.scale)
-                .coerceIn(0f, 1f)
+            val rawLevel = interpolatedBand(engine.bands, i, BAR_COUNT).coerceIn(0f, 1f)
+            val level = (rawLevel.pow(SENSITIVITY_GAMMA) * settings.scale).coerceIn(0f, 1f)
             val half = (level * maxHalf).coerceAtLeast(barWidth * 0.3f)
             val cx = (i + 0.5f) * pitch
             val topY = centerY - half
             val bottomY = centerY + half
 
+            val zoneColor = frequencyZoneColor(i.toFloat() / (BAR_COUNT - 1).coerceAtLeast(1))
+            val colorMix = rawLevel.pow(COLOR_REACTIVITY_GAMMA) * ZONE_COLOR_MAX_MIX
+            val barColor = lerpGradientColor(NEON_CYAN, zoneColor, colorMix)
+
             barPaint.shader = LinearGradient(
                 cx, topY, cx, bottomY,
-                intArrayOf(NEON_WHITE_HOT.toArgb(), NEON_CYAN.toArgb(), NEON_WHITE_HOT.toArgb()),
+                intArrayOf(NEON_WHITE_HOT.toArgb(), barColor.toArgb(), NEON_WHITE_HOT.toArgb()),
                 floatArrayOf(0f, 0.5f, 1f),
                 Shader.TileMode.CLAMP,
             )
