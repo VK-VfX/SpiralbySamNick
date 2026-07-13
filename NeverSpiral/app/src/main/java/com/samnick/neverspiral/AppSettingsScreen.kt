@@ -60,6 +60,7 @@ private sealed interface UpdateCheckState {
     object UpToDateOrUnknown : UpdateCheckState
     data class Available(val release: UpdateChecker.LatestRelease) : UpdateCheckState
     data class Downloading(val release: UpdateChecker.LatestRelease) : UpdateCheckState
+    data class DownloadFailed(val release: UpdateChecker.LatestRelease) : UpdateCheckState
 }
 
 /**
@@ -200,8 +201,12 @@ fun AppSettingsScreen(onDismiss: () -> Unit) {
                         scope.launch {
                             if (UpdateChecker.canInstallPackages(context)) {
                                 updateState = UpdateCheckState.Downloading(release)
-                                UpdateChecker.downloadAndInstall(context, release)
-                                updateState = UpdateCheckState.Available(release)
+                                val success = UpdateChecker.downloadAndInstall(context, release)
+                                updateState = if (success) {
+                                    UpdateCheckState.Available(release)
+                                } else {
+                                    UpdateCheckState.DownloadFailed(release)
+                                }
                             } else {
                                 UpdateChecker.requestInstallPermission(context)
                             }
@@ -482,6 +487,16 @@ private fun UpdateSection(
                 fontSize = 12.sp,
                 fontFamily = FontFamily.Monospace,
             )
+        }
+        is UpdateCheckState.DownloadFailed -> {
+            Text(
+                text = "Download failed or timed out -- check your connection and try again.",
+                color = VisualizerTheme.CRITICAL,
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+            SettingsActionButton("Try Again", onClick = { onInstall(state.release) })
         }
     }
 }

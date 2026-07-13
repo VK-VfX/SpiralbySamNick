@@ -7,17 +7,19 @@ on the device: Spotify, YouTube Music, or anything else.
 
 ## Navigation
 
-- **Tap** anywhere on the visualization to crossfade to the next mode.
-- **Swipe** left or right to move either direction, for when the mode you want is behind you.
-- **Long-press** to open a picker grid and jump straight to any visible mode.
-- A small dot row along the bottom shows which mode you're on, among however many are visible.
-- Six modes (VU Meter, Spectrum, Goniometer, Loudness, Rainbow Spectrum, Neon Cyan Pulse) have
-  their own tunable settings behind a gear icon in the top-right corner; every setting persists
-  across app restarts.
+- A persistent, horizontally-scrollable strip of mode chips below the visualizer is the primary
+  way to switch -- tap the specific mode you want directly, rather than repeatedly tapping the
+  canvas to cycle through them one at a time. The strip auto-scrolls to keep the current mode's
+  chip in view.
+- **Swipe** left or right on the visualization to move either direction, for quick cycling without
+  looking down at the strip.
+- Seven modes (VU Meter, Spectrum, Goniometer, Loudness, Graphic EQ, Rainbow Spectrum, Neon Cyan
+  Pulse) have their own tunable settings behind a gear icon in the top-right corner; every setting
+  persists across app restarts.
 - A hamburger icon (top-right, above the visualizer) opens app-wide Settings -- see below. Its
-  **Modes** section lets you hide modes you don't use and reorder the rest; tap/swipe cycling, the
-  long-press picker, and the dot row all follow that customized order (`ModePreferences`, backed
-  by `SettingsStore`). There are nine modes total when nothing's hidden.
+  **Modes** section lets you hide modes you don't use and reorder the rest; both the mode strip and
+  swipe cycling follow that customized order (`ModePreferences`, backed by `SettingsStore`). There
+  are nine modes total when nothing's hidden.
 
 - **VU Meter**: an analog needle meter with correctly calibrated ballistics (not a fake wobble), a
   digital dB readout alongside the needle, and a peak LED that hard-flashes to full brightness the
@@ -25,7 +27,8 @@ on the device: Spotify, YouTube Music, or anything else.
   soft continuous pulse. *Settings: calibration reference (12-24 dBFS).*
 - **Spectrum**: a real-time FFT bar spectrum, log-spaced across the audible range, with a dB
   reference grid and frequency labels for orientation across the range. *Settings: Cool (blue-to-
-  white) or Classic (green-yellow-red) color scheme.*
+  white), Classic (green-yellow-red), or Frequency (Neon Cyan Pulse's frequency-reactive coloring,
+  applied to Spectrum's own upward bars) color scheme.*
 - **Goniometer**: a stereo phase scope -- plots left/right on the mid/side axes, so mono content
   collapses to a vertical line and phase problems fan out sideways -- plus a running phase
   correlation readout. *Settings: trail persistence.*
@@ -34,7 +37,9 @@ on the device: Spotify, YouTube Music, or anything else.
   target standard (Streaming -14, Apple Music -16, EBU R128 -23).*
 - **Graphic EQ**: a classic discrete-LED equalizer bank -- the kind of spectrum display built into
   receivers and separates -- with per-band peak-hold segments and the same dB/frequency axes as
-  Spectrum, built on the same FFT bands.
+  Spectrum, built on the same FFT bands. *Settings: Classic (green/amber/red-by-height) or
+  Frequency (same frequency-reactive coloring as Spectrum/Neon Cyan Pulse, with the top segment
+  always flashing red as a clip warning regardless of scheme) color scheme.*
 - **Peak / RMS**: a hardware-style dual bar meter (fast peak with a hold cap, next to RMS) with a
   crest-factor readout -- the gap between the two shows how dynamic or compressed a master is.
 - **Tonal Balance**: a long-averaged spectral curve against a dashed reference curve tracking the
@@ -115,7 +120,9 @@ until other modes started depending on genuine per-band contrast to work at all.
   bars -- the classic look of a receiver's built-in spectrum display -- so it's a different
   rendering treatment of already-proven data rather than a new capture or DSP path. Lit segments
   (unlit ones are skipped) get the same single-composited-bitmap blur glow as the other bar-based
-  modes.
+  modes. Its `GraphicEqSettings.colorScheme` picks between the classic height-based coloring and
+  the shared frequency-reactive treatment (Neon Cyan Pulse, Spectrum's Frequency scheme) -- in
+  that mode the top segment still hard-flashes red as a clip warning regardless of frequency zone.
 - **Peak / RMS**: `PeakRmsEngine` gives peak a near-instant attack and a slower release (unlike the
   VU meter's symmetric ballistics), so it actually catches transients, plus a hold cap that latches
   and slowly falls. RMS uses the same ~300ms window as the VU meter. The gap between them, the
@@ -172,11 +179,17 @@ app-wide settings screen:
   losing the user's customization.
 - **Updates**: a GitHub-Releases-based OTA update path, the same pattern F-Droid-style apps use
   outside the Play Store. `UpdateChecker` queries the repo's latest release via GitHub's public
-  REST API, and "Download & Install" fetches the attached APK through `DownloadManager` and hands
-  it to the system installer (prompting for the one-time "install unknown apps" permission if not
-  already granted). This only works while the repo is public -- an unauthenticated request to a
-  private repo's releases API returns 404/403, so a failed check just says so rather than crashing.
-  An "Check Automatically" toggle runs the same check silently once when Settings opens.
+  REST API, and "Download & Install" fetches the attached APK through `DownloadManager` into the
+  app's private external-files directory, then hands it to the system installer via a `FileProvider`
+  content URI (declared in the manifest, paths in `res/xml/file_paths.xml`) -- `DownloadManager`'s
+  own `getUriForDownloadedFile()` is built for the public Downloads collection and returns an
+  unusable URI for a private-directory download, which is why installs could silently do nothing.
+  The download wait is capped at two minutes rather than polling forever, a stale file from a
+  previous attempt is cleared before retrying, and a failed/timed-out download surfaces a "Try
+  Again" state instead of quietly resetting as if nothing happened. This only works while the repo
+  is public -- an unauthenticated request to a private repo's releases API returns 404/403, so a
+  failed check just says so rather than crashing. An "Check Automatically" toggle runs the same
+  check silently once when Settings opens.
 - **About**: version number and "vibe coded with love by Samuel Nicholas Salvador/Veera Krishnan."
 
 ## App icon

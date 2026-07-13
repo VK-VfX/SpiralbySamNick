@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.sp
 import kotlin.math.ln
+import kotlin.math.pow
 
 /** dB reference lines drawn behind the bars, matching a studio spectrum analyzer's grid. */
 private val GRID_DB_LINES = listOf(0f, -12f, -24f, -36f, -48f, -60f)
@@ -36,9 +37,10 @@ private val CLASSIC_GREEN = Color(0xFF3DDC5A)
 private val CLASSIC_YELLOW = Color(0xFFE8E23D)
 private val CLASSIC_ORANGE = Color(0xFFF08A2E)
 
-/** Renders [engine]'s smoothed frequency bands as a bar spectrum, in either the cool blue-to-white
- * studio palette (red reserved for the clip zone right at the top) or a classic green-yellow-red
- * gradient, per [settings]. Bars get a soft blurred glow, a single blurred copy of the whole row
+/** Renders [engine]'s smoothed frequency bands as a bar spectrum, in the cool blue-to-white studio
+ * palette, a classic green-yellow-red gradient, or Neon Cyan Pulse's frequency-reactive coloring
+ * (each bar rests at cyan and blends toward a color keyed to its own frequency band as its level
+ * rises), per [settings]. Bars get a soft blurred glow, a single blurred copy of the whole row
  * composited before the crisp bars rather than a per-bar blur -- the same technique the mirrored
  * bar spectrum modes use, since blurring 28 bars individually every frame is far more expensive
  * than blurring one composited layer once. */
@@ -98,7 +100,8 @@ fun SpectrumScreen(engine: SpectrumEngine, settings: SpectrumSettings) {
             val level = engine.bands[i].coerceIn(0f, 1f)
             val barHeight = (level * maxBarHeight).coerceAtLeast(barWidth * 0.3f)
             val x = paddingX + i * (barWidth + gap)
-            glowPaint.color = colorForLevel(level, settings.colorScheme).toArgb()
+            val positionT = i.toFloat() / (bandCount - 1).coerceAtLeast(1)
+            glowPaint.color = colorForLevel(level, settings.colorScheme, positionT).toArgb()
             glowCanvas.drawRect(x, baseline - barHeight, x + barWidth, baseline, glowPaint)
         }
         drawImage(glow.asImageBitmap())
@@ -121,9 +124,10 @@ fun SpectrumScreen(engine: SpectrumEngine, settings: SpectrumSettings) {
             val peak = engine.peaks[i].coerceIn(0f, 1f)
             val barHeight = (level * maxBarHeight).coerceAtLeast(barWidth * 0.3f)
             val x = paddingX + i * (barWidth + gap)
+            val positionT = i.toFloat() / (bandCount - 1).coerceAtLeast(1)
 
             drawRoundRect(
-                color = colorForLevel(level, settings.colorScheme),
+                color = colorForLevel(level, settings.colorScheme, positionT),
                 topLeft = Offset(x, baseline - barHeight),
                 size = Size(barWidth, barHeight),
                 cornerRadius = CornerRadius(barWidth * 0.25f, barWidth * 0.25f),
@@ -154,9 +158,10 @@ private fun xFractionForFrequency(hz: Float): Float {
     return ((ln(hz) - logMin) / (logMax - logMin)).coerceIn(0f, 1f)
 }
 
-private fun colorForLevel(level: Float, scheme: SpectrumColorScheme): Color = when (scheme) {
+private fun colorForLevel(level: Float, scheme: SpectrumColorScheme, positionT: Float): Color = when (scheme) {
     SpectrumColorScheme.COOL -> coolColorForLevel(level)
     SpectrumColorScheme.CLASSIC -> classicColorForLevel(level)
+    SpectrumColorScheme.FREQUENCY -> frequencyReactiveColorForLevel(level, positionT)
 }
 
 /** Cool blue at low level through cyan and near-white, with red reserved for the clip zone. */
@@ -171,6 +176,15 @@ private fun classicColorForLevel(level: Float): Color = when {
     level < 0.5f -> lerpColor(CLASSIC_GREEN, CLASSIC_YELLOW, level / 0.5f)
     level < 0.8f -> lerpColor(CLASSIC_YELLOW, CLASSIC_ORANGE, (level - 0.5f) / 0.3f)
     else -> lerpColor(CLASSIC_ORANGE, VisualizerTheme.CRITICAL, (level - 0.8f) / 0.2f)
+}
+
+/** Blends from resting cyan toward [frequencyZoneColor] at [positionT] as [level] rises -- the
+ * same per-bar frequency-reactive treatment Neon Cyan Pulse uses (bass reads red, treble violet),
+ * applied to Spectrum's own upward-growing bars instead of a mirrored pulse. */
+private fun frequencyReactiveColorForLevel(level: Float, positionT: Float): Color {
+    val zone = frequencyZoneColor(positionT)
+    val mix = level.pow(0.55f) * 0.92f
+    return lerpGradientColor(NEON_CYAN, zone, mix)
 }
 
 private fun lerpColor(a: Color, b: Color, t: Float): Color {

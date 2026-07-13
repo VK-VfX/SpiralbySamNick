@@ -7,10 +7,12 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.Settings
+import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -81,43 +83,70 @@ object UpdateChecker {
         }
     }
 
-    /** Downloads [release]'s APK via DownloadManager, waits for completion, then launches the system installer. */
-    suspend fun downloadAndInstall(context: Context, release: LatestRelease) {
+    private const val DOWNLOAD_POLL_INTERVAL_MS = 500L
+
+    // Bounds the wait for a download that stalls (no network, a paused/never-resumed transfer) --
+    // without this the caller's "Downloading..." state hung forever with no way to recover.
+    private const val DOWNLOAD_TIMEOUT_MS = 120_000L
+
+    /**
+     * Downloads [release]'s APK via DownloadManager, waits for completion, then launches the
+     * system installer. Returns whether the install intent was actually launched; false covers a
+     * failed/timed-out download or a missing destination file, so the caller can show a retry
+     * state instead of silently assuming success.
+     */
+    suspend fun downloadAndInstall(context: Context, release: LatestRelease): Boolean {
         val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        val fileName = "sams-visualizer-${release.tagName}.apk"
+        val destinationFile = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), fileName)
+        // A leftover file from a previous attempt (a failed download, or retrying the same
+        // release) can make DownloadManager refuse to write to the same path again.
+        if (destinationFile.exists()) destinationFile.delete()
+
         val request = DownloadManager.Request(Uri.parse(release.apkDownloadUrl))
             .setTitle("Sam's Visualizer ${release.tagName}")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, "sams-visualizer-${release.tagName}.apk")
+            .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, fileName)
 
         val downloadId = downloadManager.enqueue(request)
 
-        val uri = withContext(Dispatchers.IO) {
-            var resultUri: Uri? = null
-            var pending = true
-            while (pending) {
+        val succeeded = withContext(Dispatchers.IO) {
+            var result = false
+            var elapsedMs = 0L
+            while (elapsedMs < DOWNLOAD_TIMEOUT_MS) {
+                var stillPending = true
                 downloadManager.query(DownloadManager.Query().setFilterById(downloadId)).use { cursor ->
                     if (cursor.moveToFirst()) {
-                        val status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
-                        when (status) {
+                        when (cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))) {
                             DownloadManager.STATUS_SUCCESSFUL -> {
-                                resultUri = downloadManager.getUriForDownloadedFile(downloadId)
-                                pending = false
+                                result = true
+                                stillPending = false
                             }
-                            DownloadManager.STATUS_FAILED -> pending = false
+                            DownloadManager.STATUS_FAILED -> stillPending = false
                         }
                     } else {
-                        pending = false
+                        stillPending = false
                     }
                 }
-                if (pending) delay(500)
+                if (!stillPending) break
+                delay(DOWNLOAD_POLL_INTERVAL_MS)
+                elapsedMs += DOWNLOAD_POLL_INTERVAL_MS
             }
-            resultUri
-        } ?: return
+            result
+        }
 
+        if (!succeeded || !destinationFile.exists()) return false
+
+        // DownloadManager.getUriForDownloadedFile() is built for downloads in the public Downloads
+        // collection and is unreliable (often an unopenable URI) for a file saved under an
+        // app-private external directory like this one -- FileProvider is what actually grants the
+        // system installer read access to a file living in our private storage.
+        val apkUri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", destinationFile)
         val installIntent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, "application/vnd.android.package-archive")
+            setDataAndType(apkUri, "application/vnd.android.package-archive")
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         context.startActivity(installIntent)
+        return true
     }
 }

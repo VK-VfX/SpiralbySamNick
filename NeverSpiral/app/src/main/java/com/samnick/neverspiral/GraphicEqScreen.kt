@@ -22,6 +22,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.sp
 import kotlin.math.ln
+import kotlin.math.pow
 
 private const val SEGMENT_COUNT = 18
 private const val SEGMENT_GAP_FRACTION = 0.24f
@@ -40,9 +41,14 @@ private val FREQ_LABELS_HZ = listOf(60f, 250f, 1000f, 4000f, 16000f)
  * so this is a different rendering treatment of already-proven data, not new DSP. Lit segments get
  * a soft blurred glow -- a single blurred composite of just the lit segments, drawn once before the
  * crisp LED columns -- the same single-bitmap-blur technique the bar spectrum modes use.
+ *
+ * Color is either the classic green/amber/red-by-height LED bank look, or (per [settings]) the
+ * same frequency-reactive treatment Neon Cyan Pulse and Spectrum use: a column's lit segments rest
+ * near cyan and blend toward a color keyed to that column's own frequency band as its level rises,
+ * though the very top segment always hard-flashes red as a clip warning regardless of scheme.
  */
 @Composable
-fun GraphicEqScreen(engine: SpectrumEngine) {
+fun GraphicEqScreen(engine: SpectrumEngine, settings: GraphicEqSettings) {
     val glowHolder = remember { arrayOfNulls<Bitmap>(1) }
     val textMeasurer = rememberTextMeasurer()
     val gridLabels = remember(textMeasurer) {
@@ -101,9 +107,10 @@ fun GraphicEqScreen(engine: SpectrumEngine) {
             val level = engine.bands[i].coerceIn(0f, 1f)
             val litSegments = (level * SEGMENT_COUNT).toInt().coerceIn(0, SEGMENT_COUNT)
             val x = paddingX + i * columnPitch + (columnPitch - columnWidth) / 2f
+            val positionT = i.toFloat() / (bandCount - 1).coerceAtLeast(1)
             for (s in 0 until litSegments) {
                 val y = bottom - (s + 1) * segmentPitch + (segmentPitch - segmentHeight)
-                glowPaint.color = colorForSegment(s.toFloat() / SEGMENT_COUNT).toArgb()
+                glowPaint.color = colorForSegment(s.toFloat() / SEGMENT_COUNT, settings.colorScheme, positionT, level).toArgb()
                 glowCanvas.drawRect(x, y, x + columnWidth, y + segmentHeight, glowPaint)
             }
         }
@@ -128,11 +135,12 @@ fun GraphicEqScreen(engine: SpectrumEngine) {
             val litSegments = (level * SEGMENT_COUNT).toInt().coerceIn(0, SEGMENT_COUNT)
             val peakSegment = (peak * SEGMENT_COUNT).toInt().coerceIn(0, SEGMENT_COUNT - 1)
             val x = paddingX + i * columnPitch + (columnPitch - columnWidth) / 2f
+            val positionT = i.toFloat() / (bandCount - 1).coerceAtLeast(1)
 
             for (s in 0 until SEGMENT_COUNT) {
                 val y = bottom - (s + 1) * segmentPitch + (segmentPitch - segmentHeight)
                 val lit = s < litSegments
-                val color = if (lit) colorForSegment(s.toFloat() / SEGMENT_COUNT) else VisualizerTheme.PANEL_RAISED
+                val color = if (lit) colorForSegment(s.toFloat() / SEGMENT_COUNT, settings.colorScheme, positionT, level) else VisualizerTheme.PANEL_RAISED
                 drawRoundRect(
                     color = color,
                     topLeft = Offset(x, y),
@@ -165,9 +173,24 @@ private fun xFractionForFrequency(hz: Float): Float {
     return ((ln(hz) - logMin) / (logMax - logMin)).coerceIn(0f, 1f)
 }
 
+private fun colorForSegment(fracFromBottom: Float, scheme: GraphicEqColorScheme, positionT: Float, level: Float): Color = when (scheme) {
+    GraphicEqColorScheme.CLASSIC -> classicColorForSegment(fracFromBottom)
+    GraphicEqColorScheme.FREQUENCY -> frequencyColorForSegment(fracFromBottom, positionT, level)
+}
+
 /** Green/cyan for the lower two-thirds, amber approaching the top, red for the last segment -- a clip warning. */
-private fun colorForSegment(fracFromBottom: Float): Color = when {
+private fun classicColorForSegment(fracFromBottom: Float): Color = when {
     fracFromBottom < 0.6f -> VisualizerTheme.ACCENT
     fracFromBottom < 0.89f -> VisualizerTheme.WARN
     else -> VisualizerTheme.CRITICAL
+}
+
+/** Blends from resting cyan toward [frequencyZoneColor] at [positionT] as the column's own [level]
+ * rises -- same treatment as Neon Cyan Pulse and Spectrum's Frequency scheme -- but the top segment
+ * still hard-flashes red as a clip warning regardless of which frequency zone it's in. */
+private fun frequencyColorForSegment(fracFromBottom: Float, positionT: Float, level: Float): Color {
+    if (fracFromBottom >= 0.89f) return VisualizerTheme.CRITICAL
+    val zone = frequencyZoneColor(positionT)
+    val mix = level.pow(0.55f) * 0.92f
+    return lerpGradientColor(NEON_CYAN, zone, mix)
 }

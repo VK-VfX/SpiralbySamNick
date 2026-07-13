@@ -16,17 +16,19 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ButtonDefaults
@@ -56,6 +58,7 @@ private val MODES_WITH_SETTINGS = setOf(
     VisualMode.SPECTRUM,
     VisualMode.GONIOMETER,
     VisualMode.LOUDNESS,
+    VisualMode.GRAPHIC_EQ,
     VisualMode.RAINBOW_SPECTRUM,
     VisualMode.NEON_CYAN_PULSE,
 )
@@ -65,19 +68,20 @@ private const val SWIPE_THRESHOLD_PX = 90f
 /**
  * Hosts up to nine visualizer modes (fewer if the user's hidden some via the "Modes" section in
  * [AppSettingsScreen], see [ModePreferences]) plus the single shared "Visualize music" capture
- * toggle. Tap to cycle forward, swipe left/right to cycle either direction, or long-press to jump
- * straight to a mode via a picker grid -- tap-only stopped scaling once there were this many
- * modes to page through. A hamburger icon in the top-right opens the app-wide [AppSettingsScreen]
- * (player shortcuts, keep-screen-on, OTA updates, mode customization, about) -- distinct from
- * each mode's own gear-icon tuning panel. Every engine is stepped every frame regardless of which
- * mode is showing (except Loudness and Goniometer's per-sample work, which only runs while their
- * mode is actually visible -- the heaviest per-sample processing in the app, worth skipping when
- * nothing is reading it), so switching among the other modes still feels instant rather than
- * starting from a frozen reading. Rainbow Spectrum and Neon Cyan Pulse are pure rendering
- * treatments of [SpectrumEngine]'s already fast-rise/slower-fall smoothed bands, the same data
- * [SpectrumScreen] and [GraphicEqScreen] draw, so they need no dedicated engine of their own --
- * just their own [BarSpectrumSettings] for Scale, Stroke Weight, and Height, same as every other
- * mode's gear-icon panel.
+ * toggle. A persistent, horizontally-scrollable row of mode chips below the visualizer is the
+ * primary way to switch -- tap the specific mode you want directly, rather than repeatedly tapping
+ * the canvas to cycle through them one at a time. Swipe left/right on the canvas still works too,
+ * for quick cycling without looking down at the row. A hamburger icon in the top-right opens the
+ * app-wide [AppSettingsScreen] (player shortcuts, keep-screen-on, OTA updates, mode customization,
+ * about) -- distinct from each mode's own gear-icon tuning panel. Every engine is stepped every
+ * frame regardless of which mode is showing (except Loudness and Goniometer's per-sample work,
+ * which only runs while their mode is actually visible -- the heaviest per-sample processing in
+ * the app, worth skipping when nothing is reading it), so switching among the other modes still
+ * feels instant rather than starting from a frozen reading. Rainbow Spectrum and Neon Cyan Pulse
+ * are pure rendering treatments of [SpectrumEngine]'s already fast-rise/slower-fall smoothed
+ * bands, the same data [SpectrumScreen] and [GraphicEqScreen] draw, so they need no dedicated
+ * engine of their own -- just their own [BarSpectrumSettings] for Scale, Stroke Weight, and
+ * Height, same as every other mode's gear-icon panel.
  */
 @Composable
 fun MainScreen() {
@@ -103,6 +107,10 @@ fun MainScreen() {
     }
     val peakRms = remember { PeakRmsEngine() }
     val tonalBalance = remember { TonalBalanceEngine(SpectrumAnalyzer.BAND_COUNT) }
+    val graphicEqSettings = remember {
+        val ordinal = SettingsStore.getInt(context, KEY_GRAPHIC_EQ_COLOR_SCHEME, GraphicEqColorScheme.CLASSIC.ordinal)
+        GraphicEqSettings(GraphicEqColorScheme.entries.getOrElse(ordinal) { GraphicEqColorScheme.CLASSIC })
+    }
     val rainbowSpectrumSettings = remember {
         BarSpectrumSettings(
             initialScale = SettingsStore.getFloat(context, KEY_RAINBOW_SCALE, 1f),
@@ -122,7 +130,6 @@ fun MainScreen() {
     var visibleModes by remember { mutableStateOf(ModePreferences.loadVisible(context)) }
     var mode by remember { mutableStateOf(visibleModes.firstOrNull() ?: VisualMode.VU_METER) }
     var showSettings by remember { mutableStateOf(false) }
-    var showModePicker by remember { mutableStateOf(false) }
     var showAppSettings by remember { mutableStateOf(false) }
 
     val projectionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -211,12 +218,6 @@ fun MainScreen() {
                     .weight(1f)
                     .fillMaxWidth()
                     .pointerInput(Unit) {
-                        detectTapGestures(
-                            onTap = { mode = mode.nextIn(visibleModes) },
-                            onLongPress = { showModePicker = true },
-                        )
-                    }
-                    .pointerInput(Unit) {
                         var totalDragX = 0f
                         detectHorizontalDragGestures(
                             onDragStart = { totalDragX = 0f },
@@ -244,7 +245,7 @@ fun MainScreen() {
                         VisualMode.SPECTRUM -> SpectrumScreen(spectrum, spectrumSettings)
                         VisualMode.GONIOMETER -> GoniometerScreen(goniometer, goniometerSettings)
                         VisualMode.LOUDNESS -> LoudnessScreen(loudness, loudnessSettings)
-                        VisualMode.GRAPHIC_EQ -> GraphicEqScreen(spectrum)
+                        VisualMode.GRAPHIC_EQ -> GraphicEqScreen(spectrum, graphicEqSettings)
                         VisualMode.PEAK_RMS -> PeakRmsScreen(peakRms)
                         VisualMode.TONAL_BALANCE -> TonalBalanceScreen(tonalBalance)
                         VisualMode.RAINBOW_SPECTRUM -> RainbowSpectrumScreen(spectrum, rainbowSpectrumSettings)
@@ -262,14 +263,6 @@ fun MainScreen() {
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .padding(12.dp),
-                )
-
-                ModeIndicatorDots(
-                    currentMode = mode,
-                    modes = visibleModes,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 10.dp),
                 )
 
                 if (mode in MODES_WITH_SETTINGS) {
@@ -305,25 +298,20 @@ fun MainScreen() {
                                 spectrumSettings = spectrumSettings,
                                 goniometerSettings = goniometerSettings,
                                 loudnessSettings = loudnessSettings,
+                                graphicEqSettings = graphicEqSettings,
                                 rainbowSpectrumSettings = rainbowSpectrumSettings,
                                 neonCyanPulseSettings = neonCyanPulseSettings,
                             )
                         }
                     }
                 }
-
-                if (showModePicker) {
-                    ModePickerOverlay(
-                        currentMode = mode,
-                        modes = visibleModes,
-                        onSelect = {
-                            mode = it
-                            showModePicker = false
-                        },
-                        onDismiss = { showModePicker = false },
-                    )
-                }
             }
+
+            ModeSelectorRow(
+                currentMode = mode,
+                modes = visibleModes,
+                onSelect = { mode = it },
+            )
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 OutlinedButton(
@@ -386,6 +374,7 @@ private fun SettingsPanelContent(
     spectrumSettings: SpectrumSettings,
     goniometerSettings: GoniometerSettings,
     loudnessSettings: LoudnessSettings,
+    graphicEqSettings: GraphicEqSettings,
     rainbowSpectrumSettings: BarSpectrumSettings,
     neonCyanPulseSettings: BarSpectrumSettings,
 ) {
@@ -430,6 +419,16 @@ private fun SettingsPanelContent(
                 SettingsStore.putInt(context, KEY_LOUDNESS_TARGET, it.ordinal)
             }
         }
+        VisualMode.GRAPHIC_EQ -> {
+            SettingChoiceRow(
+                "Colors",
+                GraphicEqColorScheme.entries.map { it to it.label },
+                graphicEqSettings.colorScheme,
+            ) {
+                graphicEqSettings.colorScheme = it
+                SettingsStore.putInt(context, KEY_GRAPHIC_EQ_COLOR_SCHEME, it.ordinal)
+            }
+        }
         VisualMode.RAINBOW_SPECTRUM -> BarSpectrumSettingsPanel(rainbowSpectrumSettings, context, KEY_RAINBOW_SCALE, KEY_RAINBOW_STROKE_WEIGHT, KEY_RAINBOW_HEIGHT)
         VisualMode.NEON_CYAN_PULSE -> BarSpectrumSettingsPanel(neonCyanPulseSettings, context, KEY_NEON_SCALE, KEY_NEON_STROKE_WEIGHT, KEY_NEON_HEIGHT)
         else -> Unit
@@ -471,62 +470,44 @@ private fun BarSpectrumSettingsPanel(
     }
 }
 
+/**
+ * A persistent, horizontally-scrollable strip of mode chips below the visualizer -- the primary
+ * way to switch modes, replacing a bare tap-anywhere-to-cycle gesture that got tedious to repeat
+ * with a lot of modes to page through. Tapping a chip jumps straight to that mode; the strip
+ * auto-scrolls to keep the current mode's chip in view when the mode changes via swipe.
+ */
 @Composable
-private fun ModeIndicatorDots(currentMode: VisualMode, modes: List<VisualMode>, modifier: Modifier = Modifier) {
-    Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        for (m in modes) {
+private fun ModeSelectorRow(currentMode: VisualMode, modes: List<VisualMode>, onSelect: (VisualMode) -> Unit) {
+    val listState = rememberLazyListState()
+    LaunchedEffect(currentMode, modes) {
+        val index = modes.indexOf(currentMode)
+        if (index >= 0) listState.animateScrollToItem(index)
+    }
+    LazyRow(
+        state = listState,
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        items(modes) { m ->
             val isCurrent = m == currentMode
             Box(
                 modifier = Modifier
-                    .size(if (isCurrent) 7.dp else 5.dp)
-                    .clip(CircleShape)
-                    .background(if (isCurrent) VisualizerTheme.ACCENT else VisualizerTheme.HAIRLINE),
-            )
-        }
-    }
-}
-
-/** A full-screen picker grid, opened via long-press, for jumping straight to any visible mode. */
-@Composable
-private fun ModePickerOverlay(currentMode: VisualMode, modes: List<VisualMode>, onSelect: (VisualMode) -> Unit, onDismiss: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(VisualizerTheme.BACKGROUND.copy(alpha = 0.94f))
-            .clickable { onDismiss() },
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(
-            modifier = Modifier
-                .clip(RoundedCornerShape(16.dp))
-                .background(VisualizerTheme.PANEL)
-                .border(1.dp, VisualizerTheme.HAIRLINE, RoundedCornerShape(16.dp))
-                .padding(16.dp),
-        ) {
-            for (rowModes in modes.chunked(2)) {
-                Row {
-                    for (m in rowModes) {
-                        val isCurrent = m == currentMode
-                        Box(
-                            modifier = Modifier
-                                .padding(6.dp)
-                                .width(140.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(if (isCurrent) VisualizerTheme.ACCENT else VisualizerTheme.PANEL_RAISED)
-                                .clickable { onSelect(m) }
-                                .padding(vertical = 14.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                text = m.label.uppercase(),
-                                color = if (isCurrent) VisualizerTheme.PANEL else VisualizerTheme.TEXT_PRIMARY,
-                                fontSize = 12.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                        }
-                    }
-                }
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (isCurrent) VisualizerTheme.ACCENT else VisualizerTheme.PANEL_RAISED)
+                    .border(1.dp, VisualizerTheme.HAIRLINE, RoundedCornerShape(8.dp))
+                    .clickable { onSelect(m) }
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = m.label.uppercase(),
+                    color = if (isCurrent) VisualizerTheme.PANEL else VisualizerTheme.TEXT_PRIMARY,
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.5.sp,
+                )
             }
         }
     }
@@ -536,6 +517,7 @@ private const val KEY_VU_CALIBRATION = "vu_calibration_offset_db"
 private const val KEY_SPECTRUM_COLOR_SCHEME = "spectrum_color_scheme"
 private const val KEY_GONIOMETER_TRAIL = "goniometer_trail_persistence"
 private const val KEY_LOUDNESS_TARGET = "loudness_target"
+private const val KEY_GRAPHIC_EQ_COLOR_SCHEME = "graphic_eq_color_scheme"
 private const val KEY_RAINBOW_SCALE = "rainbow_spectrum_scale"
 private const val KEY_RAINBOW_STROKE_WEIGHT = "rainbow_spectrum_stroke_weight"
 private const val KEY_RAINBOW_HEIGHT = "rainbow_spectrum_height"

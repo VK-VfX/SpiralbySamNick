@@ -39,5 +39,18 @@
             android:name=".AudioCaptureService"
             android:foregroundServiceType="mediaProjection"
             android:exported="false" />
+
+        <!-- Grants the system package installer read access to the OTA APK downloaded into our
+             private external-files storage; DownloadManager's own getUriForDownloadedFile() is
+             built for the public Downloads collection and doesn't reliably work for that. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>
