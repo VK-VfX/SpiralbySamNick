@@ -40,7 +40,7 @@
             android:foregroundServiceType="mediaProjection"
             android:exported="false" />
 
-        <!-- android:exported="true" is required here -- the launcher (a separate app/process)
+        <!-- android:exported="true" is required here: the launcher (a separate app/process)
              sends the APPWIDGET_UPDATE broadcast, and the system only delivers it to receivers
              that are actually reachable, i.e. exported. -->
         <receiver
@@ -54,7 +54,7 @@
                 android:resource="@xml/widget_info" />
         </receiver>
 
-        <!-- android:exported="true" is required here too -- Quick Settings binds to tile services
+        <!-- android:exported="true" is required here too: Quick Settings binds to tile services
              from the system process, protected by BIND_QUICK_SETTINGS_TILE (a signature|privileged
              permission only the system holds), the same pattern every QS tile app uses. -->
         <service

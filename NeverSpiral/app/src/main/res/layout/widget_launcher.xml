@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A static, tap-to-open widget -- there's no way to render the live Compose Canvas visualizer
+<!-- A static, tap-to-open widget: there's no way to render the live Compose Canvas visualizer
      into a RemoteViews layout, so this is branding plus a fast-path launcher rather than a live
      preview. Colors are hardcoded to match VisualizerTheme since widget layouts can't reference
      the app's Compose theme. -->
