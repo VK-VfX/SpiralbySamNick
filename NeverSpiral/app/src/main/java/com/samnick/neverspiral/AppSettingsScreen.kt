@@ -1,9 +1,12 @@
 package com.samnick.neverspiral
 
 import android.content.ActivityNotFoundException
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.provider.Settings
+import android.service.notification.NotificationListenerService
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -14,6 +17,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
@@ -26,8 +30,10 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -36,11 +42,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.NotificationManagerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.launch
 
 private data class PlayerApp(val label: String, val packageName: String)
@@ -53,6 +63,9 @@ private val PLAYER_APPS = listOf(
 
 private const val KEY_KEEP_SCREEN_ON = "keep_screen_on"
 private const val KEY_AUTO_CHECK_UPDATES = "auto_check_updates"
+
+/** Not private: [MainScreen] reads this directly to decide whether to hide system bars. */
+internal const val KEY_IMMERSIVE_MODE = "immersive_mode"
 
 private sealed interface UpdateCheckState {
     object Idle : UpdateCheckState
@@ -75,6 +88,7 @@ fun AppSettingsScreen(onDismiss: () -> Unit) {
     val scope = rememberCoroutineScope()
 
     var keepScreenOn by remember { mutableStateOf(SettingsStore.getBoolean(context, KEY_KEEP_SCREEN_ON, false)) }
+    var immersiveMode by remember { mutableStateOf(SettingsStore.getBoolean(context, KEY_IMMERSIVE_MODE, true)) }
     var autoCheckUpdates by remember { mutableStateOf(SettingsStore.getBoolean(context, KEY_AUTO_CHECK_UPDATES, false)) }
     var updateState by remember { mutableStateOf<UpdateCheckState>(UpdateCheckState.Idle) }
     val versionName = remember {
@@ -138,7 +152,7 @@ fun AppSettingsScreen(onDismiss: () -> Unit) {
             ) {
                 SettingsSectionTitle("Players")
                 Text(
-                    text = "Sam's Visualizer listens to whatever's playing system-wide, so it already " +
+                    text = "Sam's Music Viz listens to whatever's playing system-wide, so it already " +
                         "works with any of these -- no account or setup needed. These just jump " +
                         "straight to the app.",
                     color = VisualizerTheme.TEXT_SECONDARY,
@@ -149,6 +163,10 @@ fun AppSettingsScreen(onDismiss: () -> Unit) {
                 for (player in PLAYER_APPS) {
                     PlayerRow(player, context)
                 }
+
+                Spacer(modifier = Modifier.height(20.dp))
+                SettingsSectionTitle("Now Playing")
+                NowPlayingSection(context)
 
                 Spacer(modifier = Modifier.height(20.dp))
                 SettingsSectionTitle("Display")
@@ -162,13 +180,27 @@ fun AppSettingsScreen(onDismiss: () -> Unit) {
                     keepScreenOn = it
                     SettingsStore.putBoolean(context, KEY_KEEP_SCREEN_ON, it)
                 }
+                SettingsToggleRow(
+                    label = "Immersive Mode",
+                    description = "Hides the status and navigation bars while the visualizer is " +
+                        "running, for a true edge-to-edge full-screen view. Swipe from an edge to " +
+                        "bring them back temporarily.",
+                    checked = immersiveMode,
+                ) {
+                    immersiveMode = it
+                    SettingsStore.putBoolean(context, KEY_IMMERSIVE_MODE, it)
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+                SettingsSectionTitle("Appearance")
+                AppearanceSection(context)
 
                 Spacer(modifier = Modifier.height(20.dp))
                 SettingsSectionTitle("Modes")
                 Text(
-                    text = "Hide modes you don't use, or reorder them -- tap/swipe cycling, the " +
-                        "long-press picker, and the dots at the bottom of the screen all follow " +
-                        "this order. At least one mode has to stay visible.",
+                    text = "Hide modes you don't use, or reorder them -- the mode strip below the " +
+                        "visualizer and swipe cycling both follow this order. At least one mode " +
+                        "has to stay visible.",
                     color = VisualizerTheme.TEXT_SECONDARY,
                     fontSize = 12.sp,
                     fontFamily = FontFamily.Monospace,
@@ -215,9 +247,13 @@ fun AppSettingsScreen(onDismiss: () -> Unit) {
                 )
 
                 Spacer(modifier = Modifier.height(20.dp))
+                SettingsSectionTitle("Diagnostics")
+                DiagnosticsSection(context)
+
+                Spacer(modifier = Modifier.height(20.dp))
                 SettingsSectionTitle("About")
                 Text(
-                    text = "Sam's Visualizer",
+                    text = "Sam's Music Viz",
                     color = VisualizerTheme.TEXT_PRIMARY,
                     fontSize = 14.sp,
                     fontFamily = FontFamily.Monospace,
@@ -389,6 +425,162 @@ private fun ReorderArrow(glyph: String, enabled: Boolean, onClick: () -> Unit) {
         )
     }
 }
+
+/**
+ * A custom accent color picker, expressed as hue/saturation/brightness sliders rather than RGB so
+ * three simple sliders cover the whole color range. Writes straight into [VisualizerTheme.ACCENT]
+ * on every change for a live preview, since that's the same value the rest of the app reads.
+ */
+@Composable
+private fun AppearanceSection(context: Context) {
+    var useCustom by remember { mutableStateOf(AppearanceSettings.isCustomEnabled(context)) }
+    var hue by remember { mutableFloatStateOf(AppearanceSettings.loadHue(context)) }
+    var saturation by remember { mutableFloatStateOf(AppearanceSettings.loadSaturation(context)) }
+    var brightness by remember { mutableFloatStateOf(AppearanceSettings.loadValue(context)) }
+
+    Text(
+        text = "Pick your own accent color -- used for highlights, needles, mode chips, and the " +
+            "Cool/Frequency color schemes across every mode -- instead of the default teal-cyan.",
+        color = VisualizerTheme.TEXT_SECONDARY,
+        fontSize = 12.sp,
+        fontFamily = FontFamily.Monospace,
+        modifier = Modifier.padding(bottom = 10.dp),
+    )
+    SettingsToggleRow(
+        label = "Custom Accent Color",
+        description = "Overrides the default accent everywhere it's used.",
+        checked = useCustom,
+    ) { checked ->
+        useCustom = checked
+        if (checked) {
+            AppearanceSettings.saveCustomAccent(context, hue, saturation, brightness)
+        } else {
+            AppearanceSettings.resetToDefault(context)
+        }
+    }
+    if (useCustom) {
+        Spacer(modifier = Modifier.height(10.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(28.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(AppearanceSettings.colorFromHsv(hue, saturation, brightness)),
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        SettingSliderRow("Hue", hue, 0f..360f) {
+            hue = it
+            AppearanceSettings.saveCustomAccent(context, hue, saturation, brightness)
+        }
+        SettingSliderRow("Saturation", saturation, 0.15f..1f) {
+            saturation = it
+            AppearanceSettings.saveCustomAccent(context, hue, saturation, brightness)
+        }
+        SettingSliderRow("Brightness", brightness, 0.45f..1f) {
+            brightness = it
+            AppearanceSettings.saveCustomAccent(context, hue, saturation, brightness)
+        }
+    }
+}
+
+/**
+ * Shows the most recent crash's stack trace, if any -- there's no crash-reporting backend, so
+ * during solo on-device testing this local file (see [CrashLog]) is the only way to see what
+ * actually broke after the app dies and relaunches.
+ */
+@Composable
+private fun DiagnosticsSection(context: Context) {
+    var crashLog by remember { mutableStateOf(CrashLog.read(context)) }
+    if (crashLog == null) {
+        Text(
+            text = "No crashes recorded since the app was installed.",
+            color = VisualizerTheme.TEXT_SECONDARY,
+            fontSize = 12.sp,
+            fontFamily = FontFamily.Monospace,
+        )
+    } else {
+        Text(
+            text = "Most recent crash:",
+            color = VisualizerTheme.TEXT_SECONDARY,
+            fontSize = 12.sp,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.padding(bottom = 6.dp),
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 160.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(VisualizerTheme.PANEL_RAISED)
+                .verticalScroll(rememberScrollState())
+                .padding(10.dp),
+        ) {
+            Text(
+                text = crashLog ?: "",
+                color = VisualizerTheme.CRITICAL,
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace,
+            )
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        SettingsActionButton("Clear") {
+            CrashLog.clear(context)
+            crashLog = null
+        }
+    }
+}
+
+/**
+ * Grants/reflects access to [NowPlayingListenerService], which needs the special notification-
+ * listener permission -- the same one every lock-screen media-control widget needs, since there's
+ * no narrower API for a third-party app to read another app's now-playing metadata. Re-checks
+ * grant status on every resume (e.g. returning from the system settings screen) since there's no
+ * callback for it.
+ */
+@Composable
+private fun NowPlayingSection(context: Context) {
+    var granted by remember { mutableStateOf(isNotificationListenerEnabled(context)) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                granted = isNotificationListenerEnabled(context)
+                if (granted) {
+                    NotificationListenerService.requestRebind(ComponentName(context, NowPlayingListenerService::class.java))
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    Text(
+        text = "Shows the track and artist playing in the mode header, read from the system's " +
+            "active media session -- the same special permission every lock-screen media widget " +
+            "needs, since there's no narrower way to read another app's now-playing metadata.",
+        color = VisualizerTheme.TEXT_SECONDARY,
+        fontSize = 12.sp,
+        fontFamily = FontFamily.Monospace,
+        modifier = Modifier.padding(bottom = 10.dp),
+    )
+    if (granted) {
+        Text(
+            text = "Access granted.",
+            color = VisualizerTheme.ACCENT,
+            fontSize = 12.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(bottom = 8.dp),
+        )
+    }
+    SettingsActionButton(if (granted) "Change Access" else "Grant Access") {
+        context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+    }
+}
+
+private fun isNotificationListenerEnabled(context: Context): Boolean =
+    NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
 
 private fun openPlayStoreListing(context: Context, packageName: String) {
     try {

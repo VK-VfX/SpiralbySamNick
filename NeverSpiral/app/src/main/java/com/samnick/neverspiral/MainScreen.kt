@@ -46,10 +46,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import kotlinx.coroutines.isActive
 
 /** Modes with their own gear-icon settings panel. */
@@ -86,6 +91,8 @@ private const val SWIPE_THRESHOLD_PX = 90f
 @Composable
 fun MainScreen() {
     val context = LocalContext.current
+    val view = LocalView.current
+    remember(context) { AppearanceSettings.applyStoredAccent(context) }
 
     val vuMeter = remember { VuMeterEngine() }
     val vuMeterSettings = remember {
@@ -131,6 +138,18 @@ fun MainScreen() {
     var mode by remember { mutableStateOf(visibleModes.firstOrNull() ?: VisualMode.VU_METER) }
     var showSettings by remember { mutableStateOf(false) }
     var showAppSettings by remember { mutableStateOf(false) }
+    var immersiveMode by remember { mutableStateOf(SettingsStore.getBoolean(context, KEY_IMMERSIVE_MODE, true)) }
+
+    LaunchedEffect(visualizerOn, immersiveMode) {
+        val window = (view.context as? Activity)?.window ?: return@LaunchedEffect
+        val controller = WindowCompat.getInsetsController(window, view)
+        if (immersiveMode && visualizerOn) {
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+        } else {
+            controller.show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
 
     val projectionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val data = result.data
@@ -211,6 +230,26 @@ fun MainScreen() {
                 ) {
                     Text("☰", color = VisualizerTheme.ACCENT, fontSize = 15.sp)
                 }
+            }
+
+            val nowPlaying = NowPlaying.current.value
+            if (nowPlaying != null) {
+                Text(
+                    text = if (nowPlaying.artist.isNotBlank()) {
+                        "${nowPlaying.title} — ${nowPlaying.artist}"
+                    } else {
+                        nowPlaying.title
+                    },
+                    color = VisualizerTheme.TEXT_SECONDARY,
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .padding(bottom = 6.dp),
+                )
             }
 
             Box(
@@ -360,6 +399,7 @@ fun MainScreen() {
                     if (mode !in visibleModes) {
                         mode = visibleModes.firstOrNull() ?: mode
                     }
+                    immersiveMode = SettingsStore.getBoolean(context, KEY_IMMERSIVE_MODE, true)
                 },
             )
         }

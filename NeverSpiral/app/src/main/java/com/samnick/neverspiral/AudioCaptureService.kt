@@ -16,6 +16,7 @@ import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.IBinder
 import androidx.annotation.RequiresApi
+import androidx.compose.runtime.mutableStateOf
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.IntentCompat
@@ -68,6 +69,7 @@ class AudioCaptureService : Service() {
         mediaProjection = projection
         projection.registerCallback(projectionCallback, null)
 
+        isRunning.value = true
         startCapture(projection)
         return START_NOT_STICKY
     }
@@ -200,6 +202,7 @@ class AudioCaptureService : Service() {
         mediaProjection?.unregisterCallback(projectionCallback)
         mediaProjection?.stop()
         AudioAnalyzer.reset()
+        isRunning.value = false
         super.onDestroy()
     }
 
@@ -207,6 +210,10 @@ class AudioCaptureService : Service() {
         const val EXTRA_RESULT_CODE = "result_code"
         const val EXTRA_RESULT_DATA = "result_data"
         private const val NOTIFICATION_ID = 4201
+
+        /** Whether capture is currently active -- read by [VisualizerTileService] to reflect
+         * state in the Quick Settings tile without needing to bind to this service. */
+        val isRunning = mutableStateOf(false)
 
         fun start(context: Context, resultCode: Int, data: Intent) {
             val intent = Intent(context, AudioCaptureService::class.java)

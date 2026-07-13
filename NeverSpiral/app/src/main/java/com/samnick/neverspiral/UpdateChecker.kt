@@ -97,14 +97,14 @@ object UpdateChecker {
      */
     suspend fun downloadAndInstall(context: Context, release: LatestRelease): Boolean {
         val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        val fileName = "sams-visualizer-${release.tagName}.apk"
+        val fileName = "sams-music-viz-${release.tagName}.apk"
         val destinationFile = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), fileName)
         // A leftover file from a previous attempt (a failed download, or retrying the same
         // release) can make DownloadManager refuse to write to the same path again.
         if (destinationFile.exists()) destinationFile.delete()
 
         val request = DownloadManager.Request(Uri.parse(release.apkDownloadUrl))
-            .setTitle("Sam's Visualizer ${release.tagName}")
+            .setTitle("Sam's Music Viz ${release.tagName}")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, fileName)
 

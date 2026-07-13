@@ -1,4 +1,4 @@
-# Sam's Visualizer
+# Sam's Music Viz
 
 Nine audio-reactive visualizer modes, styled as a modern dark mastering-suite instrument panel --
 flat near-black panels, thin hairline dividers, a cool desaturated accent, and red reserved strictly
@@ -155,23 +155,44 @@ modes shows a live reading immediately instead of a frozen one -- the two except
 (two IIR K-weighting filters run over every sample in every buffer) and Goniometer (a per-sample
 correlation sum), the heaviest per-sample work in the app, which only run while their own screen is
 actually visible; both settle back to a live reading within their own ballistic time constant
-(under a second) after switching back. The app also requests a 120Hz window refresh rate on
-displays that support it (Android ties refresh rate to the whole window, not to individual views,
-so this benefits every mode).
+(under a second) after switching back. The app also reads the display's actual supported modes and
+requests whichever one has the highest refresh rate -- the device's true native max (90Hz, 120Hz,
+144Hz, whatever it happens to support) rather than a fixed number that would cap a faster display
+or do nothing useful on a slower one (Android ties refresh rate to the whole window, not to
+individual views, so this benefits every mode).
 
 ## App Settings
 
 Distinct from each visualizer mode's own gear-icon tuning panel, the hamburger icon opens an
 app-wide settings screen:
 
-- **Players**: Sam's Visualizer already captures whatever's playing system-wide -- Spotify,
+- **Players**: Sam's Music Viz already captures whatever's playing system-wide -- Spotify,
   YouTube Music, Tidal, anything -- with no account, API key, or per-app setup. This section is
   just quick-launch shortcuts to jump straight to those apps (or their Play Store listing if not
   installed); it deliberately does *not* do OAuth account linking, since that wouldn't improve the
   visualizer and would mean embedding API credentials in the app for no real benefit.
-- **Display**: a "Keep Screen On" toggle. Android doesn't let third-party apps change the system
-  screen-timeout duration directly (that needs the sensitive `WRITE_SETTINGS` permission), so this
-  uses `View.keepScreenOn` -- the standard, non-invasive way to prevent sleep while the app is open.
+- **Now Playing**: shows the track/artist playing, in a small line above the visualizer, read from
+  the system's active media session via `NowPlayingListenerService` (a `NotificationListenerService`)
+  and published through `NowPlaying`'s Compose state. Needs the special notification-listener
+  permission -- the same one every lock-screen media-control widget needs, since there's no
+  narrower API for a third-party app to read another app's now-playing metadata -- granted via
+  `Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS`; access status re-checks itself whenever Settings
+  resumes (e.g. coming back from that system screen), since Android has no callback for it.
+- **Display**: a "Keep Screen On" toggle (`View.keepScreenOn` -- Android doesn't let third-party
+  apps change the system screen-timeout duration directly, that needs the sensitive
+  `WRITE_SETTINGS` permission) and an "Immersive Mode" toggle that hides the status/navigation bars
+  while the visualizer is running (`WindowInsetsControllerCompat`, with
+  `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE` so a swipe from an edge still reveals them temporarily).
+  The app also isn't locked to portrait anymore -- it follows whatever the device's own
+  rotation-lock setting allows, rather than forcing one orientation.
+- **Appearance**: a custom accent color, expressed as Hue/Saturation/Brightness sliders (via
+  `android.graphics.Color.HSVToColor`) rather than RGB so three sliders cover the whole range, with
+  a live preview swatch. `VisualizerTheme.ACCENT` is mutable Compose state rather than a fixed
+  constant specifically so this can override it -- and since nearly every mode already reads
+  `ACCENT` (chips, the VU needle's glow, Spectrum's Cool and Frequency schemes, Graphic EQ's lit
+  segments, and more), one custom color cascades across the whole app instead of needing a picker
+  per mode. `ACCENT_DIM` derives from `ACCENT` rather than being independent, so it stays coherent
+  with whatever's picked.
 - **Modes**: hide modes you don't use, and reorder the rest via up/down arrows next to each one
   (drag-to-reorder felt riskier on a touchscreen than arrows for a list this short). At least one
   mode always stays visible. Persisted through `ModePreferences` as an ordered mode-name list plus
@@ -190,7 +211,25 @@ app-wide settings screen:
   is public -- an unauthenticated request to a private repo's releases API returns 404/403, so a
   failed check just says so rather than crashing. An "Check Automatically" toggle runs the same
   check silently once when Settings opens.
+- **Diagnostics**: the most recent uncaught exception, if any -- `VisualizerApplication` installs a
+  custom `Thread.UncaughtExceptionHandler` that writes the crash's stack trace to a local file
+  (`CrashLog`) before re-raising to the system default handler, so the app still crashes normally,
+  it just leaves a note behind first. There's no crash-reporting backend, so during solo on-device
+  testing this is the only way to see what actually broke after the app dies and relaunches.
 - **About**: version number and "vibe coded with love by Samuel Nicholas Salvador/Veera Krishnan."
+
+## Home screen widget & Quick Settings tile
+
+Both are tap-to-open shortcuts rather than live mini-visualizers or remote controls, for the same
+underlying reason: `RemoteViews` (what both widgets and notifications render through) can't host a
+live Compose `Canvas`, and starting capture requires [`MediaProjection`](https://developer.android.com/reference/android/media/projection/MediaProjection)'s
+system "start recording or casting" consent dialog, which needs a foreground `Activity` to show and
+isn't persisted across app restarts -- so neither surface can silently start visualizing on its own.
+- **Widget** (`VisualizerWidgetProvider`): a static branded `RemoteViews` layout that opens the app
+  on tap.
+- **Quick Settings tile** (`VisualizerTileService`): reflects whether capture is currently running
+  via `AudioCaptureService.isRunning` (a small Compose-state flag set in `onStartCommand`/`onDestroy`
+  specifically so the tile can read it without binding to the service), and opens the app on tap.
 
 ## App icon
 
