@@ -1,6 +1,6 @@
 # Sam's Music Viz
 
-Ten audio-reactive visualizer modes, styled as a modern dark mastering-suite instrument panel --
+Eleven audio-reactive visualizer modes, styled as a modern dark mastering-suite instrument panel --
 flat near-black panels, thin hairline dividers, a cool desaturated accent, and red reserved strictly
 for clip/overload warnings, the way studio metering looks. All driven by whatever music is playing
 on the device: Spotify, YouTube Music, or anything else.
@@ -13,13 +13,13 @@ on the device: Spotify, YouTube Music, or anything else.
   chip in view.
 - **Swipe** left or right on the visualization to move either direction, for quick cycling without
   looking down at the strip.
-- Eight modes (VU Meter, Spectrum, Goniometer, Loudness, Graphic EQ, Rainbow Spectrum, Neon Cyan
-  Pulse, Circular Spectrum) have their own tunable settings behind a gear icon in the top-right
-  corner; every setting persists across app restarts.
+- Nine modes (VU Meter, Spectrum, Goniometer, Loudness, Graphic EQ, Rainbow Spectrum, Neon Cyan
+  Pulse, Circular Spectrum, Radial Pulse Ring) have their own tunable settings behind a gear icon
+  in the top-right corner; every setting persists across app restarts.
 - A hamburger icon (top-right, above the visualizer) opens app-wide Settings -- see below. Its
   **Modes** section lets you hide modes you don't use and reorder the rest; both the mode strip and
   swipe cycling follow that customized order (`ModePreferences`, backed by `SettingsStore`). There
-  are ten modes total when nothing's hidden.
+  are eleven modes total when nothing's hidden.
 - **Landscape** only works for Spectrum, Rainbow Spectrum, and Neon Cyan Pulse -- the modes that
   actually gain something from the extra width. Every other mode (a circular gauge, a radial
   layout, a scrolling history trend, and so on) is locked back to portrait the instant it's
@@ -65,6 +65,16 @@ on the device: Spotify, YouTube Music, or anything else.
   top/bottom off a horizontal axis. Band 0 (bass) starts at 12 o'clock and sweeps clockwise through
   to the highest band. Portrait only -- a circular layout doesn't gain anything from extra width.
   *Settings: Scale, Stroke Weight, Height.*
+- **Radial Pulse Ring**: a Specterr-style radial waveform -- a single closed, deformed ring wraps
+  an open center (room for album art or a logo), pulsing and rippling outward with the music
+  instead of drawing separate bars. Built from the same FFT bands as every other spectrum mode,
+  mapped around the circle and smoothed through a closed bezier curve so the outline reads as a
+  fluid, organic blob rather than a jagged polygon -- bass hits punch broad sections of the ring
+  outward quickly, treble creates small fast ripples, and it eases back to its resting radius
+  rather than snapping. A true 360-degree rainbow hue sweep runs around the circumference (not the
+  app's usual non-looping rainbow, which would show a seam on a closed shape), rendered as a
+  glowing stroked outline with a bright hot edge and a softer outer bloom falloff. Portrait only,
+  same reasoning as Circular Spectrum. *Settings: Scale, Stroke Weight, Height.*
 
 ## How the meter works
 
@@ -168,17 +178,58 @@ until other modes started depending on genuine per-band contrast to work at all.
   silently ignores mask filters on Compose's hardware-accelerated canvas, the same reason
   Goniometer's trail goes through a bitmap.) Bar count, sensitivity gamma, and glow radius/alpha
   for all three are named constants at the top of each file.
+- **Radial Pulse Ring**: `RadialPulseRingScreen` also reads [SpectrumEngine]'s bands directly, but
+  with its own second smoothing pass on top -- a per-point "push level" (`FloatArray(POINT_COUNT)`)
+  that's independently exponentially smoothed frame to frame with a fast attack and a slower decay,
+  both expressed as time constants (`ATTACK_TAU_SECONDS`, `DECAY_TAU_SECONDS`) converted through
+  real delta time exactly like every engine's own `step(dt, ...)`. This is deliberate: how punchy
+  *the ring itself* feels is a property of this mode's rendering, distinct from the shared band
+  smoothing underneath it that every other mode also reads. `circularInterpolatedBand` maps
+  [SpectrumEngine]'s bands onto `POINT_COUNT` angular points with wraparound interpolation (unlike
+  Neon Cyan Pulse's denser row, a closed ring has no start/end edge to clamp against). The outline
+  itself is a closed quadratic-bezier-through-midpoints path -- `moveTo` the midpoint before point
+  0, then `quadTo` each point with the following midpoint as its endpoint, all the way around --
+  rather than a jagged point-to-point polygon, so it reads as a fluid blob even at a comparatively
+  low point count. Color is a true closed 360-degree hue wheel (`fullHueSweepColors` in
+  `GradientColors.kt`, built from `android.graphics.Color.HSVToColor` at even hue steps) applied as
+  an `android.graphics.SweepGradient` centered on the ring -- unlike `RAINBOW_STOPS`, which is a
+  deliberately non-looping gradient tuned for a straight bar row, a closed ring needs a gradient
+  that wraps back to its own start with no visible seam. The glow is two separate blurred copies of
+  the solid ring composited underneath the crisp one -- a wide, low-alpha outer pass and a tight,
+  high-alpha inner pass -- for a bright hot edge with a softer outer falloff, rather than one
+  uniform blur radius. Base radius, point count, amplitude sensitivity gamma, both smoothing time
+  constants, stroke width, and glow radius/alpha are all named constants at the top of the file.
 
 Every engine is stepped every frame regardless of which mode is showing, so switching among most
 modes shows a live reading immediately instead of a frozen one -- the two exceptions are Loudness
 (two IIR K-weighting filters run over every sample in every buffer) and Goniometer (a per-sample
 correlation sum), the heaviest per-sample work in the app, which only run while their own screen is
 actually visible; both settle back to a live reading within their own ballistic time constant
-(under a second) after switching back. The app also reads the display's actual supported modes and
-requests whichever one has the highest refresh rate -- the device's true native max (90Hz, 120Hz,
-144Hz, whatever it happens to support) rather than a fixed number that would cap a faster display
-or do nothing useful on a slower one (Android ties refresh rate to the whole window, not to
-individual views, so this benefits every mode).
+(under a second) after switching back.
+
+### Refresh rate handling
+
+The app reads the display's actual supported modes and requests whichever one has the highest
+refresh rate -- the device's true native max (90Hz, 120Hz, 144Hz, whatever it happens to support)
+rather than a fixed number that would cap a faster display or do nothing useful on a slower one
+(Android ties refresh rate to the whole window, not to individual views, so this benefits every
+mode). That request alone is only half the story on a phone that does adaptive/variable refresh
+rate -- many drop from, say, 120Hz to 90Hz or 60Hz mid-session to save battery, and the system is
+free to override a one-time preference at any point. `MainActivity` registers a
+`DisplayManager.DisplayListener` (in `onStart`/`onStop`) that re-requests the fastest mode whenever
+the system reports the display actually changed, instead of silently staying stuck at whatever rate
+it settled on afterward.
+
+None of the actual animation, smoothing, or decay math anywhere in the app assumes a fixed frame
+rate. `MainScreen`'s shared frame loop reads real per-frame delta time from
+`withFrameNanos { frameNanos -> ... }` -- the actual Choreographer timestamp, not a fixed step --
+and every engine's `step(dtSeconds, ...)` converts that into an exponential-smoothing rate via
+`alpha = 1f - exp(-dt / tauSeconds)`, where every `tauSeconds` constant (VU ballistics, spectrum
+rise/fall, loudness integration windows, Radial Pulse Ring's attack/decay, and so on) is documented
+as a time-based rate, not a flat per-frame multiplier. That's what keeps motion speed and
+smoothness consistent whether the device ends up running at 60Hz, 90Hz, or 120Hz -- a higher
+refresh rate means more, smaller steps toward the same target over the same wall-clock time, not
+faster-looking motion.
 
 ## App Settings
 
@@ -228,6 +279,17 @@ app-wide settings screen:
   always offering to reinstall the same build -- that comparison only works because the CI workflow
   tags each release `v<versionName>` (extracted straight from `build.gradle.kts`) instead of the
   old run-number-based `build-<N>` tag, which had no relationship to the app's actual version at all.
+  A downloaded update also has to actually be *installable* over the running app: Android refuses
+  to install a package signed with a different key than the one already on the device. `app/build.gradle.kts`
+  used to declare no explicit `signingConfigs`, so Gradle fell back to its own default debug config
+  -- which auto-generates `~/.android/debug.keystore` the first time it's needed. GitHub Actions
+  runners are fresh on every run with no such keystore lying around, so each CI build was getting
+  signed with a brand-new, different key, and every OTA update silently failed to apply, leaving
+  users to uninstall and reinstall manually. `app/debug.keystore` is now a stable keystore committed
+  to the repo, referenced by an explicit `signingConfigs.debug` block, so every build (CI or local)
+  signs with the same key from here on -- note this means the *first* update after this fix still
+  needs a manual reinstall (the previously-installed build used a throwaway key), but every update
+  after that installs in place normally.
 - **Diagnostics**: the most recent uncaught exception, if any -- `VisualizerApplication` installs a
   custom `Thread.UncaughtExceptionHandler` that writes the crash's stack trace to a local file
   (`CrashLog`) before re-raising to the system default handler, so the app still crashes normally,

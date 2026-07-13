@@ -67,6 +67,7 @@ private val MODES_WITH_SETTINGS = setOf(
     VisualMode.RAINBOW_SPECTRUM,
     VisualMode.NEON_CYAN_PULSE,
     VisualMode.CIRCULAR_SPECTRUM,
+    VisualMode.RADIAL_PULSE_RING,
 )
 
 private const val SWIPE_THRESHOLD_PX = 90f
@@ -147,6 +148,13 @@ fun MainScreen() {
             initialScale = SettingsStore.getFloat(context, KEY_CIRCULAR_SCALE, 1f),
             initialStrokeWeight = SettingsStore.getFloat(context, KEY_CIRCULAR_STROKE_WEIGHT, 1f),
             initialHeight = SettingsStore.getFloat(context, KEY_CIRCULAR_HEIGHT, 0.46f),
+        )
+    }
+    val radialPulseRingSettings = remember {
+        BarSpectrumSettings(
+            initialScale = SettingsStore.getFloat(context, KEY_RADIAL_SCALE, 1f),
+            initialStrokeWeight = SettingsStore.getFloat(context, KEY_RADIAL_STROKE_WEIGHT, 1f),
+            initialHeight = SettingsStore.getFloat(context, KEY_RADIAL_HEIGHT, 0.46f),
         )
     }
 
@@ -301,6 +309,7 @@ fun MainScreen() {
                         VisualMode.RAINBOW_SPECTRUM -> RainbowSpectrumScreen(spectrum, rainbowSpectrumSettings)
                         VisualMode.NEON_CYAN_PULSE -> NeonCyanPulseScreen(spectrum, neonCyanPulseSettings)
                         VisualMode.CIRCULAR_SPECTRUM -> CircularSpectrumScreen(spectrum, circularSpectrumSettings)
+                        VisualMode.RADIAL_PULSE_RING -> RadialPulseRingScreen(spectrum, radialPulseRingSettings)
                     }
                 }
 
@@ -353,6 +362,7 @@ fun MainScreen() {
                                 rainbowSpectrumSettings = rainbowSpectrumSettings,
                                 neonCyanPulseSettings = neonCyanPulseSettings,
                                 circularSpectrumSettings = circularSpectrumSettings,
+                                radialPulseRingSettings = radialPulseRingSettings,
                             )
                         }
                     }
@@ -431,6 +441,7 @@ private fun SettingsPanelContent(
     rainbowSpectrumSettings: BarSpectrumSettings,
     neonCyanPulseSettings: BarSpectrumSettings,
     circularSpectrumSettings: BarSpectrumSettings,
+    radialPulseRingSettings: BarSpectrumSettings,
 ) {
     when (mode) {
         VisualMode.VU_METER -> {
@@ -486,6 +497,7 @@ private fun SettingsPanelContent(
         VisualMode.RAINBOW_SPECTRUM -> BarSpectrumSettingsPanel(rainbowSpectrumSettings, context, KEY_RAINBOW_SCALE, KEY_RAINBOW_STROKE_WEIGHT, KEY_RAINBOW_HEIGHT)
         VisualMode.NEON_CYAN_PULSE -> BarSpectrumSettingsPanel(neonCyanPulseSettings, context, KEY_NEON_SCALE, KEY_NEON_STROKE_WEIGHT, KEY_NEON_HEIGHT)
         VisualMode.CIRCULAR_SPECTRUM -> BarSpectrumSettingsPanel(circularSpectrumSettings, context, KEY_CIRCULAR_SCALE, KEY_CIRCULAR_STROKE_WEIGHT, KEY_CIRCULAR_HEIGHT)
+        VisualMode.RADIAL_PULSE_RING -> BarSpectrumSettingsPanel(radialPulseRingSettings, context, KEY_RADIAL_SCALE, KEY_RADIAL_STROKE_WEIGHT, KEY_RADIAL_HEIGHT)
         else -> Unit
     }
 }
@@ -582,3 +594,6 @@ private const val KEY_NEON_HEIGHT = "neon_cyan_pulse_height"
 private const val KEY_CIRCULAR_SCALE = "circular_spectrum_scale"
 private const val KEY_CIRCULAR_STROKE_WEIGHT = "circular_spectrum_stroke_weight"
 private const val KEY_CIRCULAR_HEIGHT = "circular_spectrum_height"
+private const val KEY_RADIAL_SCALE = "radial_pulse_ring_scale"
+private const val KEY_RADIAL_STROKE_WEIGHT = "radial_pulse_ring_stroke_weight"
+private const val KEY_RADIAL_HEIGHT = "radial_pulse_ring_height"

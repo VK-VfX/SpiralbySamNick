@@ -1,5 +1,6 @@
 package com.samnick.neverspiral
 
+import android.hardware.display.DisplayManager
 import android.os.Build
 import android.os.Bundle
 import android.view.Display
@@ -8,6 +9,25 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 
 class MainActivity : ComponentActivity() {
+    private val displayManager: DisplayManager by lazy { getSystemService(DisplayManager::class.java) }
+
+    // Requesting the fastest mode once in onCreate isn't enough on its own: many phones do
+    // adaptive/variable refresh rate and drop from, say, 120Hz to 90Hz or 60Hz mid-session to save
+    // battery, and the system is free to override a one-time preference at any point. This listener
+    // is what lets the app notice and re-request the fastest mode whenever the display actually
+    // changes, instead of silently staying stuck at whatever rate the system settled on afterward.
+    // It's purely about which physical rate the display is driven at -- every visualizer's own
+    // animation/smoothing already reads its timestep from the real per-frame delta time (see
+    // MainScreen's frame loop), not a fixed-fps assumption, so it already tracks whatever rate this
+    // ends up requesting without needing any changes of its own.
+    private val displayListener = object : DisplayManager.DisplayListener {
+        override fun onDisplayChanged(displayId: Int) {
+            if (displayId == currentDisplay()?.displayId) requestNativeRefreshRate()
+        }
+        override fun onDisplayAdded(displayId: Int) = Unit
+        override fun onDisplayRemoved(displayId: Int) = Unit
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -15,6 +35,19 @@ class MainActivity : ComponentActivity() {
         setContent {
             MainScreen()
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        displayManager.registerDisplayListener(displayListener, null)
+        // The active mode can have changed while the Activity was stopped (e.g. the system
+        // dropped to a lower rate to save battery, or the app moved to a different display).
+        requestNativeRefreshRate()
+    }
+
+    override fun onStop() {
+        displayManager.unregisterDisplayListener(displayListener)
+        super.onStop()
     }
 
     /**
