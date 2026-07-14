@@ -30,4 +30,10 @@ object VisualizerTheme {
         get() = Color(red = ACCENT.red * 0.52f, green = ACCENT.green * 0.52f, blue = ACCENT.blue * 0.52f, alpha = 1f)
     val WARN = Color(0xFFE0B04A)
     val CRITICAL = Color(0xFFE0453F)
+
+    /** The full-screen backdrop every visualizer mode's Canvas draws first, before its own
+     * content -- mutable and user-customizable via [AppearanceSettings], the same "one value
+     * cascades everywhere" pattern as [ACCENT]. Defaults to pure black, matching what most modes
+     * already hardcoded before this became a setting. */
+    var CANVAS_BACKGROUND: Color by mutableStateOf(Color.Black)
 }

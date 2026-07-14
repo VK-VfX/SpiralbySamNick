@@ -226,36 +226,42 @@ app-wide settings screen:
   visualizer and would mean embedding API credentials in the app for no real benefit.
 - **Display**: a "Keep Screen On" toggle (`View.keepScreenOn` -- Android doesn't let third-party
   apps change the system screen-timeout duration directly, that needs the sensitive
-  `WRITE_SETTINGS` permission) and an "Immersive Mode" toggle that hides the status/navigation bars
+  `WRITE_SETTINGS` permission), an "Immersive Mode" toggle that hides the status/navigation bars
   while the visualizer is running (`WindowInsetsControllerCompat`, with
-  `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE` so a swipe from an edge still reveals them temporarily).
-  The app also isn't locked to portrait anymore -- it follows whatever the device's own
-  rotation-lock setting allows, rather than forcing one orientation.
-- **Appearance**: a custom accent color, expressed as Hue/Saturation/Brightness sliders (via
-  `android.graphics.Color.HSVToColor`) rather than RGB so three sliders cover the whole range, with
-  a live preview swatch. `VisualizerTheme.ACCENT` is mutable Compose state rather than a fixed
-  constant specifically so this can override it -- and since nearly every mode already reads
+  `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE` so a swipe from an edge still reveals them temporarily),
+  and a "Bass Drop Vibration" toggle -- a short `VibrationEffect.createOneShot` pulse
+  (`HapticPulse`) fired once per Bass Drop Shockwave trigger, not per frame, so it punctuates a hit
+  rather than buzzing continuously. The app also isn't locked to portrait anymore -- it follows
+  whatever the device's own rotation-lock setting allows, rather than forcing one orientation.
+- **Appearance**: a custom accent color and a custom canvas background color, both expressed as
+  Hue/Saturation/Brightness sliders (via `android.graphics.Color.HSVToColor`) rather than RGB so
+  three sliders cover the whole range, each with a live preview swatch. `VisualizerTheme.ACCENT`
+  and `VisualizerTheme.CANVAS_BACKGROUND` are both mutable Compose state rather than fixed
+  constants specifically so this section can override them -- and since every mode already reads
   `ACCENT` (chips, the VU needle's glow, Spectrum's Cool and Frequency schemes, Graphic EQ's lit
-  segments, Bass Drop Shockwave's ring and flash, and more), one custom color cascades across the
-  whole app instead of needing a picker per mode. `ACCENT_DIM` derives from `ACCENT` rather than
-  being independent, so it stays coherent with whatever's picked.
+  segments, Bass Drop Shockwave's ring and flash, and more) and draws `CANVAS_BACKGROUND` as its
+  first draw call, one custom color each cascades across the whole app instead of needing a picker
+  per mode. `ACCENT_DIM` derives from `ACCENT` rather than being independent, so it stays coherent
+  with whatever's picked. The background picker caps Brightness at 0.4 (unlike the accent picker's
+  wide range) -- a bright backdrop would wash out every mode's glow effects and make bars/lines hard
+  to read, so the slider only offers shades that stay usably dark.
 - **Modes**: hide modes you don't use, and reorder the rest via up/down arrows next to each one
   (drag-to-reorder felt riskier on a touchscreen than arrows for a list this short). At least one
   mode always stays visible. Persisted through `ModePreferences` as an ordered mode-name list plus
   a hidden set, so a future app update that adds a new mode just appends it to the end rather than
   losing the user's customization.
-- **Updates**: a GitHub-Releases-based OTA update path, the same pattern F-Droid-style apps use
+- **Updates**: a GitHub-Releases-based update check, the same pattern F-Droid-style apps use
   outside the Play Store. `UpdateChecker` queries the repo's latest release via GitHub's public
-  REST API, and "Download & Install" fetches the attached APK through `DownloadManager` into the
-  app's private external-files directory, then hands it to the system installer via a `FileProvider`
-  content URI (declared in the manifest, paths in `res/xml/file_paths.xml`) -- `DownloadManager`'s
-  own `getUriForDownloadedFile()` is built for the public Downloads collection and returns an
-  unusable URI for a private-directory download, which is why installs could silently do nothing.
-  The download wait is capped at two minutes rather than polling forever, a stale file from a
-  previous attempt is cleared before retrying, and a failed/timed-out download surfaces a "Try
-  Again" state instead of quietly resetting as if nothing happened. This only works while the repo
-  is public -- an unauthenticated request to a private repo's releases API returns 404/403, so a
-  failed check just says so rather than crashing. An "Check Automatically" toggle runs the same
+  REST API, and "Get Update" opens the release page in the browser for a manual download and
+  install, rather than downloading and self-installing the APK in-app. That's a deliberate
+  trade-off: self-installing needed the `REQUEST_INSTALL_PACKAGES` permission, which -- combined
+  with this app's audio-capture permissions -- reads to Google Play Protect's heuristics almost
+  exactly like a trojan dropper (an app that listens to audio *and* can silently install more
+  software), triggering an "app may be unsafe" warning on every sideloaded install regardless of
+  what the permission was actually used for. Routing through the browser avoids that permission
+  entirely, at the cost of one extra manual tap per update. This only works while the repo is
+  public -- an unauthenticated request to a private repo's releases API returns 404/403, so a
+  failed check just says so rather than crashing. A "Check Automatically" toggle runs the same
   check silently once when Settings opens. `UpdateChecker.isNewerThanInstalled` compares the
   release's version against the installed app's `versionName` component-by-component, so a release
   that matches what's already installed correctly shows "You're on the latest version" instead of
@@ -277,6 +283,18 @@ app-wide settings screen:
   it just leaves a note behind first. There's no crash-reporting backend, so during solo on-device
   testing this is the only way to see what actually broke after the app dies and relaunches.
 - **About**: version number and "vibe coded with love by Samuel Nicholas Salvador/Veera Krishnan."
+
+## Sharing a frame
+
+The share icon over the visualizer (`FrameCapture`) draws the app's root view into a bitmap
+(`View.draw(Canvas)`), crops it to the visualizer `Box`'s own on-screen rectangle -- tracked via
+`Modifier.onGloballyPositioned` + `boundsInRoot()`, so the mode strip and gear icon around it
+aren't included -- writes the crop to the app's cache, and hands it to the system share sheet via
+a `FileProvider` content URI. Deliberately doesn't call `WallpaperManager.setBitmap()` directly:
+Android's share sheet already surfaces "Set as Wallpaper" as one of its targets for image content,
+complete with the system's own crop/preview step, so routing through the chooser gets both
+wallpaper-setting and general sharing (Gallery, Messages, anything else) for free, without a
+dedicated `SET_WALLPAPER` permission of its own.
 
 ## Home screen widget & Quick Settings tile
 

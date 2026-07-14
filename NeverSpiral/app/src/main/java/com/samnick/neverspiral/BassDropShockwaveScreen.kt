@@ -11,10 +11,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
 import kotlin.math.exp
+
+/** Not private: [AppSettingsScreen] reads/writes this directly for the "Bass Drop Vibration"
+ * toggle -- colocated here rather than in a shared settings file since this mode is the only
+ * reader. */
+internal const val KEY_BASS_DROP_HAPTICS = "bass_drop_haptics"
 
 /** Only the lowest bands feed the trigger -- sub-bass/kick energy specifically, not the whole
  * spectrum's average the way a general onset detector would use. */
@@ -58,6 +63,23 @@ private const val FLASH_ALPHA_MAX = 90
 private const val GLOW_RADIUS_FRACTION = 0.035f
 private const val GLOW_ALPHA = 180
 
+/** Whether a bass-drop onset fires this frame -- pure and side-effect-free (no holder mutation)
+ * so the trigger condition itself can be unit tested independent of the Compose Canvas/spring
+ * rendering below. This is the exact logic that had the ratio-vs-bounded-range bug: see
+ * [BASE_ONSET_DELTA_THRESHOLD] for why it's an additive delta above the rolling baseline, not a
+ * multiplicative ratio. */
+internal fun bassDropShouldTrigger(
+    bassEnergy: Float,
+    baseline: Float,
+    timeSinceTriggerSeconds: Float,
+    scale: Float,
+): Boolean {
+    val threshold = BASE_ONSET_DELTA_THRESHOLD / scale
+    return timeSinceTriggerSeconds >= MIN_RETRIGGER_SECONDS &&
+        bassEnergy >= MIN_ABSOLUTE_ENERGY &&
+        (bassEnergy - baseline) >= threshold
+}
+
 /**
  * A sparse, event-driven mode -- deliberately quiet between hits rather than continuously busy the
  * way every other mode in the app is. A dedicated onset detector reads only [BASS_BAND_COUNT] of
@@ -84,6 +106,7 @@ private const val GLOW_ALPHA = 180
  */
 @Composable
 fun BassDropShockwaveScreen(engine: SpectrumEngine, settings: BarSpectrumSettings) {
+    val context = LocalContext.current
     val ringHolder = remember { arrayOfNulls<Bitmap>(1) }
     val glowHolder = remember { arrayOfNulls<Bitmap>(1) }
     val lastElapsedHolder = remember { floatArrayOf(0f) }
@@ -121,14 +144,16 @@ fun BassDropShockwaveScreen(engine: SpectrumEngine, settings: BarSpectrumSetting
         energyBaselineHolder[0] += (bassEnergy - energyBaselineHolder[0]) * baselineAlpha
         timeSinceTriggerHolder[0] += dt
 
-        val threshold = BASE_ONSET_DELTA_THRESHOLD / settings.scale
-        val canTrigger = timeSinceTriggerHolder[0] >= MIN_RETRIGGER_SECONDS &&
-            bassEnergy >= MIN_ABSOLUTE_ENERGY &&
-            (bassEnergy - energyBaselineHolder[0]) >= threshold
+        val canTrigger = bassDropShouldTrigger(bassEnergy, energyBaselineHolder[0], timeSinceTriggerHolder[0], settings.scale)
         if (canTrigger) {
             displacementHolder[0] = 1f
             velocityHolder[0] = 0f
             timeSinceTriggerHolder[0] = 0f
+            // Read here rather than every frame -- a SharedPreferences lookup only on an actual
+            // trigger (a sparse event, not per-frame) costs nothing worth avoiding.
+            if (SettingsStore.getBoolean(context, KEY_BASS_DROP_HAPTICS, true)) {
+                HapticPulse.fire(context)
+            }
         }
 
         // Damped-spring integration -- runs every frame regardless of whether a trigger just
@@ -166,7 +191,7 @@ fun BassDropShockwaveScreen(engine: SpectrumEngine, settings: BarSpectrumSetting
 
         val flashAlpha = (displacementHolder[0].coerceAtLeast(0f) * FLASH_ALPHA_MAX).toInt().coerceIn(0, 255)
 
-        drawRect(color = Color.Black)
+        drawRect(color = VisualizerTheme.CANVAS_BACKGROUND)
         if (flashAlpha > 0) {
             drawRect(color = VisualizerTheme.ACCENT.copy(alpha = flashAlpha / 255f))
         }

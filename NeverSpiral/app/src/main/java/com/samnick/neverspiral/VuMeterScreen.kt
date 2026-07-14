@@ -124,7 +124,7 @@ fun VuMeterScreen(meter: VuMeterEngine) {
             .fillMaxSize()
             .onSizeChanged { canvasSize = it },
     ) {
-        drawRect(color = VisualizerTheme.BACKGROUND)
+        drawRect(color = VisualizerTheme.CANVAS_BACKGROUND)
 
         val meterWidth = min(size.width * 0.84f, size.height * 0.72f)
         val meterHeight = meterWidth * 0.62f

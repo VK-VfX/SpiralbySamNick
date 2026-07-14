@@ -46,6 +46,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
@@ -166,6 +168,10 @@ fun MainScreen() {
     var visibleModes by remember { mutableStateOf(ModePreferences.loadVisible(context)) }
     var mode by remember { mutableStateOf(visibleModes.firstOrNull() ?: VisualMode.VU_METER) }
     var showSettings by remember { mutableStateOf(false) }
+    // Filled in by the visualizer Box's onGloballyPositioned below -- FrameCapture crops the
+    // full-window screenshot to just this rectangle, so the mode strip and gear icon around it
+    // aren't included in a shared/wallpaper frame.
+    var visualizerBoundsInView by remember { mutableStateOf(android.graphics.Rect()) }
     var showAppSettings by remember { mutableStateOf(false) }
     var immersiveMode by remember { mutableStateOf(SettingsStore.getBoolean(context, KEY_IMMERSIVE_MODE, true)) }
     var keepScreenOn by remember { mutableStateOf(SettingsStore.getBoolean(context, KEY_KEEP_SCREEN_ON, false)) }
@@ -263,6 +269,15 @@ fun MainScreen() {
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
+                    .onGloballyPositioned { coordinates ->
+                        val bounds = coordinates.boundsInRoot()
+                        visualizerBoundsInView = android.graphics.Rect(
+                            bounds.left.toInt(),
+                            bounds.top.toInt(),
+                            bounds.right.toInt(),
+                            bounds.bottom.toInt(),
+                        )
+                    }
                     .pointerInput(Unit) {
                         var totalDragX = 0f
                         detectHorizontalDragGestures(
@@ -310,6 +325,20 @@ fun MainScreen() {
                         .align(Alignment.TopStart)
                         .padding(12.dp),
                 )
+
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(12.dp)
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(VisualizerTheme.PANEL_RAISED)
+                        .border(1.5.dp, VisualizerTheme.HAIRLINE, CircleShape)
+                        .clickable { FrameCapture.captureAndShare(context, view, visualizerBoundsInView) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("⇧", color = VisualizerTheme.ACCENT, fontSize = 18.sp)
+                }
 
                 if (mode in MODES_WITH_SETTINGS) {
                     Box(

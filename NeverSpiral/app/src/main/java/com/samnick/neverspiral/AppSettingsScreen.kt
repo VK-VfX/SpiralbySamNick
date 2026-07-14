@@ -65,8 +65,6 @@ private sealed interface UpdateCheckState {
     object UpToDateOrUnknown : UpdateCheckState
     data class UpToDate(val release: UpdateChecker.LatestRelease) : UpdateCheckState
     data class Available(val release: UpdateChecker.LatestRelease) : UpdateCheckState
-    data class Downloading(val release: UpdateChecker.LatestRelease) : UpdateCheckState
-    data class DownloadFailed(val release: UpdateChecker.LatestRelease) : UpdateCheckState
 }
 
 /** Classifies a just-fetched [release] against the installed app -- null covers "no release
@@ -93,6 +91,7 @@ fun AppSettingsScreen(onDismiss: () -> Unit) {
     // while this screen itself happened to be on screen, not for the rest of the session.
     var keepScreenOn by remember { mutableStateOf(SettingsStore.getBoolean(context, KEY_KEEP_SCREEN_ON, false)) }
     var immersiveMode by remember { mutableStateOf(SettingsStore.getBoolean(context, KEY_IMMERSIVE_MODE, true)) }
+    var bassDropHaptics by remember { mutableStateOf(SettingsStore.getBoolean(context, KEY_BASS_DROP_HAPTICS, true)) }
     var autoCheckUpdates by remember { mutableStateOf(SettingsStore.getBoolean(context, KEY_AUTO_CHECK_UPDATES, false)) }
     var updateState by remember { mutableStateOf<UpdateCheckState>(UpdateCheckState.Idle) }
     val versionName = remember {
@@ -185,6 +184,14 @@ fun AppSettingsScreen(onDismiss: () -> Unit) {
                     immersiveMode = it
                     SettingsStore.putBoolean(context, KEY_IMMERSIVE_MODE, it)
                 }
+                SettingsToggleRow(
+                    label = "Bass Drop Vibration",
+                    description = "A short pulse each time Bass Drop Shockwave triggers on a hit.",
+                    checked = bassDropHaptics,
+                ) {
+                    bassDropHaptics = it
+                    SettingsStore.putBoolean(context, KEY_BASS_DROP_HAPTICS, it)
+                }
 
                 Spacer(modifier = Modifier.height(20.dp))
                 SettingsSectionTitle("Appearance")
@@ -223,21 +230,7 @@ fun AppSettingsScreen(onDismiss: () -> Unit) {
                             updateState = classifyRelease(context, UpdateChecker.checkLatest())
                         }
                     },
-                    onInstall = { release ->
-                        scope.launch {
-                            if (UpdateChecker.canInstallPackages(context)) {
-                                updateState = UpdateCheckState.Downloading(release)
-                                val success = UpdateChecker.downloadAndInstall(context, release)
-                                updateState = if (success) {
-                                    UpdateCheckState.Available(release)
-                                } else {
-                                    UpdateCheckState.DownloadFailed(release)
-                                }
-                            } else {
-                                UpdateChecker.requestInstallPermission(context)
-                            }
-                        }
-                    },
+                    onInstall = { release -> UpdateChecker.openReleasePage(context, release) },
                 )
 
                 Spacer(modifier = Modifier.height(20.dp))
@@ -475,6 +468,57 @@ private fun AppearanceSection(context: Context) {
             AppearanceSettings.saveCustomAccent(context, hue, saturation, brightness)
         }
     }
+
+    Spacer(modifier = Modifier.height(18.dp))
+    var useCustomBackground by remember { mutableStateOf(AppearanceSettings.isBackgroundCustomEnabled(context)) }
+    var bgHue by remember { mutableFloatStateOf(AppearanceSettings.loadBackgroundHue(context)) }
+    var bgSaturation by remember { mutableFloatStateOf(AppearanceSettings.loadBackgroundSaturation(context)) }
+    var bgBrightness by remember { mutableFloatStateOf(AppearanceSettings.loadBackgroundValue(context)) }
+
+    Text(
+        text = "Pick your own canvas background -- the backdrop every mode draws over, instead " +
+            "of the default black. Some modes (Kaleidoscope Bloom especially) read nicer on a " +
+            "deep, non-pure-black tone.",
+        color = VisualizerTheme.TEXT_SECONDARY,
+        fontSize = 12.sp,
+        fontFamily = FontFamily.Monospace,
+        modifier = Modifier.padding(bottom = 10.dp),
+    )
+    SettingsToggleRow(
+        label = "Custom Background Color",
+        description = "Overrides the default black canvas backdrop in every mode.",
+        checked = useCustomBackground,
+    ) { checked ->
+        useCustomBackground = checked
+        if (checked) {
+            AppearanceSettings.saveCustomBackground(context, bgHue, bgSaturation, bgBrightness)
+        } else {
+            AppearanceSettings.resetBackgroundToDefault(context)
+        }
+    }
+    if (useCustomBackground) {
+        Spacer(modifier = Modifier.height(10.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(28.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(AppearanceSettings.colorFromHsv(bgHue, bgSaturation, bgBrightness)),
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        SettingSliderRow("Hue", bgHue, 0f..360f) {
+            bgHue = it
+            AppearanceSettings.saveCustomBackground(context, bgHue, bgSaturation, bgBrightness)
+        }
+        SettingSliderRow("Saturation", bgSaturation, 0f..1f) {
+            bgSaturation = it
+            AppearanceSettings.saveCustomBackground(context, bgHue, bgSaturation, bgBrightness)
+        }
+        SettingSliderRow("Brightness", bgBrightness, 0f..0.4f) {
+            bgBrightness = it
+            AppearanceSettings.saveCustomBackground(context, bgHue, bgSaturation, bgBrightness)
+        }
+    }
 }
 
 /**
@@ -619,28 +663,10 @@ private fun UpdateSection(
                 modifier = Modifier.padding(bottom = 8.dp),
             )
             Row {
-                SettingsActionButton("Download & Install", onClick = { onInstall(state.release) })
+                SettingsActionButton("Get Update", onClick = { onInstall(state.release) })
                 Spacer(modifier = Modifier.width(8.dp))
                 SettingsActionButton("Recheck", onClick = onCheckNow)
             }
-        }
-        is UpdateCheckState.Downloading -> {
-            Text(
-                text = "Downloading ${state.release.name}…",
-                color = VisualizerTheme.TEXT_SECONDARY,
-                fontSize = 12.sp,
-                fontFamily = FontFamily.Monospace,
-            )
-        }
-        is UpdateCheckState.DownloadFailed -> {
-            Text(
-                text = "Download failed or timed out -- check your connection and try again.",
-                color = VisualizerTheme.CRITICAL,
-                fontSize = 11.sp,
-                fontFamily = FontFamily.Monospace,
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
-            SettingsActionButton("Try Again", onClick = { onInstall(state.release) })
         }
     }
 }

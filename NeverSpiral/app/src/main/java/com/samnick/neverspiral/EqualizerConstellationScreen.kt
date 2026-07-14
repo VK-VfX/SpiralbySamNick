@@ -11,7 +11,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import kotlin.math.cos
@@ -147,7 +146,7 @@ fun EqualizerConstellationScreen(engine: SpectrumEngine, settings: BarSpectrumSe
         glowCanvas.drawColor(0, PorterDuff.Mode.CLEAR)
         glowCanvas.drawBitmap(nodesBitmap, 0f, 0f, glowPaint)
 
-        drawRect(color = Color.Black)
+        drawRect(color = VisualizerTheme.CANVAS_BACKGROUND)
         drawImage(glow.asImageBitmap())
         drawImage(nodesBitmap.asImageBitmap())
     }

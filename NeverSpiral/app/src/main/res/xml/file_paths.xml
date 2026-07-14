@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Exposes the app-private Download subfolder of getExternalFilesDir() (where UpdateChecker
-     saves the OTA APK) through a content:// URI, since the system package installer can't be
-     granted read access to a plain file:// path in our private storage. Environment.DIRECTORY_DOWNLOADS
-     resolves to "Download" (singular), matching the path below. -->
+<!-- Exposes app-private storage through content:// URIs, since other apps (a share-sheet target,
+     the system package installer) can't be granted read access to a plain file:// path in our
+     private storage. -->
 <paths>
-    <external-files-path name="ota-downloads" path="Download/" />
+    <!-- Where FrameCapture writes a captured visualizer frame before handing it to the share
+         sheet -- cache rather than files/ since these are disposable, regeneratable on demand. -->
+    <cache-path name="shared-frames" path="shared_frames/" />
 </paths>

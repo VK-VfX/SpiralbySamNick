@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import kotlin.math.cos
@@ -160,7 +159,7 @@ fun AudioFirefliesScreen(engine: SpectrumEngine, settings: BarSpectrumSettings) 
         }
         glowCanvas.drawBitmap(particlesBitmap, 0f, 0f, glowPaint)
 
-        drawRect(color = Color.Black)
+        drawRect(color = VisualizerTheme.CANVAS_BACKGROUND)
         drawImage(glow.asImageBitmap())
         drawImage(particlesBitmap.asImageBitmap())
     }

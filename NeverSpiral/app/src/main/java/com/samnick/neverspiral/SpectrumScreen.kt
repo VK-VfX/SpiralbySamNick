@@ -72,7 +72,7 @@ fun SpectrumScreen(engine: SpectrumEngine, settings: SpectrumSettings) {
         @Suppress("UNUSED_EXPRESSION")
         engine.elapsed
 
-        drawRect(color = VisualizerTheme.BACKGROUND)
+        drawRect(color = VisualizerTheme.CANVAS_BACKGROUND)
 
         val bandCount = engine.bands.size
         val paddingX = size.width * 0.075f

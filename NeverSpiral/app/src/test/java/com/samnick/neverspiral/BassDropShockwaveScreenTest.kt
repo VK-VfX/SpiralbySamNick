@@ -1,0 +1,56 @@
+package com.samnick.neverspiral
+
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/**
+ * Regression coverage for the bug fixed in this file's onset detector: [SpectrumEngine.bands] is
+ * hard-clamped to [0, 1], so a *ratio* threshold against the rolling baseline (the original,
+ * broken implementation) becomes mathematically unreachable once the baseline climbs high enough
+ * -- see [bassDropShouldTrigger]'s doc comment. These tests pin the current additive-delta
+ * behavior so that regression can't silently come back.
+ */
+class BassDropShockwaveScreenTest {
+
+    @Test
+    fun `still triggers when the baseline is loud, not near-silent`() {
+        // A ratio threshold of 1.6x would require bassEnergy >= 1.44 here, impossible since
+        // bands are clamped to 1f -- the exact failure mode this test guards against.
+        val baseline = 0.9f
+        val bassEnergy = 1f
+        assertTrue(bassDropShouldTrigger(bassEnergy, baseline, timeSinceTriggerSeconds = 10f, scale = 1f))
+    }
+
+    @Test
+    fun `does not trigger on a small fluctuation above baseline`() {
+        val baseline = 0.5f
+        val bassEnergy = 0.55f // +0.05, below the 0.15 default delta
+        assertFalse(bassDropShouldTrigger(bassEnergy, baseline, timeSinceTriggerSeconds = 10f, scale = 1f))
+    }
+
+    @Test
+    fun `does not trigger below the absolute energy floor even with a big relative jump`() {
+        // A high scale shrinks the delta threshold to 0.015, which this jump clears on its own --
+        // isolating the separate MIN_ABSOLUTE_ENERGY floor (0.06) as the only thing blocking it.
+        val baseline = 0f
+        val bassEnergy = 0.05f
+        assertFalse(bassDropShouldTrigger(bassEnergy, baseline, timeSinceTriggerSeconds = 10f, scale = 10f))
+    }
+
+    @Test
+    fun `does not retrigger before the debounce window elapses`() {
+        val baseline = 0.3f
+        val bassEnergy = 0.9f // easily clears the delta threshold on its own
+        assertFalse(bassDropShouldTrigger(bassEnergy, baseline, timeSinceTriggerSeconds = 0.05f, scale = 1f))
+    }
+
+    @Test
+    fun `higher scale makes triggering easier`() {
+        val baseline = 0.5f
+        val bassEnergy = 0.6f // +0.10 -- below the default 0.15 delta but not by much
+
+        assertFalse(bassDropShouldTrigger(bassEnergy, baseline, timeSinceTriggerSeconds = 10f, scale = 1f))
+        assertTrue(bassDropShouldTrigger(bassEnergy, baseline, timeSinceTriggerSeconds = 10f, scale = 2f))
+    }
+}
