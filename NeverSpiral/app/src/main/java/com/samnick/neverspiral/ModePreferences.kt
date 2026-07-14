@@ -13,9 +13,9 @@ enum class VisualMode(val label: String) {
     RAINBOW_SPECTRUM("Rainbow Spectrum"),
     NEON_CYAN_PULSE("Neon Cyan Pulse"),
     AUDIO_FIREFLIES("Audio Fireflies"),
-    RADAR_RIPPLES("Radar Ripples"),
-    WAVEFORM_RIBBON("Waveform Ribbon"),
-    FREQUENCY_TERRAIN("Frequency Terrain"),
+    KALEIDOSCOPE_BLOOM("Kaleidoscope Bloom"),
+    BASS_DROP_SHOCKWAVE("Bass Drop Shockwave"),
+    EQUALIZER_CONSTELLATION("Equalizer Constellation"),
 }
 
 private const val KEY_MODE_ORDER = "mode_order"

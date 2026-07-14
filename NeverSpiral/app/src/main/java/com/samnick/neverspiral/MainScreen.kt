@@ -65,23 +65,22 @@ private val MODES_WITH_SETTINGS = setOf(
     VisualMode.RAINBOW_SPECTRUM,
     VisualMode.NEON_CYAN_PULSE,
     VisualMode.AUDIO_FIREFLIES,
-    VisualMode.RADAR_RIPPLES,
-    VisualMode.WAVEFORM_RIBBON,
-    VisualMode.FREQUENCY_TERRAIN,
+    VisualMode.KALEIDOSCOPE_BLOOM,
+    VisualMode.BASS_DROP_SHOCKWAVE,
+    VisualMode.EQUALIZER_CONSTELLATION,
 )
 
 private const val SWIPE_THRESHOLD_PX = 90f
 
 /** Modes that render well wide -- everything else forces portrait, since a VU meter's arc or a
  * centered radial/particle composition either doesn't gain anything from landscape or (VU Meter)
- * actively looks worse stretched that wide. The two horizontally-scrolling modes (Waveform Ribbon,
- * Frequency Terrain) benefit the same way Spectrum's bars do -- more width is more visible history. */
+ * actively looks worse stretched that wide. Every mode past Graphic EQ is a centered radial/point
+ * composition rather than a horizontal layout, so none of them currently benefit from landscape
+ * either. */
 private val MODES_ALLOWING_LANDSCAPE = setOf(
     VisualMode.SPECTRUM,
     VisualMode.RAINBOW_SPECTRUM,
     VisualMode.NEON_CYAN_PULSE,
-    VisualMode.WAVEFORM_RIBBON,
-    VisualMode.FREQUENCY_TERRAIN,
 )
 
 /**
@@ -95,11 +94,11 @@ private val MODES_ALLOWING_LANDSCAPE = setOf(
  * about) -- distinct from each mode's own gear-icon tuning panel. VU Meter and Spectrum are stepped
  * every frame regardless of which mode is showing, so switching between them and any other mode
  * still feels instant rather than starting from a frozen reading. Every mode past Graphic EQ
- * (Rainbow Spectrum, Neon Cyan Pulse, Audio Fireflies, Radar Ripples, Waveform Ribbon, Frequency
- * Terrain) is a pure rendering treatment of [SpectrumEngine]'s already fast-rise/slower-fall
- * smoothed bands, the same data [SpectrumScreen] and [GraphicEqScreen] draw, so none of them need a
- * dedicated engine of their own -- just their own [BarSpectrumSettings] for Scale, Stroke Weight,
- * and Height, same as every other mode's gear-icon panel.
+ * (Rainbow Spectrum, Neon Cyan Pulse, Audio Fireflies, Kaleidoscope Bloom, Bass Drop Shockwave,
+ * Equalizer Constellation) is a pure rendering treatment of [SpectrumEngine]'s already
+ * fast-rise/slower-fall smoothed bands, the same data [SpectrumScreen] and [GraphicEqScreen] draw,
+ * so none of them need a dedicated engine of their own -- just their own [BarSpectrumSettings] for
+ * Scale, Stroke Weight, and Height, same as every other mode's gear-icon panel.
  */
 @Composable
 fun MainScreen() {
@@ -141,25 +140,25 @@ fun MainScreen() {
             initialHeight = SettingsStore.getFloat(context, KEY_FIREFLIES_HEIGHT, 0.46f),
         )
     }
-    val radarRipplesSettings = remember {
+    val kaleidoscopeBloomSettings = remember {
         BarSpectrumSettings(
-            initialScale = SettingsStore.getFloat(context, KEY_RIPPLES_SCALE, 1f),
-            initialStrokeWeight = SettingsStore.getFloat(context, KEY_RIPPLES_STROKE_WEIGHT, 1f),
-            initialHeight = SettingsStore.getFloat(context, KEY_RIPPLES_HEIGHT, 0.46f),
+            initialScale = SettingsStore.getFloat(context, KEY_BLOOM_SCALE, 1f),
+            initialStrokeWeight = SettingsStore.getFloat(context, KEY_BLOOM_STROKE_WEIGHT, 1f),
+            initialHeight = SettingsStore.getFloat(context, KEY_BLOOM_HEIGHT, 0.46f),
         )
     }
-    val waveformRibbonSettings = remember {
+    val bassDropShockwaveSettings = remember {
         BarSpectrumSettings(
-            initialScale = SettingsStore.getFloat(context, KEY_RIBBON_SCALE, 1f),
-            initialStrokeWeight = SettingsStore.getFloat(context, KEY_RIBBON_STROKE_WEIGHT, 1f),
-            initialHeight = SettingsStore.getFloat(context, KEY_RIBBON_HEIGHT, 0.46f),
+            initialScale = SettingsStore.getFloat(context, KEY_SHOCKWAVE_SCALE, 1f),
+            initialStrokeWeight = SettingsStore.getFloat(context, KEY_SHOCKWAVE_STROKE_WEIGHT, 1f),
+            initialHeight = SettingsStore.getFloat(context, KEY_SHOCKWAVE_HEIGHT, 0.46f),
         )
     }
-    val frequencyTerrainSettings = remember {
+    val equalizerConstellationSettings = remember {
         BarSpectrumSettings(
-            initialScale = SettingsStore.getFloat(context, KEY_TERRAIN_SCALE, 1f),
-            initialStrokeWeight = SettingsStore.getFloat(context, KEY_TERRAIN_STROKE_WEIGHT, 1f),
-            initialHeight = SettingsStore.getFloat(context, KEY_TERRAIN_HEIGHT, 0.46f),
+            initialScale = SettingsStore.getFloat(context, KEY_CONSTELLATION_SCALE, 1f),
+            initialStrokeWeight = SettingsStore.getFloat(context, KEY_CONSTELLATION_STROKE_WEIGHT, 1f),
+            initialHeight = SettingsStore.getFloat(context, KEY_CONSTELLATION_HEIGHT, 0.46f),
         )
     }
 
@@ -294,9 +293,9 @@ fun MainScreen() {
                         VisualMode.RAINBOW_SPECTRUM -> RainbowSpectrumScreen(spectrum, rainbowSpectrumSettings)
                         VisualMode.NEON_CYAN_PULSE -> NeonCyanPulseScreen(spectrum, neonCyanPulseSettings)
                         VisualMode.AUDIO_FIREFLIES -> AudioFirefliesScreen(spectrum, audioFirefliesSettings)
-                        VisualMode.RADAR_RIPPLES -> RadarRipplesScreen(spectrum, radarRipplesSettings)
-                        VisualMode.WAVEFORM_RIBBON -> WaveformRibbonScreen(spectrum, waveformRibbonSettings)
-                        VisualMode.FREQUENCY_TERRAIN -> FrequencyTerrainScreen(spectrum, frequencyTerrainSettings)
+                        VisualMode.KALEIDOSCOPE_BLOOM -> KaleidoscopeBloomScreen(spectrum, kaleidoscopeBloomSettings)
+                        VisualMode.BASS_DROP_SHOCKWAVE -> BassDropShockwaveScreen(spectrum, bassDropShockwaveSettings)
+                        VisualMode.EQUALIZER_CONSTELLATION -> EqualizerConstellationScreen(spectrum, equalizerConstellationSettings)
                     }
                 }
 
@@ -347,9 +346,9 @@ fun MainScreen() {
                                 rainbowSpectrumSettings = rainbowSpectrumSettings,
                                 neonCyanPulseSettings = neonCyanPulseSettings,
                                 audioFirefliesSettings = audioFirefliesSettings,
-                                radarRipplesSettings = radarRipplesSettings,
-                                waveformRibbonSettings = waveformRibbonSettings,
-                                frequencyTerrainSettings = frequencyTerrainSettings,
+                                kaleidoscopeBloomSettings = kaleidoscopeBloomSettings,
+                                bassDropShockwaveSettings = bassDropShockwaveSettings,
+                                equalizerConstellationSettings = equalizerConstellationSettings,
                             )
                         }
                     }
@@ -423,9 +422,9 @@ private fun SettingsPanelContent(
     rainbowSpectrumSettings: BarSpectrumSettings,
     neonCyanPulseSettings: BarSpectrumSettings,
     audioFirefliesSettings: BarSpectrumSettings,
-    radarRipplesSettings: BarSpectrumSettings,
-    waveformRibbonSettings: BarSpectrumSettings,
-    frequencyTerrainSettings: BarSpectrumSettings,
+    kaleidoscopeBloomSettings: BarSpectrumSettings,
+    bassDropShockwaveSettings: BarSpectrumSettings,
+    equalizerConstellationSettings: BarSpectrumSettings,
 ) {
     when (mode) {
         VisualMode.VU_METER -> {
@@ -461,9 +460,9 @@ private fun SettingsPanelContent(
         VisualMode.RAINBOW_SPECTRUM -> BarSpectrumSettingsPanel(rainbowSpectrumSettings, context, KEY_RAINBOW_SCALE, KEY_RAINBOW_STROKE_WEIGHT, KEY_RAINBOW_HEIGHT)
         VisualMode.NEON_CYAN_PULSE -> BarSpectrumSettingsPanel(neonCyanPulseSettings, context, KEY_NEON_SCALE, KEY_NEON_STROKE_WEIGHT, KEY_NEON_HEIGHT)
         VisualMode.AUDIO_FIREFLIES -> BarSpectrumSettingsPanel(audioFirefliesSettings, context, KEY_FIREFLIES_SCALE, KEY_FIREFLIES_STROKE_WEIGHT, KEY_FIREFLIES_HEIGHT)
-        VisualMode.RADAR_RIPPLES -> BarSpectrumSettingsPanel(radarRipplesSettings, context, KEY_RIPPLES_SCALE, KEY_RIPPLES_STROKE_WEIGHT, KEY_RIPPLES_HEIGHT)
-        VisualMode.WAVEFORM_RIBBON -> BarSpectrumSettingsPanel(waveformRibbonSettings, context, KEY_RIBBON_SCALE, KEY_RIBBON_STROKE_WEIGHT, KEY_RIBBON_HEIGHT)
-        VisualMode.FREQUENCY_TERRAIN -> BarSpectrumSettingsPanel(frequencyTerrainSettings, context, KEY_TERRAIN_SCALE, KEY_TERRAIN_STROKE_WEIGHT, KEY_TERRAIN_HEIGHT)
+        VisualMode.KALEIDOSCOPE_BLOOM -> BarSpectrumSettingsPanel(kaleidoscopeBloomSettings, context, KEY_BLOOM_SCALE, KEY_BLOOM_STROKE_WEIGHT, KEY_BLOOM_HEIGHT)
+        VisualMode.BASS_DROP_SHOCKWAVE -> BarSpectrumSettingsPanel(bassDropShockwaveSettings, context, KEY_SHOCKWAVE_SCALE, KEY_SHOCKWAVE_STROKE_WEIGHT, KEY_SHOCKWAVE_HEIGHT)
+        VisualMode.EQUALIZER_CONSTELLATION -> BarSpectrumSettingsPanel(equalizerConstellationSettings, context, KEY_CONSTELLATION_SCALE, KEY_CONSTELLATION_STROKE_WEIGHT, KEY_CONSTELLATION_HEIGHT)
     }
 }
 
@@ -557,12 +556,12 @@ private const val KEY_NEON_HEIGHT = "neon_cyan_pulse_height"
 private const val KEY_FIREFLIES_SCALE = "audio_fireflies_scale"
 private const val KEY_FIREFLIES_STROKE_WEIGHT = "audio_fireflies_stroke_weight"
 private const val KEY_FIREFLIES_HEIGHT = "audio_fireflies_height"
-private const val KEY_RIPPLES_SCALE = "radar_ripples_scale"
-private const val KEY_RIPPLES_STROKE_WEIGHT = "radar_ripples_stroke_weight"
-private const val KEY_RIPPLES_HEIGHT = "radar_ripples_height"
-private const val KEY_RIBBON_SCALE = "waveform_ribbon_scale"
-private const val KEY_RIBBON_STROKE_WEIGHT = "waveform_ribbon_stroke_weight"
-private const val KEY_RIBBON_HEIGHT = "waveform_ribbon_height"
-private const val KEY_TERRAIN_SCALE = "frequency_terrain_scale"
-private const val KEY_TERRAIN_STROKE_WEIGHT = "frequency_terrain_stroke_weight"
-private const val KEY_TERRAIN_HEIGHT = "frequency_terrain_height"
+private const val KEY_BLOOM_SCALE = "kaleidoscope_bloom_scale"
+private const val KEY_BLOOM_STROKE_WEIGHT = "kaleidoscope_bloom_stroke_weight"
+private const val KEY_BLOOM_HEIGHT = "kaleidoscope_bloom_height"
+private const val KEY_SHOCKWAVE_SCALE = "bass_drop_shockwave_scale"
+private const val KEY_SHOCKWAVE_STROKE_WEIGHT = "bass_drop_shockwave_stroke_weight"
+private const val KEY_SHOCKWAVE_HEIGHT = "bass_drop_shockwave_height"
+private const val KEY_CONSTELLATION_SCALE = "equalizer_constellation_scale"
+private const val KEY_CONSTELLATION_STROKE_WEIGHT = "equalizer_constellation_stroke_weight"
+private const val KEY_CONSTELLATION_HEIGHT = "equalizer_constellation_height"

@@ -19,12 +19,12 @@ on the device: Spotify, YouTube Music, or anything else.
   **Modes** section lets you hide modes you don't use and reorder the rest; both the mode strip and
   swipe cycling follow that customized order (`ModePreferences`, backed by `SettingsStore`). There
   are nine modes total when nothing's hidden.
-- **Landscape** works for Spectrum, Rainbow Spectrum, Neon Cyan Pulse, Waveform Ribbon, and
-  Frequency Terrain -- the modes that actually gain something from the extra width. Every other
-  mode is locked back to portrait the instant it's selected, via `Activity.requestedOrientation`
-  set per mode in `MainScreen`, not a single manifest-wide lock. The manifest's
-  `configChanges="orientation|screenSize"` means switching never recreates the Activity or
-  interrupts capture, it just physically rotates the display.
+- **Landscape** works for Spectrum, Rainbow Spectrum, and Neon Cyan Pulse -- the modes that
+  actually gain something from the extra width. Every other mode is a centered radial/point
+  composition rather than a horizontal layout, so it's locked back to portrait the instant it's
+  selected, via `Activity.requestedOrientation` set per mode in `MainScreen`, not a single
+  manifest-wide lock. The manifest's `configChanges="orientation|screenSize"` means switching never
+  recreates the Activity or interrupts capture, it just physically rotates the display.
 
 - **VU Meter**: an analog needle meter with correctly calibrated ballistics (not a fake wobble), a
   digital dB readout alongside the needle, and a peak LED that hard-flashes to full brightness the
@@ -55,23 +55,25 @@ on the device: Spotify, YouTube Music, or anything else.
   reads warm, treble reads cool, the same `frequencyZoneColor` mapping Neon Cyan Pulse uses), then
   drifts with real physics -- drag and a gentle upward buoyancy -- before fading out. *Settings:
   Scale (spawn rate), Stroke Weight (particle size), Height (max travel speed).*
-- **Radar Ripples**: expanding rings pulse outward from center on detected transients -- a real
-  onset detector (the current instant's total band energy against a short rolling average) rather
-  than reacting every single frame like every other mode, so it reads as a sonar ping on the beat
-  instead of a continuous meter. Each ring's color comes from the spectral centroid of whatever
-  triggered it -- a bass-heavy hit rings warm, a treble-heavy hit rings cool. *Settings: Scale
-  (onset sensitivity), Stroke Weight (ring thickness), Height (max ripple radius).*
-- **Waveform Ribbon**: a glowing ribbon flows continuously across the screen, its thickness at each
-  point tracking the music's overall level from a few seconds ago -- motion through recent history
-  rather than an instantaneous snapshot. The ribbon's shape moves through a rainbow gradient that's
-  fixed in screen space, rather than the color scrolling along with it. *Settings: Scale
-  (sensitivity), Stroke Weight (baseline thickness), Height (max thickness).*
-- **Frequency Terrain**: a scrolling mountain-skyline silhouette built from the same kind of rolling
-  level history as Waveform Ribbon, but filled from the ground up instead of floating as a ribbon,
-  with a dimmer, slower-scrolling back layer for parallax depth behind a brighter, glowing front
-  ridge. Colored with the app's own accent color rather than a fixed rainbow, so it follows whatever
-  custom color is set in Appearance. *Settings: Scale (sensitivity), Stroke Weight (outline width),
-  Height (max terrain height).*
+- **Kaleidoscope Bloom**: an ornamental, rotationally-symmetric mandala rather than a meter, a
+  scatter, or a scrolling trend. One petal shape is built from the spectrum and mirrored across its
+  own center line for a genuine "one wedge, reflected" kaleidoscope look, then that single symmetric
+  petal is repeated 8 times around a slow, continuously rotating circle. Colored with a true closed
+  360-degree rainbow hue wheel centered on the bloom, so the whole rainbow visibly rotates along with
+  the pattern. *Settings: Scale, Stroke Weight, Height.*
+- **Bass Drop Shockwave**: sparse and event-driven, deliberately quiet between hits rather than
+  continuously busy -- a dedicated onset detector watches only the lowest few bands (sub-bass/kick
+  energy specifically, not the whole spectrum), and a genuine hit drives a damped-spring simulation
+  rather than an eased fade: the shockwave visibly overshoots past its resting size and springs back
+  over a couple of bounces, like a real physical thump, plus a subtle full-screen flash in the app's
+  own accent color. *Settings: Scale (onset sensitivity), Stroke Weight (ring thickness), Height
+  (max shockwave radius).*
+- **Equalizer Constellation**: a fixed star-chart layout -- one node per FFT band at a permanent
+  position around a circle, never spawned, killed, or moved, the opposite of Audio Fireflies. Only
+  each node's own size/brightness and the connecting lines to its neighbors (plus a fainter spoke
+  back to center) react to the music, brightening and thickening with the music like a live network
+  graph rather than the node positions themselves moving. *Settings: Scale (sensitivity), Stroke
+  Weight (line/node thickness), Height (max node growth).*
 
 ## How the meter works
 
@@ -152,34 +154,42 @@ data, tunable through its own `BarSpectrumSettings` (Scale, Stroke Weight, Heigh
   on velocity plus a constant upward buoyancy, both converted through real per-frame delta time --
   rather than a value tied to a stable slot the way every bar/ring mode's data is. Glow is the same
   draw-solid-then-blur-once technique as Rainbow Spectrum.
-- **Radar Ripples**: `RadarRipplesScreen` is the one mode in the app that's event-driven rather than
-  continuously reactive every frame. A rolling exponential average of total band energy acts as a
-  baseline; a ripple fires when the current frame's energy jumps well above it (debounced so one
-  loud hit can't spawn a stack of overlapping rings), reading as "the ring pulses on the beat"
-  rather than "the ring pulses every frame." Each ripple's color comes from an energy-weighted
-  spectral centroid of the bands at the instant it fired. A ripple's radius and fade are computed
-  directly from its own age each frame (an ease-out expansion curve, not integrated velocity), so
-  they're always an exact function of elapsed time regardless of how many frames rendered while it
-  was alive.
-- **Waveform Ribbon**: `WaveformRibbonScreen` averages `SpectrumEngine`'s bands into a single
-  overall-level scalar each frame, smooths that with the same fast-attack/slower-decay pattern every
-  engine uses, and samples it into a fixed-size ring buffer as the ribbon scrolls -- a real
-  accumulated pixel distance (`scrollAccumulatorPx += scrollSpeed * dt`) decides when a new sample
-  is captured, not a frame count, so both the scroll speed and how often new samples land stay tied
-  to real elapsed time. Between new samples, every point renders shifted left by the accumulator's
-  fractional remainder, which is what keeps the scroll looking continuous rather than only moving in
-  jumps. The ribbon is a filled shape between a top and bottom envelope (thickness driven by each
-  sample's level), filled with a horizontal `LinearGradient` built from the same `RAINBOW_STOPS`
-  Rainbow Spectrum uses, fixed in screen space so the ribbon's shape flows through a static rainbow
-  backdrop.
-- **Frequency Terrain**: `FrequencyTerrainScreen` reuses Waveform Ribbon's exact scrolling-history
-  technique, but keeps two independent ring buffers/scroll accumulators instead of one, and fills
-  from the bottom of the screen up to the height curve instead of floating as a ribbon. Both layers
-  read the same smoothed level value -- what makes the back layer read as "distant" is purely that
-  it scrolls slower and renders at low alpha, not a second data pipeline. Color is a vertical
-  gradient from near-black at the ground up to `VisualizerTheme.ACCENT` at full height, so the mode
-  automatically follows whatever custom accent color is set in Appearance, the same way nearly every
-  other mode already does.
+- **Kaleidoscope Bloom**: `KaleidoscopeBloomScreen` builds one petal's worth of radius data each
+  frame -- a straight sweep across the spectrum condensed into half a petal's angular width, each
+  point independently smoothed with the usual fast-attack/slower-decay pattern -- then mirrors it
+  across its own center line before drawing anything, so the petal is bilaterally symmetric by
+  construction rather than needing separate left/right logic. That single symmetric petal's radius
+  profile is computed once per frame and reused for all 8 rotated copies (`SYMMETRY_COUNT`), not
+  recomputed per copy. A slow constant rotation (`ROTATION_DEGREES_PER_SECOND`, delta-time based
+  like every rate in this app) is added to every copy's placement angle each frame. Color is one
+  `SweepGradient` built from a true closed 360-degree hue wheel (`fullHueSweepColors` in
+  `GradientColors.kt`, the same technique Radial Pulse Ring used earlier) centered on the bloom --
+  since the shader is keyed to canvas-space angle rather than petal-local position, the whole
+  rainbow visibly rotates along with the pattern with no color logic of its own to keep in sync.
+- **Bass Drop Shockwave**: `BassDropShockwaveScreen` runs its own onset detector scoped to only the
+  lowest few bands (`BASS_BAND_COUNT`) -- a rolling exponential average of sub-bass/kick energy
+  specifically, not the whole-spectrum average a general transient detector would use -- debounced
+  so one hit can't retrigger before the previous one has had a chance to settle. Where every other
+  event-driven idea in this app used an eased expansion curve, this one runs a real damped-spring
+  simulation every frame regardless of whether a trigger just happened:
+  `acceleration = -stiffness * displacement - damping * velocity`, then semi-implicit-Euler
+  integrates velocity and displacement through real per-frame delta time. Tuned underdamped
+  (`SPRING_STIFFNESS`, `SPRING_DAMPING`), so a hit visibly overshoots past its resting size and
+  springs back over a couple of bounces rather than easing straight to zero -- letting displacement
+  go slightly negative (rather than clamping it away) is what lets the ring visibly contract below
+  its resting radius before springing back out. The full-screen flash and the ring both use
+  `VisualizerTheme.ACCENT` rather than a fixed color.
+- **Equalizer Constellation**: `EqualizerConstellationScreen` is the one mode past Graphic EQ with
+  no extra smoothing or physics of its own at all -- every node position is computed fresh each
+  frame directly from its index (band 0 at 12 o'clock, sweeping clockwise, the same convention every
+  radial mode in this app uses), and every node's size/brightness reads `SpectrumEngine`'s bands
+  directly, already fast-rise/slow-fall smoothed. Lines connect each node only to its immediate
+  neighbors around the ring, not every node to every other node (which would turn into visual noise
+  well before 28 nodes), with width and alpha driven by the average of the two endpoints' levels and
+  floored at a minimum alpha so the network never fully vanishes at silence. Each node also gets a
+  fainter spoke back to center. Color is `frequencyZoneColor` keyed to each node's position in the
+  band sequence; a connection's color is the midpoint between its two endpoints' colors via
+  `lerpGradientColor`.
 
 ### Refresh rate handling
 
@@ -226,7 +236,7 @@ app-wide settings screen:
   a live preview swatch. `VisualizerTheme.ACCENT` is mutable Compose state rather than a fixed
   constant specifically so this can override it -- and since nearly every mode already reads
   `ACCENT` (chips, the VU needle's glow, Spectrum's Cool and Frequency schemes, Graphic EQ's lit
-  segments, Frequency Terrain's whole gradient, and more), one custom color cascades across the
+  segments, Bass Drop Shockwave's ring and flash, and more), one custom color cascades across the
   whole app instead of needing a picker per mode. `ACCENT_DIM` derives from `ACCENT` rather than
   being independent, so it stays coherent with whatever's picked.
 - **Modes**: hide modes you don't use, and reorder the rest via up/down arrows next to each one

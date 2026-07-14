@@ -60,3 +60,20 @@ internal fun lerpGradientColor(a: Color, b: Color, t: Float): Color = Color(
     blue = a.blue + (b.blue - a.blue) * t,
     alpha = 1f,
 )
+
+/**
+ * A true closed 360-degree hue wheel (red -> orange -> yellow -> green -> blue -> purple -> back
+ * to red), unlike [RAINBOW_STOPS] which is a deliberately non-looping 5-stop gradient tuned for a
+ * straight bar row. Returns [steps] + 1 ARGB colors evenly spaced around the hue circle, first and
+ * last identical, so a shader built from them (e.g. `android.graphics.SweepGradient`) wraps
+ * seamlessly with no visible seam where it meets itself. RGB-interpolating shaders only blend
+ * linearly between the colors they're given, so this needs enough intermediate hues (not just
+ * red/green/blue) or the "gradient" would cut through muddy off-hues instead of a clean rainbow --
+ * each stop is computed via HSV at full saturation/value, not picked by hand.
+ */
+internal fun fullHueSweepColors(steps: Int = 12): IntArray = IntArray(steps + 1) { i ->
+    android.graphics.Color.HSVToColor(floatArrayOf(i * 360f / steps, 1f, 1f))
+}
+
+/** Evenly-spaced [0, 1] positions matching [fullHueSweepColors]'s stop count. */
+internal fun fullHueSweepPositions(steps: Int = 12): FloatArray = FloatArray(steps + 1) { i -> i.toFloat() / steps }
