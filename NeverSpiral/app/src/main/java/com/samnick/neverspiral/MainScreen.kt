@@ -61,43 +61,45 @@ import kotlinx.coroutines.isActive
 private val MODES_WITH_SETTINGS = setOf(
     VisualMode.VU_METER,
     VisualMode.SPECTRUM,
-    VisualMode.GONIOMETER,
-    VisualMode.LOUDNESS,
     VisualMode.GRAPHIC_EQ,
     VisualMode.RAINBOW_SPECTRUM,
     VisualMode.NEON_CYAN_PULSE,
-    VisualMode.CIRCULAR_SPECTRUM,
-    VisualMode.RADIAL_PULSE_RING,
+    VisualMode.AUDIO_FIREFLIES,
+    VisualMode.RADAR_RIPPLES,
+    VisualMode.WAVEFORM_RIBBON,
+    VisualMode.FREQUENCY_TERRAIN,
 )
 
 private const val SWIPE_THRESHOLD_PX = 90f
 
-/** Modes that render well wide -- everything else forces portrait, since a VU meter's arc, a
- * radial layout, or a scrolling history trend either don't gain anything from landscape or (VU
- * Meter) actively look worse stretched that wide. */
+/** Modes that render well wide -- everything else forces portrait, since a VU meter's arc or a
+ * centered radial/particle composition either doesn't gain anything from landscape or (VU Meter)
+ * actively looks worse stretched that wide. The two horizontally-scrolling modes (Waveform Ribbon,
+ * Frequency Terrain) benefit the same way Spectrum's bars do -- more width is more visible history. */
 private val MODES_ALLOWING_LANDSCAPE = setOf(
     VisualMode.SPECTRUM,
     VisualMode.RAINBOW_SPECTRUM,
     VisualMode.NEON_CYAN_PULSE,
+    VisualMode.WAVEFORM_RIBBON,
+    VisualMode.FREQUENCY_TERRAIN,
 )
 
 /**
- * Hosts up to ten visualizer modes (fewer if the user's hidden some via the "Modes" section in
+ * Hosts up to nine visualizer modes (fewer if the user's hidden some via the "Modes" section in
  * [AppSettingsScreen], see [ModePreferences]) plus the single shared "Visualize music" capture
  * toggle. A persistent, horizontally-scrollable row of mode chips below the visualizer is the
  * primary way to switch -- tap the specific mode you want directly, rather than repeatedly tapping
  * the canvas to cycle through them one at a time. Swipe left/right on the canvas still works too,
  * for quick cycling without looking down at the row. A hamburger icon in the top-right opens the
  * app-wide [AppSettingsScreen] (player shortcuts, keep-screen-on, OTA updates, mode customization,
- * about) -- distinct from each mode's own gear-icon tuning panel. Every engine is stepped every
- * frame regardless of which mode is showing (except Loudness and Goniometer's per-sample work,
- * which only runs while their mode is actually visible -- the heaviest per-sample processing in
- * the app, worth skipping when nothing is reading it), so switching among the other modes still
- * feels instant rather than starting from a frozen reading. Rainbow Spectrum and Neon Cyan Pulse
- * are pure rendering treatments of [SpectrumEngine]'s already fast-rise/slower-fall smoothed
- * bands, the same data [SpectrumScreen] and [GraphicEqScreen] draw, so they need no dedicated
- * engine of their own -- just their own [BarSpectrumSettings] for Scale, Stroke Weight, and
- * Height, same as every other mode's gear-icon panel.
+ * about) -- distinct from each mode's own gear-icon tuning panel. VU Meter and Spectrum are stepped
+ * every frame regardless of which mode is showing, so switching between them and any other mode
+ * still feels instant rather than starting from a frozen reading. Every mode past Graphic EQ
+ * (Rainbow Spectrum, Neon Cyan Pulse, Audio Fireflies, Radar Ripples, Waveform Ribbon, Frequency
+ * Terrain) is a pure rendering treatment of [SpectrumEngine]'s already fast-rise/slower-fall
+ * smoothed bands, the same data [SpectrumScreen] and [GraphicEqScreen] draw, so none of them need a
+ * dedicated engine of their own -- just their own [BarSpectrumSettings] for Scale, Stroke Weight,
+ * and Height, same as every other mode's gear-icon panel.
  */
 @Composable
 fun MainScreen() {
@@ -114,17 +116,6 @@ fun MainScreen() {
         val ordinal = SettingsStore.getInt(context, KEY_SPECTRUM_COLOR_SCHEME, SpectrumColorScheme.COOL.ordinal)
         SpectrumSettings(SpectrumColorScheme.entries.getOrElse(ordinal) { SpectrumColorScheme.COOL })
     }
-    val goniometer = remember { GoniometerEngine() }
-    val goniometerSettings = remember {
-        GoniometerSettings(SettingsStore.getFloat(context, KEY_GONIOMETER_TRAIL, GoniometerSettings.DEFAULT_TRAIL_PERSISTENCE))
-    }
-    val loudness = remember { LoudnessEngine() }
-    val loudnessSettings = remember {
-        val ordinal = SettingsStore.getInt(context, KEY_LOUDNESS_TARGET, LoudnessTarget.STREAMING.ordinal)
-        LoudnessSettings(LoudnessTarget.entries.getOrElse(ordinal) { LoudnessTarget.STREAMING })
-    }
-    val peakRms = remember { PeakRmsEngine() }
-    val tonalBalance = remember { TonalBalanceEngine(SpectrumAnalyzer.BAND_COUNT) }
     val graphicEqSettings = remember {
         val ordinal = SettingsStore.getInt(context, KEY_GRAPHIC_EQ_COLOR_SCHEME, GraphicEqColorScheme.CLASSIC.ordinal)
         GraphicEqSettings(GraphicEqColorScheme.entries.getOrElse(ordinal) { GraphicEqColorScheme.CLASSIC })
@@ -143,18 +134,32 @@ fun MainScreen() {
             initialHeight = SettingsStore.getFloat(context, KEY_NEON_HEIGHT, 0.46f),
         )
     }
-    val circularSpectrumSettings = remember {
+    val audioFirefliesSettings = remember {
         BarSpectrumSettings(
-            initialScale = SettingsStore.getFloat(context, KEY_CIRCULAR_SCALE, 1f),
-            initialStrokeWeight = SettingsStore.getFloat(context, KEY_CIRCULAR_STROKE_WEIGHT, 1f),
-            initialHeight = SettingsStore.getFloat(context, KEY_CIRCULAR_HEIGHT, 0.46f),
+            initialScale = SettingsStore.getFloat(context, KEY_FIREFLIES_SCALE, 1f),
+            initialStrokeWeight = SettingsStore.getFloat(context, KEY_FIREFLIES_STROKE_WEIGHT, 1f),
+            initialHeight = SettingsStore.getFloat(context, KEY_FIREFLIES_HEIGHT, 0.46f),
         )
     }
-    val radialPulseRingSettings = remember {
+    val radarRipplesSettings = remember {
         BarSpectrumSettings(
-            initialScale = SettingsStore.getFloat(context, KEY_RADIAL_SCALE, 1f),
-            initialStrokeWeight = SettingsStore.getFloat(context, KEY_RADIAL_STROKE_WEIGHT, 1f),
-            initialHeight = SettingsStore.getFloat(context, KEY_RADIAL_HEIGHT, 0.46f),
+            initialScale = SettingsStore.getFloat(context, KEY_RIPPLES_SCALE, 1f),
+            initialStrokeWeight = SettingsStore.getFloat(context, KEY_RIPPLES_STROKE_WEIGHT, 1f),
+            initialHeight = SettingsStore.getFloat(context, KEY_RIPPLES_HEIGHT, 0.46f),
+        )
+    }
+    val waveformRibbonSettings = remember {
+        BarSpectrumSettings(
+            initialScale = SettingsStore.getFloat(context, KEY_RIBBON_SCALE, 1f),
+            initialStrokeWeight = SettingsStore.getFloat(context, KEY_RIBBON_STROKE_WEIGHT, 1f),
+            initialHeight = SettingsStore.getFloat(context, KEY_RIBBON_HEIGHT, 0.46f),
+        )
+    }
+    val frequencyTerrainSettings = remember {
+        BarSpectrumSettings(
+            initialScale = SettingsStore.getFloat(context, KEY_TERRAIN_SCALE, 1f),
+            initialStrokeWeight = SettingsStore.getFloat(context, KEY_TERRAIN_STROKE_WEIGHT, 1f),
+            initialHeight = SettingsStore.getFloat(context, KEY_TERRAIN_HEIGHT, 0.46f),
         )
     }
 
@@ -207,10 +212,8 @@ fun MainScreen() {
         }
     }
 
-    LaunchedEffect(vuMeter, spectrum, goniometer, loudness, peakRms, tonalBalance) {
+    LaunchedEffect(vuMeter, spectrum) {
         var lastFrameNanos = 0L
-        var lastWaveform: FloatArray? = null
-        var lastLeft: FloatArray? = null
         while (isActive) {
             withFrameNanos { frameNanos ->
                 val dt = if (lastFrameNanos == 0L) 0f else (frameNanos - lastFrameNanos) / 1_000_000_000f
@@ -218,29 +221,6 @@ fun MainScreen() {
                 val snapshot = AudioAnalyzer.snapshots.value
                 vuMeter.step(dt, snapshot.raw, vuMeterSettings.calibrationOffsetDb)
                 spectrum.step(dt, snapshot.bands)
-                peakRms.step(dt, snapshot.raw, snapshot.peak)
-                tonalBalance.step(dt, snapshot.bands)
-                // Audio buffers arrive slower than the display refreshes, so most frames see the
-                // same snapshot as last time -- only fold a chunk in once, the first frame it
-                // shows up, or it would get double-counted into whichever scrolling history reads
-                // it (goniometer dot cloud, Loudness's K-weighting).
-                if (snapshot.waveform !== lastWaveform) {
-                    lastWaveform = snapshot.waveform
-                    // Loudness's K-weighting runs two IIR filters over every sample in the buffer
-                    // -- the heaviest per-sample work in the app -- so only pay for it while the
-                    // Loudness screen is actually visible to read it.
-                    if (mode == VisualMode.LOUDNESS) {
-                        loudness.ingest(snapshot.waveform)
-                    }
-                }
-                if (snapshot.left !== lastLeft) {
-                    lastLeft = snapshot.left
-                    if (mode == VisualMode.GONIOMETER) {
-                        goniometer.ingest(snapshot.left, snapshot.right)
-                    }
-                }
-                if (mode == VisualMode.GONIOMETER) goniometer.step(dt)
-                if (mode == VisualMode.LOUDNESS) loudness.step(dt)
             }
         }
     }
@@ -301,15 +281,13 @@ fun MainScreen() {
                     when (current) {
                         VisualMode.VU_METER -> VuMeterScreen(vuMeter)
                         VisualMode.SPECTRUM -> SpectrumScreen(spectrum, spectrumSettings)
-                        VisualMode.GONIOMETER -> GoniometerScreen(goniometer, goniometerSettings)
-                        VisualMode.LOUDNESS -> LoudnessScreen(loudness, loudnessSettings)
                         VisualMode.GRAPHIC_EQ -> GraphicEqScreen(spectrum, graphicEqSettings)
-                        VisualMode.PEAK_RMS -> PeakRmsScreen(peakRms)
-                        VisualMode.TONAL_BALANCE -> TonalBalanceScreen(tonalBalance)
                         VisualMode.RAINBOW_SPECTRUM -> RainbowSpectrumScreen(spectrum, rainbowSpectrumSettings)
                         VisualMode.NEON_CYAN_PULSE -> NeonCyanPulseScreen(spectrum, neonCyanPulseSettings)
-                        VisualMode.CIRCULAR_SPECTRUM -> CircularSpectrumScreen(spectrum, circularSpectrumSettings)
-                        VisualMode.RADIAL_PULSE_RING -> RadialPulseRingScreen(spectrum, radialPulseRingSettings)
+                        VisualMode.AUDIO_FIREFLIES -> AudioFirefliesScreen(spectrum, audioFirefliesSettings)
+                        VisualMode.RADAR_RIPPLES -> RadarRipplesScreen(spectrum, radarRipplesSettings)
+                        VisualMode.WAVEFORM_RIBBON -> WaveformRibbonScreen(spectrum, waveformRibbonSettings)
+                        VisualMode.FREQUENCY_TERRAIN -> FrequencyTerrainScreen(spectrum, frequencyTerrainSettings)
                     }
                 }
 
@@ -356,13 +334,13 @@ fun MainScreen() {
                                 context = context,
                                 vuMeterSettings = vuMeterSettings,
                                 spectrumSettings = spectrumSettings,
-                                goniometerSettings = goniometerSettings,
-                                loudnessSettings = loudnessSettings,
                                 graphicEqSettings = graphicEqSettings,
                                 rainbowSpectrumSettings = rainbowSpectrumSettings,
                                 neonCyanPulseSettings = neonCyanPulseSettings,
-                                circularSpectrumSettings = circularSpectrumSettings,
-                                radialPulseRingSettings = radialPulseRingSettings,
+                                audioFirefliesSettings = audioFirefliesSettings,
+                                radarRipplesSettings = radarRipplesSettings,
+                                waveformRibbonSettings = waveformRibbonSettings,
+                                frequencyTerrainSettings = frequencyTerrainSettings,
                             )
                         }
                     }
@@ -382,10 +360,6 @@ fun MainScreen() {
                             AudioCaptureService.stop(context)
                             vuMeter.reset()
                             spectrum.reset()
-                            goniometer.reset()
-                            loudness.reset()
-                            peakRms.reset()
-                            tonalBalance.reset()
                             visualizerOn = false
                         } else {
                             recordPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
@@ -435,13 +409,13 @@ private fun SettingsPanelContent(
     context: Context,
     vuMeterSettings: VuMeterSettings,
     spectrumSettings: SpectrumSettings,
-    goniometerSettings: GoniometerSettings,
-    loudnessSettings: LoudnessSettings,
     graphicEqSettings: GraphicEqSettings,
     rainbowSpectrumSettings: BarSpectrumSettings,
     neonCyanPulseSettings: BarSpectrumSettings,
-    circularSpectrumSettings: BarSpectrumSettings,
-    radialPulseRingSettings: BarSpectrumSettings,
+    audioFirefliesSettings: BarSpectrumSettings,
+    radarRipplesSettings: BarSpectrumSettings,
+    waveformRibbonSettings: BarSpectrumSettings,
+    frequencyTerrainSettings: BarSpectrumSettings,
 ) {
     when (mode) {
         VisualMode.VU_METER -> {
@@ -464,26 +438,6 @@ private fun SettingsPanelContent(
                 SettingsStore.putInt(context, KEY_SPECTRUM_COLOR_SCHEME, it.ordinal)
             }
         }
-        VisualMode.GONIOMETER -> {
-            SettingSliderRow(
-                "Trail",
-                goniometerSettings.trailPersistence,
-                GoniometerSettings.TRAIL_PERSISTENCE_MIN..GoniometerSettings.TRAIL_PERSISTENCE_MAX,
-            ) {
-                goniometerSettings.trailPersistence = it
-                SettingsStore.putFloat(context, KEY_GONIOMETER_TRAIL, it)
-            }
-        }
-        VisualMode.LOUDNESS -> {
-            SettingChoiceRow(
-                "Target",
-                LoudnessTarget.entries.map { it to it.label },
-                loudnessSettings.target,
-            ) {
-                loudnessSettings.target = it
-                SettingsStore.putInt(context, KEY_LOUDNESS_TARGET, it.ordinal)
-            }
-        }
         VisualMode.GRAPHIC_EQ -> {
             SettingChoiceRow(
                 "Colors",
@@ -496,13 +450,14 @@ private fun SettingsPanelContent(
         }
         VisualMode.RAINBOW_SPECTRUM -> BarSpectrumSettingsPanel(rainbowSpectrumSettings, context, KEY_RAINBOW_SCALE, KEY_RAINBOW_STROKE_WEIGHT, KEY_RAINBOW_HEIGHT)
         VisualMode.NEON_CYAN_PULSE -> BarSpectrumSettingsPanel(neonCyanPulseSettings, context, KEY_NEON_SCALE, KEY_NEON_STROKE_WEIGHT, KEY_NEON_HEIGHT)
-        VisualMode.CIRCULAR_SPECTRUM -> BarSpectrumSettingsPanel(circularSpectrumSettings, context, KEY_CIRCULAR_SCALE, KEY_CIRCULAR_STROKE_WEIGHT, KEY_CIRCULAR_HEIGHT)
-        VisualMode.RADIAL_PULSE_RING -> BarSpectrumSettingsPanel(radialPulseRingSettings, context, KEY_RADIAL_SCALE, KEY_RADIAL_STROKE_WEIGHT, KEY_RADIAL_HEIGHT)
-        else -> Unit
+        VisualMode.AUDIO_FIREFLIES -> BarSpectrumSettingsPanel(audioFirefliesSettings, context, KEY_FIREFLIES_SCALE, KEY_FIREFLIES_STROKE_WEIGHT, KEY_FIREFLIES_HEIGHT)
+        VisualMode.RADAR_RIPPLES -> BarSpectrumSettingsPanel(radarRipplesSettings, context, KEY_RIPPLES_SCALE, KEY_RIPPLES_STROKE_WEIGHT, KEY_RIPPLES_HEIGHT)
+        VisualMode.WAVEFORM_RIBBON -> BarSpectrumSettingsPanel(waveformRibbonSettings, context, KEY_RIBBON_SCALE, KEY_RIBBON_STROKE_WEIGHT, KEY_RIBBON_HEIGHT)
+        VisualMode.FREQUENCY_TERRAIN -> BarSpectrumSettingsPanel(frequencyTerrainSettings, context, KEY_TERRAIN_SCALE, KEY_TERRAIN_STROKE_WEIGHT, KEY_TERRAIN_HEIGHT)
     }
 }
 
-/** Scale/Stroke Weight/Height sliders shared by Rainbow Spectrum and Neon Cyan Pulse's settings panels. */
+/** Scale/Stroke Weight/Height sliders shared by every mode that reuses [BarSpectrumSettings]. */
 @Composable
 private fun BarSpectrumSettingsPanel(
     settings: BarSpectrumSettings,
@@ -582,8 +537,6 @@ private fun ModeSelectorRow(currentMode: VisualMode, modes: List<VisualMode>, on
 
 private const val KEY_VU_CALIBRATION = "vu_calibration_offset_db"
 private const val KEY_SPECTRUM_COLOR_SCHEME = "spectrum_color_scheme"
-private const val KEY_GONIOMETER_TRAIL = "goniometer_trail_persistence"
-private const val KEY_LOUDNESS_TARGET = "loudness_target"
 private const val KEY_GRAPHIC_EQ_COLOR_SCHEME = "graphic_eq_color_scheme"
 private const val KEY_RAINBOW_SCALE = "rainbow_spectrum_scale"
 private const val KEY_RAINBOW_STROKE_WEIGHT = "rainbow_spectrum_stroke_weight"
@@ -591,9 +544,15 @@ private const val KEY_RAINBOW_HEIGHT = "rainbow_spectrum_height"
 private const val KEY_NEON_SCALE = "neon_cyan_pulse_scale"
 private const val KEY_NEON_STROKE_WEIGHT = "neon_cyan_pulse_stroke_weight"
 private const val KEY_NEON_HEIGHT = "neon_cyan_pulse_height"
-private const val KEY_CIRCULAR_SCALE = "circular_spectrum_scale"
-private const val KEY_CIRCULAR_STROKE_WEIGHT = "circular_spectrum_stroke_weight"
-private const val KEY_CIRCULAR_HEIGHT = "circular_spectrum_height"
-private const val KEY_RADIAL_SCALE = "radial_pulse_ring_scale"
-private const val KEY_RADIAL_STROKE_WEIGHT = "radial_pulse_ring_stroke_weight"
-private const val KEY_RADIAL_HEIGHT = "radial_pulse_ring_height"
+private const val KEY_FIREFLIES_SCALE = "audio_fireflies_scale"
+private const val KEY_FIREFLIES_STROKE_WEIGHT = "audio_fireflies_stroke_weight"
+private const val KEY_FIREFLIES_HEIGHT = "audio_fireflies_height"
+private const val KEY_RIPPLES_SCALE = "radar_ripples_scale"
+private const val KEY_RIPPLES_STROKE_WEIGHT = "radar_ripples_stroke_weight"
+private const val KEY_RIPPLES_HEIGHT = "radar_ripples_height"
+private const val KEY_RIBBON_SCALE = "waveform_ribbon_scale"
+private const val KEY_RIBBON_STROKE_WEIGHT = "waveform_ribbon_stroke_weight"
+private const val KEY_RIBBON_HEIGHT = "waveform_ribbon_height"
+private const val KEY_TERRAIN_SCALE = "frequency_terrain_scale"
+private const val KEY_TERRAIN_STROKE_WEIGHT = "frequency_terrain_stroke_weight"
+private const val KEY_TERRAIN_HEIGHT = "frequency_terrain_height"

@@ -9,15 +9,13 @@ import android.content.Context
 enum class VisualMode(val label: String) {
     VU_METER("VU Meter"),
     SPECTRUM("Spectrum"),
-    GONIOMETER("Goniometer"),
-    LOUDNESS("Loudness"),
     GRAPHIC_EQ("Graphic EQ"),
-    PEAK_RMS("Peak / RMS"),
-    TONAL_BALANCE("Tonal Balance"),
     RAINBOW_SPECTRUM("Rainbow Spectrum"),
     NEON_CYAN_PULSE("Neon Cyan Pulse"),
-    CIRCULAR_SPECTRUM("Circular Spectrum"),
-    RADIAL_PULSE_RING("Radial Pulse Ring"),
+    AUDIO_FIREFLIES("Audio Fireflies"),
+    RADAR_RIPPLES("Radar Ripples"),
+    WAVEFORM_RIBBON("Waveform Ribbon"),
+    FREQUENCY_TERRAIN("Frequency Terrain"),
 }
 
 private const val KEY_MODE_ORDER = "mode_order"

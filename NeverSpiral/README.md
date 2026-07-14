@@ -1,6 +1,6 @@
 # Sam's Music Viz
 
-Eleven audio-reactive visualizer modes, styled as a modern dark mastering-suite instrument panel --
+Nine audio-reactive visualizer modes, styled as a modern dark mastering-suite instrument panel --
 flat near-black panels, thin hairline dividers, a cool desaturated accent, and red reserved strictly
 for clip/overload warnings, the way studio metering looks. All driven by whatever music is playing
 on the device: Spotify, YouTube Music, or anything else.
@@ -13,19 +13,18 @@ on the device: Spotify, YouTube Music, or anything else.
   chip in view.
 - **Swipe** left or right on the visualization to move either direction, for quick cycling without
   looking down at the strip.
-- Nine modes (VU Meter, Spectrum, Goniometer, Loudness, Graphic EQ, Rainbow Spectrum, Neon Cyan
-  Pulse, Circular Spectrum, Radial Pulse Ring) have their own tunable settings behind a gear icon
-  in the top-right corner; every setting persists across app restarts.
+- Every mode has its own tunable settings (Scale/Stroke Weight/Height, or a color-scheme choice)
+  behind a gear icon in the top-right corner; every setting persists across app restarts.
 - A hamburger icon (top-right, above the visualizer) opens app-wide Settings -- see below. Its
   **Modes** section lets you hide modes you don't use and reorder the rest; both the mode strip and
   swipe cycling follow that customized order (`ModePreferences`, backed by `SettingsStore`). There
-  are eleven modes total when nothing's hidden.
-- **Landscape** only works for Spectrum, Rainbow Spectrum, and Neon Cyan Pulse -- the modes that
-  actually gain something from the extra width. Every other mode (a circular gauge, a radial
-  layout, a scrolling history trend, and so on) is locked back to portrait the instant it's
-  selected, via `Activity.requestedOrientation` set per mode in `MainScreen`, not a single
-  manifest-wide lock. The manifest's `configChanges="orientation|screenSize"` means switching
-  never recreates the Activity or interrupts capture, it just physically rotates the display.
+  are nine modes total when nothing's hidden.
+- **Landscape** works for Spectrum, Rainbow Spectrum, Neon Cyan Pulse, Waveform Ribbon, and
+  Frequency Terrain -- the modes that actually gain something from the extra width. Every other
+  mode is locked back to portrait the instant it's selected, via `Activity.requestedOrientation`
+  set per mode in `MainScreen`, not a single manifest-wide lock. The manifest's
+  `configChanges="orientation|screenSize"` means switching never recreates the Activity or
+  interrupts capture, it just physically rotates the display.
 
 - **VU Meter**: an analog needle meter with correctly calibrated ballistics (not a fake wobble), a
   digital dB readout alongside the needle, and a peak LED that hard-flashes to full brightness the
@@ -35,22 +34,11 @@ on the device: Spotify, YouTube Music, or anything else.
   reference grid and frequency labels for orientation across the range. *Settings: Cool (blue-to-
   white), Classic (green-yellow-red), or Frequency (Neon Cyan Pulse's frequency-reactive coloring,
   applied to Spectrum's own upward bars) color scheme.*
-- **Goniometer**: a stereo phase scope -- plots left/right on the mid/side axes, so mono content
-  collapses to a vertical line and phase problems fan out sideways -- plus a running phase
-  correlation readout. *Settings: trail persistence.*
-- **Loudness**: a BS.1770-style LUFS meter (momentary, short-term, integrated, plus loudness
-  range) against a selectable normalization target, alongside a scrolling history trend. *Settings:
-  target standard (Streaming -14, Apple Music -16, EBU R128 -23).*
 - **Graphic EQ**: a classic discrete-LED equalizer bank -- the kind of spectrum display built into
   receivers and separates -- with per-band peak-hold segments and the same dB/frequency axes as
   Spectrum, built on the same FFT bands. *Settings: Classic (green/amber/red-by-height) or
   Frequency (same frequency-reactive coloring as Spectrum/Neon Cyan Pulse, with the top segment
   always flashing red as a clip warning regardless of scheme) color scheme.*
-- **Peak / RMS**: a hardware-style dual bar meter (fast peak with a hold cap, next to RMS) with a
-  crest-factor readout -- the gap between the two shows how dynamic or compressed a master is.
-- **Tonal Balance**: a long-averaged spectral curve against a dashed reference curve tracking the
-  same bands with a much longer time constant, showing whether what's playing right now trends
-  brighter/darker/bassier than the last minute or so, rather than a comparison to an arbitrary line.
 - **Rainbow Spectrum**: a mirrored FFT bar spectrum -- bars reflect top and bottom off a horizontal
   center axis instead of growing from the bottom only -- with a fixed horizontal rainbow gradient
   (blue/purple through magenta and orange to yellow) and a soft glow, on pure black. *Settings:
@@ -60,26 +48,30 @@ on the device: Spotify, YouTube Music, or anything else.
   toward a color keyed to its own frequency band as its level rises -- bass flashes red, low-mid
   orange, mids yellow-green, presence stays cyan, treble goes violet -- rather than one flat color
   across the whole row. *Settings: Scale, Stroke Weight, Height.*
-- **Circular Spectrum**: Rainbow Spectrum bent into a ring -- the same bands, the same fixed
-  rainbow gradient and glow, but bars grow radially outward from a circle instead of reflecting
-  top/bottom off a horizontal axis. Band 0 (bass) starts at 12 o'clock and sweeps clockwise through
-  to the highest band. Portrait only -- a circular layout doesn't gain anything from extra width.
-  *Settings: Scale, Stroke Weight, Height.*
-- **Radial Pulse Ring**: a Specterr-style ring -- one single, continuously undulating closed curve,
-  like a circle traced with a fine wave running all the way around it rather than a smooth
-  near-circle with one or two bumps. Many small peaks and troughs are visible around the whole
-  circumference at once (a gear/scalloped-flower look), deepening with the music and relaxing
-  toward a gently-rippled near-circle at rest -- built so no single loud frequency band can dominate
-  the outline into one or two big lobes. Bass sits at the top and the frequency sweep mirrors
-  left-right from there, so the two halves of the ring always move as symmetric wings rather than
-  one continuous sweep around the whole circle. The whole wave pattern spins slowly and continuously (a
-  constant degrees-per-second rotation, not audio-driven), and a small static music-note glyph sits
-  anchored in the open center, never moving or reacting itself. A true 360-degree rainbow hue sweep
-  runs around the circumference (not the app's usual non-looping rainbow, which would show a seam on
-  a closed shape) -- every point along the ring shares one shader, so color always matches current
-  position on the wheel as it rotates through it. Rendered as a glowing stroked outline with a
-  bright hot edge and a softer outer bloom falloff. Portrait only, same reasoning as Circular
-  Spectrum. *Settings: Scale, Stroke Weight, Height.*
+- **Audio Fireflies**: instead of a fixed row or ring of bars, a pool of small glowing particles
+  bursts outward from center whenever a frequency band's level crosses a probability threshold --
+  more scattered sparks than a meter. Each burst launches in a random direction (not an angle tied
+  to its band) at a speed scaled by that band's own level, colored by which band spawned it (bass
+  reads warm, treble reads cool, the same `frequencyZoneColor` mapping Neon Cyan Pulse uses), then
+  drifts with real physics -- drag and a gentle upward buoyancy -- before fading out. *Settings:
+  Scale (spawn rate), Stroke Weight (particle size), Height (max travel speed).*
+- **Radar Ripples**: expanding rings pulse outward from center on detected transients -- a real
+  onset detector (the current instant's total band energy against a short rolling average) rather
+  than reacting every single frame like every other mode, so it reads as a sonar ping on the beat
+  instead of a continuous meter. Each ring's color comes from the spectral centroid of whatever
+  triggered it -- a bass-heavy hit rings warm, a treble-heavy hit rings cool. *Settings: Scale
+  (onset sensitivity), Stroke Weight (ring thickness), Height (max ripple radius).*
+- **Waveform Ribbon**: a glowing ribbon flows continuously across the screen, its thickness at each
+  point tracking the music's overall level from a few seconds ago -- motion through recent history
+  rather than an instantaneous snapshot. The ribbon's shape moves through a rainbow gradient that's
+  fixed in screen space, rather than the color scrolling along with it. *Settings: Scale
+  (sensitivity), Stroke Weight (baseline thickness), Height (max thickness).*
+- **Frequency Terrain**: a scrolling mountain-skyline silhouette built from the same kind of rolling
+  level history as Waveform Ribbon, but filled from the ground up instead of floating as a ribbon,
+  with a dimmer, slower-scrolling back layer for parallax depth behind a brighter, glowing front
+  ridge. Colored with the app's own accent color rather than a fixed rainbow, so it follows whatever
+  custom color is set in Appearance. *Settings: Scale (sensitivity), Stroke Weight (outline width),
+  Height (max terrain height).*
 
 ## How the meter works
 
@@ -133,111 +125,61 @@ until other modes started depending on genuine per-band contrast to work at all.
 
 ## How the newer instruments work
 
-- **Goniometer**: plots left/right on mid/side axes -- `x = (L-R)/2`, `y = (L+R)/2` -- rather than
-  raw L/R, matching the convention hardware phase scopes use, so mono content collapses to a
-  vertical line instead of a diagonal one. `GoniometerEngine` also tracks a running phase
-  correlation coefficient (a leaky-integrator Pearson correlation over L and R power/cross-power)
-  from +1 (perfectly in phase) through 0 (uncorrelated/wide) to -1 (out of phase, will cancel when
-  summed to mono).
-- **Loudness**: `LoudnessEngine` is a practical real-time approximation of ITU-R BS.1770 / EBU
-  R128, not a certified meter -- K-weighting is a proper high-pass + high-shelf biquad pair (RBJ
-  cookbook DSP) tuned to the same intent as the standard's filters, and integrated-loudness gating
-  uses a single-pass absolute-threshold approximation rather than BS.1770's two-pass absolute +
-  relative block gating, since this runs continuously on a live stream rather than analyzing a
-  fixed file. Loudness range (LRA) is the 95th-minus-10th-percentile spread of a rolling short-term
-  history.
-- **Graphic EQ**: `GraphicEqScreen` renders the same [SpectrumEngine] bands and peak-hold caps as
-  the Spectrum view, but as a bank of discrete lit/unlit segments per band instead of continuous
-  bars -- the classic look of a receiver's built-in spectrum display -- so it's a different
-  rendering treatment of already-proven data rather than a new capture or DSP path. Lit segments
-  (unlit ones are skipped) get the same single-composited-bitmap blur glow as the other bar-based
-  modes. Its `GraphicEqSettings.colorScheme` picks between the classic height-based coloring and
-  the shared frequency-reactive treatment (Neon Cyan Pulse, Spectrum's Frequency scheme) -- in
-  that mode the top segment still hard-flashes red as a clip warning regardless of frequency zone.
-- **Peak / RMS**: `PeakRmsEngine` gives peak a near-instant attack and a slower release (unlike the
-  VU meter's symmetric ballistics), so it actually catches transients, plus a hold cap that latches
-  and slowly falls. RMS uses the same ~300ms window as the VU meter. The gap between them, the
-  crest factor, is a genuinely useful number: wide means dynamic, narrow means compressed/limited.
-- **Tonal Balance**: `TonalBalanceEngine` smooths the same bands as Spectrum with a multi-second
-  time constant instead of a fast one, so it settles into overall tonal character rather than
-  reacting to transients.
-- **Rainbow Spectrum**, **Neon Cyan Pulse**, and **Circular Spectrum**: `RainbowSpectrumScreen`,
-  `NeonCyanPulseScreen`, and `CircularSpectrumScreen` all render the same [SpectrumEngine] bands
-  directly, with no engine or DSP of their own -- the mirrored/radial layout, colors, bar density,
-  and glow are pure rendering choices on already-smoothed data, tunable through their own
-  `BarSpectrumSettings` (Scale, Stroke Weight, Height). Neon Cyan Pulse's denser row comes from
-  linearly interpolating between adjacent bands rather than a higher-resolution FFT. Neon Cyan
-  Pulse's color is frequency-reactive rather than fixed: a bar's position in the row stands in for
-  its frequency band (bands are laid out log-spaced low-to-high), so `frequencyZoneColor` (in
-  `GradientColors.kt`) maps that position to a color -- red for bass through violet for treble --
-  and each bar blends from resting cyan toward its zone color as its own level rises, rather than
-  every bar sharing one flat gradient. Circular Spectrum instead reuses Rainbow Spectrum's fixed
-  `rainbowColor` gradient exactly, just mapped around the ring by angular position (band 0 at 12
-  o'clock, sweeping clockwise) instead of left-to-right. All three draw their bars solid into one
-  bitmap, then blur *that
-  whole composited layer once* for the glow, rather than blurring each bar individually --
-  `BlurMaskFilter`'s cost is dominated by per-call overhead, so one blur pass over the full row is
-  far cheaper than 28-56 separate ones while looking effectively identical, which is what keeps
-  all three modes smooth on mid-range devices. (The bitmap itself, cleared rather than faded each
-  frame, exists purely so `BlurMaskFilter` has a software canvas to blur against -- Android
-  silently ignores mask filters on Compose's hardware-accelerated canvas, the same reason
-  Goniometer's trail goes through a bitmap.) Bar count, sensitivity gamma, and glow radius/alpha
-  for all three are named constants at the top of each file.
-- **Radial Pulse Ring**: `RadialPulseRingScreen` also reads [SpectrumEngine]'s bands directly, but
-  with its own second smoothing pass on top -- a per-point "push level" (`FloatArray(POINT_COUNT)`)
-  that's independently exponentially smoothed frame to frame with a fast attack and a slower decay,
-  both expressed as time constants (`ATTACK_TAU_SECONDS`, `DECAY_TAU_SECONDS`) converted through
-  real delta time exactly like every engine's own `step(dt, ...)`. `mirroredInterpolatedBand` maps
-  [SpectrumEngine]'s bands onto `POINT_COUNT` angular positions with left-right mirror symmetry --
-  bass sits at the seam (12 o'clock) and the band sequence plays out low-to-high identically in both
-  directions from there, meeting again at the bottom, rather than one continuous sweep all the way
-  around. The angular index is folded through a triangle wave (0 -> `POINT_COUNT / 2` -> 0) before
-  being linearly interpolated onto the band array the same way Neon Cyan Pulse's `interpolatedBand`
-  is -- clamped at the ends, not circular, since the fold itself already provides the "return trip"
-  back to the seam; wrapping through the bands *as well* would reintroduce a hard seam every time
-  `POINT_COUNT / 2` doesn't divide evenly into the band count (it doesn't: 48 points per half against
-  28 bands). A raw level-to-radius mapping (every point just pushes outward by its own level) turned
-  out to look like
-  "one or two big lobes" in practice, since real spectra concentrate most of their energy in a
-  handful of bands at any given instant rather than spreading evenly -- so the per-point level is
-  turned into a *wave offset* instead of a straight push: each frame, a light circular blur across
-  neighboring points (`SPATIAL_BLUR_RADIUS`, deliberately narrow so it smooths transitions without
-  merging separate lobes together) feeds into the ring's own average level that frame, and each
-  point's offset becomes `(itsLevel - averageLevel) * REACTIVE_GAIN` -- above-average points push
-  out, below-average points pull in, producing genuine peaks *and* troughs instead of every point
-  only ever bulging from zero. A fixed-frequency idle ripple (`WAVE_LOBES` cycles wrapped around the
-  full circumference, amplitude-modulated by that same average level via
-  `IDLE_RIPPLE_BASE_FRACTION`/`IDLE_RIPPLE_REACTIVE_FRACTION`) is layered on top, so many small waves
-  stay visible everywhere around the ring even when the music's actual energy sits in just one or
-  two bands, and the ring keeps a subtle ripple rather than ever going perfectly flat at rest. The
-  outline is a closed quadratic-bezier-through-midpoints path -- `moveTo` the midpoint before point
-  0, then `quadTo` each point with the following midpoint as its endpoint, all the way around --
-  rather than a jagged point-to-point polygon, so it reads as one fluid curve. A slow constant
-  rotation (`ROTATION_DEGREES_PER_SECOND`, converted through delta time like everything else) is
-  added to every point's angle each frame, and to the idle ripple's phase so the two stay in
-  lockstep -- since color is a true closed 360-degree hue wheel (`fullHueSweepColors` in
-  `GradientColors.kt`, built from `android.graphics.Color.HSVToColor` at even hue steps) applied as
-  one `android.graphics.SweepGradient` shared by the whole ring, color is keyed to canvas-space angle
-  rather than point index, so the rotation alone makes hues visibly drift with no changes needed to
-  the color logic at all. Unlike `RAINBOW_STOPS`, which is a deliberately non-looping gradient tuned
-  for a straight bar row, a closed ring needs a gradient that wraps back to its own start with no
-  visible seam. The glow is two separate blurred copies of the solid ring layer composited
-  underneath the crisp one -- a wide, low-alpha outer pass and a tight, high-alpha inner pass -- for
-  a bright hot edge with a softer outer falloff, rather than one uniform blur radius. A small static
-  music-note glyph (a filled head, a stem, and a bezier flag, all Compose
-  `drawCircle`/`drawLine`/`drawPath` calls) is drawn last, on top of everything else -- it's the one
-  thing in the mode that doesn't touch the bitmap/blur pipeline at all, since it never moves and
-  never needs to blur. Base radius, point count, wave lobe count, idle ripple depth, reactive gain,
-  spatial blur radius, amplitude sensitivity gamma, both smoothing time constants, rotation rate,
-  stroke width, glow radius/alpha, and the note's size are all named constants at the top of the
-  file.
+Every mode past Graphic EQ reads [SpectrumEngine]'s bands directly, with no dedicated engine or
+capture path of its own -- each is a different rendering treatment of the exact same already-smoothed
+data, tunable through its own `BarSpectrumSettings` (Scale, Stroke Weight, Height).
 
-Every engine is stepped every frame regardless of which mode is showing, so switching among most
-modes shows a live reading immediately instead of a frozen one -- the two exceptions are Loudness
-(two IIR K-weighting filters run over every sample in every buffer) and Goniometer (a per-sample
-correlation sum), the heaviest per-sample work in the app, which only run while their own screen is
-actually visible; both settle back to a live reading within their own ballistic time constant
-(under a second) after switching back.
+- **Rainbow Spectrum** and **Neon Cyan Pulse**: `RainbowSpectrumScreen` and `NeonCyanPulseScreen`
+  are pure rendering choices on `SpectrumEngine`'s bands -- the mirrored layout, colors, bar
+  density, and glow are the only differences between them. Neon Cyan Pulse's denser row comes from
+  linearly interpolating between adjacent bands rather than a higher-resolution FFT. Its color is
+  frequency-reactive rather than fixed: a bar's position in the row stands in for its frequency band
+  (bands are laid out log-spaced low-to-high), so `frequencyZoneColor` (in `GradientColors.kt`) maps
+  that position to a color -- red for bass through violet for treble -- and each bar blends from
+  resting cyan toward its zone color as its own level rises, rather than every bar sharing one flat
+  gradient. Both draw their bars solid into one bitmap, then blur *that whole composited layer once*
+  for the glow, rather than blurring each bar individually -- `BlurMaskFilter`'s cost is dominated by
+  per-call overhead, so one blur pass over the full row is far cheaper than 28-56 separate ones while
+  looking effectively identical. (The bitmap itself, cleared rather than faded each frame, exists
+  purely so `BlurMaskFilter` has a software canvas to blur against -- Android silently ignores mask
+  filters on Compose's hardware-accelerated canvas.) Bar count, sensitivity gamma, and glow
+  radius/alpha are named constants at the top of each file.
+- **Audio Fireflies**: `AudioFirefliesScreen` spawns from a fixed-size pool of up to 140 particles,
+  pre-allocated once and reused rather than allocated per spawn. Spawning is probabilistic and
+  delta-time-scaled rather than edge-triggered: each frame, each band gets a spawn chance of
+  `level^gamma * scale * SPAWN_RATE_PER_SECOND * dt`, so expected spawns per second stay correct
+  regardless of the display's refresh rate. Each live particle is real physics -- exponential drag
+  on velocity plus a constant upward buoyancy, both converted through real per-frame delta time --
+  rather than a value tied to a stable slot the way every bar/ring mode's data is. Glow is the same
+  draw-solid-then-blur-once technique as Rainbow Spectrum.
+- **Radar Ripples**: `RadarRipplesScreen` is the one mode in the app that's event-driven rather than
+  continuously reactive every frame. A rolling exponential average of total band energy acts as a
+  baseline; a ripple fires when the current frame's energy jumps well above it (debounced so one
+  loud hit can't spawn a stack of overlapping rings), reading as "the ring pulses on the beat"
+  rather than "the ring pulses every frame." Each ripple's color comes from an energy-weighted
+  spectral centroid of the bands at the instant it fired. A ripple's radius and fade are computed
+  directly from its own age each frame (an ease-out expansion curve, not integrated velocity), so
+  they're always an exact function of elapsed time regardless of how many frames rendered while it
+  was alive.
+- **Waveform Ribbon**: `WaveformRibbonScreen` averages `SpectrumEngine`'s bands into a single
+  overall-level scalar each frame, smooths that with the same fast-attack/slower-decay pattern every
+  engine uses, and samples it into a fixed-size ring buffer as the ribbon scrolls -- a real
+  accumulated pixel distance (`scrollAccumulatorPx += scrollSpeed * dt`) decides when a new sample
+  is captured, not a frame count, so both the scroll speed and how often new samples land stay tied
+  to real elapsed time. Between new samples, every point renders shifted left by the accumulator's
+  fractional remainder, which is what keeps the scroll looking continuous rather than only moving in
+  jumps. The ribbon is a filled shape between a top and bottom envelope (thickness driven by each
+  sample's level), filled with a horizontal `LinearGradient` built from the same `RAINBOW_STOPS`
+  Rainbow Spectrum uses, fixed in screen space so the ribbon's shape flows through a static rainbow
+  backdrop.
+- **Frequency Terrain**: `FrequencyTerrainScreen` reuses Waveform Ribbon's exact scrolling-history
+  technique, but keeps two independent ring buffers/scroll accumulators instead of one, and fills
+  from the bottom of the screen up to the height curve instead of floating as a ribbon. Both layers
+  read the same smoothed level value -- what makes the back layer read as "distant" is purely that
+  it scrolls slower and renders at low alpha, not a second data pipeline. Color is a vertical
+  gradient from near-black at the ground up to `VisualizerTheme.ACCENT` at full height, so the mode
+  automatically follows whatever custom accent color is set in Appearance, the same way nearly every
+  other mode already does.
 
 ### Refresh rate handling
 
@@ -257,11 +199,10 @@ rate. `MainScreen`'s shared frame loop reads real per-frame delta time from
 `withFrameNanos { frameNanos -> ... }` -- the actual Choreographer timestamp, not a fixed step --
 and every engine's `step(dtSeconds, ...)` converts that into an exponential-smoothing rate via
 `alpha = 1f - exp(-dt / tauSeconds)`, where every `tauSeconds` constant (VU ballistics, spectrum
-rise/fall, loudness integration windows, Radial Pulse Ring's attack/decay, and so on) is documented
-as a time-based rate, not a flat per-frame multiplier. That's what keeps motion speed and
-smoothness consistent whether the device ends up running at 60Hz, 90Hz, or 120Hz -- a higher
-refresh rate means more, smaller steps toward the same target over the same wall-clock time, not
-faster-looking motion.
+rise/fall, Audio Fireflies' drag decay, and so on) is documented as a time-based rate, not a flat
+per-frame multiplier. That's what keeps motion speed and smoothness consistent whether the device
+ends up running at 60Hz, 90Hz, or 120Hz -- a higher refresh rate means more, smaller steps toward
+the same target over the same wall-clock time, not faster-looking motion.
 
 ## App Settings
 
@@ -285,9 +226,9 @@ app-wide settings screen:
   a live preview swatch. `VisualizerTheme.ACCENT` is mutable Compose state rather than a fixed
   constant specifically so this can override it -- and since nearly every mode already reads
   `ACCENT` (chips, the VU needle's glow, Spectrum's Cool and Frequency schemes, Graphic EQ's lit
-  segments, and more), one custom color cascades across the whole app instead of needing a picker
-  per mode. `ACCENT_DIM` derives from `ACCENT` rather than being independent, so it stays coherent
-  with whatever's picked.
+  segments, Frequency Terrain's whole gradient, and more), one custom color cascades across the
+  whole app instead of needing a picker per mode. `ACCENT_DIM` derives from `ACCENT` rather than
+  being independent, so it stays coherent with whatever's picked.
 - **Modes**: hide modes you don't use, and reorder the rest via up/down arrows next to each one
   (drag-to-reorder felt riskier on a touchscreen than arrows for a list this short). At least one
   mode always stays visible. Persisted through `ModePreferences` as an ordered mode-name list plus
@@ -319,9 +260,7 @@ app-wide settings screen:
   signed with a brand-new, different key, and every OTA update silently failed to apply, leaving
   users to uninstall and reinstall manually. `app/debug.keystore` is now a stable keystore committed
   to the repo, referenced by an explicit `signingConfigs.debug` block, so every build (CI or local)
-  signs with the same key from here on -- note this means the *first* update after this fix still
-  needs a manual reinstall (the previously-installed build used a throwaway key), but every update
-  after that installs in place normally.
+  signs with the same key from here on.
 - **Diagnostics**: the most recent uncaught exception, if any -- `VisualizerApplication` installs a
   custom `Thread.UncaughtExceptionHandler` that writes the crash's stack trace to a local file
   (`CrashLog`) before re-raising to the system default handler, so the app still crashes normally,
@@ -365,13 +304,14 @@ load the adaptive icon format.
 
 ## Testing
 
-Every engine (`VuMeterEngine`, `SpectrumEngine`, `SpectrumAnalyzer`, `PeakRmsEngine`,
-`GoniometerEngine`, `LoudnessEngine`, `TonalBalanceEngine`) is plain Kotlin with no Android
+`VuMeterEngine`, `SpectrumEngine`, and `SpectrumAnalyzer` are plain Kotlin with no Android
 framework calls, so their ballistics/DSP math has plain-JVM JUnit coverage under
 `app/src/test/java/` -- no Robolectric or emulator needed. `SpectrumAnalyzerTest` in particular is
 a regression guard for the FFT-magnitude-normalization bug described above: without dividing raw
 FFT magnitude back down by `FFT_SIZE` before the dB conversion, every band reads pinned near the
-ceiling regardless of what's actually playing.
+ceiling regardless of what's actually playing. Every visualizer mode past Graphic EQ is a pure
+rendering treatment of already-tested `SpectrumEngine` data with no DSP of its own, so none of them
+need a dedicated test file the way an engine with real math does.
 
 ```
 cd NeverSpiral
