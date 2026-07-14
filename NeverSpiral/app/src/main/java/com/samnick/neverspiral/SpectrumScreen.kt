@@ -22,7 +22,6 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.sp
-import kotlin.math.ln
 import kotlin.math.pow
 
 /** dB reference lines drawn behind the bars, matching a studio spectrum analyzer's grid. */
@@ -145,17 +144,10 @@ fun SpectrumScreen(engine: SpectrumEngine, settings: SpectrumSettings) {
 
         // Frequency labels along the bottom for orientation across the audible range.
         for ((hz, label) in freqLabels) {
-            val x = paddingX + xFractionForFrequency(hz) * usableWidth
+            val x = paddingX + SpectrumAnalyzer.xFractionForFrequency(hz) * usableWidth
             drawText(label, topLeft = Offset(x - label.size.width / 2f, baseline + 8f))
         }
     }
-}
-
-/** Where along the log-spaced band axis [hz] falls, matching [SpectrumAnalyzer]'s band layout. */
-private fun xFractionForFrequency(hz: Float): Float {
-    val logMin = ln(SpectrumAnalyzer.MIN_FREQ_HZ)
-    val logMax = ln(SpectrumAnalyzer.MAX_FREQ_HZ)
-    return ((ln(hz) - logMin) / (logMax - logMin)).coerceIn(0f, 1f)
 }
 
 private fun colorForLevel(level: Float, scheme: SpectrumColorScheme, positionT: Float): Color = when (scheme) {

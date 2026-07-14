@@ -13,8 +13,13 @@ on the device: Spotify, YouTube Music, or anything else.
   chip in view.
 - **Swipe** left or right on the visualization to move either direction, for quick cycling without
   looking down at the strip.
-- Every mode has its own tunable settings (Scale/Stroke Weight/Height, or a color-scheme choice)
-  behind a gear icon in the top-right corner; every setting persists across app restarts.
+- Every mode has its own tunable settings behind a gear icon in the top-right corner; every
+  setting persists across app restarts. Six modes share the same three underlying sliders
+  (`BarSpectrumSettings`: amplitude scale, stroke/line weight, and a size/reach control), but each
+  is labeled for what it actually does in that mode (e.g. "Sensitivity"/"Ring Thickness"/"Max
+  Radius" for Bass Drop Shockwave) rather than a generic "Scale/Stroke Weight/Height" everywhere --
+  see `BarSpectrumSettingsPanel` in `MainScreen.kt`. The rest have their own controls entirely
+  (VU Meter's calibration reference, Spectrum/Graphic EQ's color-scheme choice).
 - A hamburger icon (top-right, above the visualizer) opens app-wide Settings -- see below. Its
   **Modes** section lets you hide modes you don't use and reorder the rest; both the mode strip and
   swipe cycling follow that customized order (`ModePreferences`, backed by `SettingsStore`). There
@@ -42,38 +47,41 @@ on the device: Spotify, YouTube Music, or anything else.
 - **Rainbow Spectrum**: a mirrored FFT bar spectrum -- bars reflect top and bottom off a horizontal
   center axis instead of growing from the bottom only -- with a fixed horizontal rainbow gradient
   (blue/purple through magenta and orange to yellow) and a soft glow, on pure black. *Settings:
-  Scale, Stroke Weight, Height.*
+  Sensitivity, Bar Thickness, Bar Height.*
 - **Neon Cyan Pulse**: the same mirrored-bar idea, denser and thinner, with a stronger glow for a
   nightclub LED-wall feel. Frequency-reactive color: each bar rests at cyan when quiet and blends
   toward a color keyed to its own frequency band as its level rises -- bass flashes red, low-mid
   orange, mids yellow-green, presence stays cyan, treble goes violet -- rather than one flat color
-  across the whole row. *Settings: Scale, Stroke Weight, Height.*
+  across the whole row. *Settings: Sensitivity, Bar Thickness, Bar Height.*
 - **Audio Fireflies**: instead of a fixed row or ring of bars, a pool of small glowing particles
   bursts outward from center whenever a frequency band's level crosses a probability threshold --
   more scattered sparks than a meter. Each burst launches in a random direction (not an angle tied
   to its band) at a speed scaled by that band's own level, colored by which band spawned it (bass
   reads warm, treble reads cool, the same `frequencyZoneColor` mapping Neon Cyan Pulse uses), then
   drifts with real physics -- drag and a gentle upward buoyancy -- before fading out. *Settings:
-  Scale (spawn rate), Stroke Weight (particle size), Height (max travel speed).*
+  Spawn Rate, Particle Size, Travel Speed.*
 - **Kaleidoscope Bloom**: an ornamental, rotationally-symmetric mandala rather than a meter, a
   scatter, or a scrolling trend. One petal shape is built from the spectrum and mirrored across its
   own center line for a genuine "one wedge, reflected" kaleidoscope look, then that single symmetric
   petal is repeated 8 times around a slow, continuously rotating circle. Colored with a true closed
   360-degree rainbow hue wheel centered on the bloom, so the whole rainbow visibly rotates along with
-  the pattern. *Settings: Scale, Stroke Weight, Height.*
+  the pattern. *Settings: Sensitivity, Petal Thickness, Bloom Size.*
 - **Bass Drop Shockwave**: sparse and event-driven, deliberately quiet between hits rather than
   continuously busy -- a dedicated onset detector watches only the lowest few bands (sub-bass/kick
   energy specifically, not the whole spectrum), and a genuine hit drives a damped-spring simulation
   rather than an eased fade: the shockwave visibly overshoots past its resting size and springs back
   over a couple of bounces, like a real physical thump, plus a subtle full-screen flash in the app's
-  own accent color. *Settings: Scale (onset sensitivity), Stroke Weight (ring thickness), Height
-  (max shockwave radius).*
-- **Equalizer Constellation**: a fixed star-chart layout -- one node per FFT band at a permanent
-  position around a circle, never spawned, killed, or moved, the opposite of Audio Fireflies. Only
-  each node's own size/brightness and the connecting lines to its neighbors (plus a fainter spoke
-  back to center) react to the music, brightening and thickening with the music like a live network
-  graph rather than the node positions themselves moving. *Settings: Scale (sensitivity), Stroke
-  Weight (line/node thickness), Height (max node growth).*
+  own accent color. The ring's radius is never purely event-driven, though -- a smaller continuous
+  term tracks the current bass level directly, on top of the spring, so it visibly breathes with the
+  music between drops instead of sitting dead-still except for that split-second snap. *Settings:
+  Sensitivity, Ring Thickness, Max Radius.*
+- **Equalizer Constellation**: a small constellation of 12 stars, each a coarse aggregate of a
+  contiguous range of FFT bands (not one dot per raw band -- 28 of them crammed around one ring read
+  as a wiring diagram, not stars). Each star continuously drifts around its own base position at its
+  own slightly-offset period and pushes outward with its own current level, so the whole shape is
+  always gently, independently moving rather than permanently fixed in place with only size/
+  brightness reacting. Thin lines connect neighboring stars, brightening and thickening with the
+  music. *Settings: Sensitivity, Line Thickness, Star Growth.*
 
 ## How the meter works
 
@@ -129,7 +137,8 @@ until other modes started depending on genuine per-band contrast to work at all.
 
 Every mode past Graphic EQ reads [SpectrumEngine]'s bands directly, with no dedicated engine or
 capture path of its own -- each is a different rendering treatment of the exact same already-smoothed
-data, tunable through its own `BarSpectrumSettings` (Scale, Stroke Weight, Height).
+data, tunable through its own `BarSpectrumSettings` (three underlying sliders, labeled per mode in
+its gear panel rather than a generic "Scale/Stroke Weight/Height").
 
 - **Rainbow Spectrum** and **Neon Cyan Pulse**: `RainbowSpectrumScreen` and `NeonCyanPulseScreen`
   are pure rendering choices on `SpectrumEngine`'s bands -- the mirrored layout, colors, bar
@@ -178,17 +187,23 @@ data, tunable through its own `BarSpectrumSettings` (Scale, Stroke Weight, Heigh
   springs back over a couple of bounces rather than easing straight to zero -- letting displacement
   go slightly negative (rather than clamping it away) is what lets the ring visibly contract below
   its resting radius before springing back out. The full-screen flash and the ring both use
-  `VisualizerTheme.ACCENT` rather than a fixed color.
-- **Equalizer Constellation**: `EqualizerConstellationScreen` is the one mode past Graphic EQ with
-  no extra smoothing or physics of its own at all -- every node position is computed fresh each
-  frame directly from its index (band 0 at 12 o'clock, sweeping clockwise, the same convention every
-  radial mode in this app uses), and every node's size/brightness reads `SpectrumEngine`'s bands
-  directly, already fast-rise/slow-fall smoothed. Lines connect each node only to its immediate
-  neighbors around the ring, not every node to every other node (which would turn into visual noise
-  well before 28 nodes), with width and alpha driven by the average of the two endpoints' levels and
-  floored at a minimum alpha so the network never fully vanishes at silence. Each node also gets a
-  fainter spoke back to center. Color is `frequencyZoneColor` keyed to each node's position in the
-  band sequence; a connection's color is the midpoint between its two endpoints' colors via
+  `VisualizerTheme.ACCENT` rather than a fixed color. The ring's radius isn't purely the spring's
+  displacement, though: a second, smaller term (`CONTINUOUS_RADIUS_FRACTION`) adds the current
+  `bassEnergy` (the same reading the onset detector itself uses, raised to a sensitivity gamma) on
+  top of it every frame, so the ring visibly breathes with the live bass level at all times instead
+  of sitting completely still except during the instant of an actual drop.
+- **Equalizer Constellation**: `EqualizerConstellationScreen` aggregates `SpectrumEngine`'s bands
+  into a fixed `STAR_COUNT` (12) rather than one node per raw FFT band -- 28 dots crammed around one
+  ring read as a wiring diagram, not a constellation, so each star instead averages a contiguous
+  range of bands, still spanning the full bass-to-treble sweep at a coarser resolution. Each star's
+  angular position continuously drifts around its own base angle (a per-star sine wave, offset in
+  both phase and period so stars move independently rather than in unison) and its radial distance
+  pushes outward with its own current level -- real per-frame motion, not the earlier version's
+  permanently fixed layout with only size/brightness reacting. Lines connect each star only to its
+  immediate neighbors around the ring, not every star to every other star, with width and alpha
+  driven by the average of the two endpoints' levels and floored at a minimum alpha so the network
+  never fully vanishes at silence. Color is `frequencyZoneColor` keyed to each star's position in
+  the sequence; a connection's color is the midpoint between its two endpoints' colors via
   `lerpGradientColor`.
 
 ### Refresh rate handling
@@ -219,20 +234,21 @@ the same target over the same wall-clock time, not faster-looking motion.
 Distinct from each visualizer mode's own gear-icon tuning panel, the hamburger icon opens an
 app-wide settings screen:
 
-- **Players**: Sam's Music Viz already captures whatever's playing system-wide -- Spotify,
-  YouTube Music, Tidal, anything -- with no account, API key, or per-app setup. This section is
-  just quick-launch shortcuts to jump straight to those apps (or their Play Store listing if not
-  installed); it deliberately does *not* do OAuth account linking, since that wouldn't improve the
-  visualizer and would mean embedding API credentials in the app for no real benefit.
+Sections run in the order settings that change how the app behaves or looks (Display, Haptics,
+Appearance, Modes), then launcher shortcuts to other apps that aren't really a Sam's Music Viz
+setting at all (Players), then update/diagnostic/about administrivia last.
+
 - **Display**: a "Keep Screen On" toggle (`View.keepScreenOn` -- Android doesn't let third-party
   apps change the system screen-timeout duration directly, that needs the sensitive
-  `WRITE_SETTINGS` permission), an "Immersive Mode" toggle that hides the status/navigation bars
+  `WRITE_SETTINGS` permission) and an "Immersive Mode" toggle that hides the status/navigation bars
   while the visualizer is running (`WindowInsetsControllerCompat`, with
-  `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE` so a swipe from an edge still reveals them temporarily),
-  and a "Bass Drop Vibration" toggle -- a short `VibrationEffect.createOneShot` pulse
+  `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE` so a swipe from an edge still reveals them temporarily).
+  The app also isn't locked to portrait anymore -- it follows whatever the device's own
+  rotation-lock setting allows, rather than forcing one orientation.
+- **Haptics**: a "Bass Drop Vibration" toggle -- a short `VibrationEffect.createOneShot` pulse
   (`HapticPulse`) fired once per Bass Drop Shockwave trigger, not per frame, so it punctuates a hit
-  rather than buzzing continuously. The app also isn't locked to portrait anymore -- it follows
-  whatever the device's own rotation-lock setting allows, rather than forcing one orientation.
+  rather than buzzing continuously. Its own section rather than folded into Display, since it isn't
+  a display behavior and it's where any future vibration setting belongs.
 - **Appearance**: a custom accent color and a custom canvas background color, both expressed as
   Hue/Saturation/Brightness sliders (via `android.graphics.Color.HSVToColor`) rather than RGB so
   three sliders cover the whole range, each with a live preview swatch. `VisualizerTheme.ACCENT`
@@ -250,6 +266,11 @@ app-wide settings screen:
   mode always stays visible. Persisted through `ModePreferences` as an ordered mode-name list plus
   a hidden set, so a future app update that adds a new mode just appends it to the end rather than
   losing the user's customization.
+- **Players**: Sam's Music Viz already captures whatever's playing system-wide -- Spotify,
+  YouTube Music, Tidal, anything -- with no account, API key, or per-app setup. This section is
+  just quick-launch shortcuts to jump straight to those apps (or their Play Store listing if not
+  installed); it deliberately does *not* do OAuth account linking, since that wouldn't improve the
+  visualizer and would mean embedding API credentials in the app for no real benefit.
 - **Updates**: a GitHub-Releases-based update check, the same pattern F-Droid-style apps use
   outside the Play Store. `UpdateChecker` queries the repo's latest release via GitHub's public
   REST API, and "Get Update" opens the release page in the browser for a manual download and

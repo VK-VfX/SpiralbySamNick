@@ -70,13 +70,22 @@ private const val GLOW_ALPHA = 175
  * eases off, not a constant coast) plus a gentle constant upward buoyancy, both converted through
  * real per-frame delta time. Particles are pre-allocated once into a fixed-size pool and reused
  * (dead slots overwritten on the next spawn) rather than allocated per spawn, avoiding per-frame
- * garbage the way every array-based engine in this app already does. Glow is the same
- * draw-solid-then-blur-once technique used everywhere else: every live particle drawn solid into
- * one offscreen bitmap, blurred a single time, composited under the crisp layer.
+ * garbage the way every array-based engine in this app already does -- and finding a free slot to
+ * spawn into is a plain stack pop/push against `freeSlots`, not a scan over the pool, so spawning
+ * stays O(1) even when the pool is nearly full, exactly when a scan would otherwise be slowest.
+ * Glow is the same draw-solid-then-blur-once technique used everywhere else: every live particle
+ * drawn solid into one offscreen bitmap, blurred a single time, composited under the crisp layer.
  */
 @Composable
 fun AudioFirefliesScreen(engine: SpectrumEngine, settings: BarSpectrumSettings) {
     val particles = remember { Array(MAX_PARTICLES) { Firefly() } }
+    // A stack of currently-dead slot indices -- freeSlots[0 until freeCountHolder[0]] are exactly
+    // the free ones. Spawning used to scan the whole pool for the first dead slot
+    // (`particles.firstOrNull { !it.alive }`), which is O(MAX_PARTICLES) per spawn attempt and,
+    // worse, hits its full-scan worst case exactly when the pool is busiest (loud, dense music) --
+    // this pop/push free-list makes both spawning and freeing O(1) regardless of how full the pool is.
+    val freeSlots = remember { IntArray(MAX_PARTICLES) { it } }
+    val freeCountHolder = remember { intArrayOf(MAX_PARTICLES) }
     val particlesHolder = remember { arrayOfNulls<Bitmap>(1) }
     val glowHolder = remember { arrayOfNulls<Bitmap>(1) }
     val lastElapsedHolder = remember { floatArrayOf(0f) }
@@ -115,7 +124,9 @@ fun AudioFirefliesScreen(engine: SpectrumEngine, settings: BarSpectrumSettings) 
             val spawnChance = level.pow(SPAWN_LEVEL_GAMMA) * settings.scale * SPAWN_RATE_PER_SECOND * dt
             if (spawnChance <= 0f || random.nextFloat() >= spawnChance) continue
 
-            val slot = particles.firstOrNull { !it.alive } ?: continue
+            if (freeCountHolder[0] <= 0) continue
+            freeCountHolder[0]--
+            val slot = particles[freeSlots[freeCountHolder[0]]]
             val angle = random.nextFloat() * (2f * Math.PI.toFloat())
             val speed = minDim * (SPEED_MIN_FRACTION + (SPEED_MAX_FRACTION - SPEED_MIN_FRACTION) * level) * speedScale
             slot.alive = true
@@ -132,7 +143,8 @@ fun AudioFirefliesScreen(engine: SpectrumEngine, settings: BarSpectrumSettings) 
         particlesCanvas.drawColor(0, PorterDuff.Mode.CLEAR)
         val particlePaint = AndroidPaint().apply { isAntiAlias = true }
 
-        for (p in particles) {
+        for (i in particles.indices) {
+            val p = particles[i]
             if (!p.alive) continue
             p.vy -= minDim * BUOYANCY_FRACTION * dt
             p.vx -= p.vx * dragAlpha
@@ -142,6 +154,8 @@ fun AudioFirefliesScreen(engine: SpectrumEngine, settings: BarSpectrumSettings) 
             p.life -= dt
             if (p.life <= 0f) {
                 p.alive = false
+                freeSlots[freeCountHolder[0]] = i
+                freeCountHolder[0]++
                 continue
             }
             val lifeFraction = (p.life / p.maxLife).coerceIn(0f, 1f)

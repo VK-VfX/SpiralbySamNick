@@ -20,10 +20,17 @@ import kotlin.math.log10
  * digitally), then calibrated so 0 dBVU corresponds to -18 dBFS: the professional reference level
  * that leaves headroom above 0 for transients to peak into before the signal clips digitally.
  *
- * A separate [ledBrightness] drives the peak LED like a real hardware peak indicator: it snaps
- * instantly to full brightness the moment the needle hits the top of the scale (a hard flash,
- * not a gradual pulse), then decays smoothly on its own -- so a single loud hit still reads as a
- * crisp flash instead of a soft glow ramping up.
+ * Two LEDs mirror a real hardware channel strip's warning ladder rather than one bulb doing
+ * double duty. [amberLedBrightness] is a plain level indicator -- it tracks whether the signal is
+ * currently sitting in the "hot" zone (the same 0 dB VU boundary where the scale's own tick labels
+ * switch to red, see [VuMeterScreen]'s TICK_VALUES), smoothed but with no memory, so it's lit or
+ * not lit based on the current instant. [ledBrightness] (the red overload LED) is peak-hold like a
+ * real one: it snaps instantly to full brightness the moment the needle hits the top of the scale,
+ * then -- unlike a plain decay -- *holds* at full brightness for [LED_HOLD_SECONDS] before it's
+ * allowed to start fading. Without that hold, a signal that's only briefly above the threshold
+ * (which happens constantly with real program material bouncing right at the edge) decays before
+ * it's even visible, or flickers as it repeatedly re-triggers; the hold guarantees every real peak
+ * reads as one clean, perceptible flash.
  */
 class VuMeterEngine {
     var dbVu by mutableFloatStateOf(SCALE_MIN_DB_VU)
@@ -31,6 +38,8 @@ class VuMeterEngine {
 
     private var smoothedDbFs = SILENCE_FLOOR_DBFS
     private var ledBrightness = 0f
+    private var ledHoldRemainingSeconds = 0f
+    private var amberBrightness = 0f
 
     /**
      * Advance the needle by [dtSeconds] toward the level implied by [rawRms] (linear, ~0..1).
@@ -48,20 +57,32 @@ class VuMeterEngine {
 
         if (dbVu >= SCALE_MAX_DB_VU - PEAK_TOLERANCE_DB) {
             ledBrightness = 1f
+            ledHoldRemainingSeconds = LED_HOLD_SECONDS
+        } else if (ledHoldRemainingSeconds > 0f) {
+            ledHoldRemainingSeconds -= dt
         } else {
             val decayAlpha = 1f - exp(-dt / LED_DECAY_TAU_SECONDS)
             ledBrightness -= ledBrightness * decayAlpha
         }
+
+        val amberTarget = if (dbVu >= AMBER_THRESHOLD_DB_VU) 1f else 0f
+        val amberAlpha = 1f - exp(-dt / AMBER_RESPONSE_TAU_SECONDS)
+        amberBrightness += (amberTarget - amberBrightness) * amberAlpha
     }
 
-    /** 0..1 brightness for the peak LED: a hard flash that decays, not a continuous pulse. */
+    /** 0..1 brightness for the red overload LED: a hard flash that holds, then decays. */
     fun peakLedBrightness(): Float = ledBrightness
+
+    /** 0..1 brightness for the amber "approaching" LED: a direct, unlatched level indicator. */
+    fun amberLedBrightness(): Float = amberBrightness
 
     /** Drop the needle back to rest, e.g. when capture stops. */
     fun reset() {
         smoothedDbFs = SILENCE_FLOOR_DBFS
         dbVu = SCALE_MIN_DB_VU
         ledBrightness = 0f
+        ledHoldRemainingSeconds = 0f
+        amberBrightness = 0f
     }
 
     companion object {
@@ -77,6 +98,13 @@ class VuMeterEngine {
 
         private const val PEAK_TOLERANCE_DB = 0.15f
         private const val LED_DECAY_TAU_SECONDS = 0.45f
+        private const val LED_HOLD_SECONDS = 0.4f
+
+        // Matches the dB VU value where VuMeterScreen's own tick labels switch to their red
+        // "redline" color, so the amber LED and the scale's own coloring agree on where "hot"
+        // starts rather than defining a second, independent threshold.
+        private const val AMBER_THRESHOLD_DB_VU = 0f
+        private const val AMBER_RESPONSE_TAU_SECONDS = 0.05f
 
         private fun amplitudeToDbFs(rms: Float): Float {
             val clamped = rms.coerceAtLeast(AMPLITUDE_FLOOR)

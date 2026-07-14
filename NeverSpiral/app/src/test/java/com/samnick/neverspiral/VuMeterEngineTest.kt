@@ -58,12 +58,47 @@ class VuMeterEngineTest {
     }
 
     @Test
-    fun `reset drops the needle and LED back to rest`() {
+    fun `peak LED holds at full brightness before decay begins`() {
+        val engine = VuMeterEngine()
+        repeat(40) { engine.step(0.05f, rawRms = 1f) }
+        assertEquals(1f, engine.peakLedBrightness(), 0.001f)
+
+        // 6 silent steps = 0.3s, safely inside the 0.4s hold window -- should not have decayed
+        // at all yet, unlike a plain exponential decay which would start fading immediately.
+        repeat(6) { engine.step(0.05f, rawRms = 0f) }
+        assertEquals(1f, engine.peakLedBrightness(), 0.001f)
+
+        // 8 more silent steps = 0.7s total elapsed, safely past the hold window plus some decay.
+        repeat(8) { engine.step(0.05f, rawRms = 0f) }
+        assertTrue("expected the LED to be decaying by now, got ${engine.peakLedBrightness()}", engine.peakLedBrightness() < 0.9f)
+    }
+
+    @Test
+    fun `amber LED lights before the red LED, as an unlatched level indicator`() {
+        val engine = VuMeterEngine()
+
+        // A quiet signal settles around -8 dB VU, well below the amber threshold.
+        repeat(40) { engine.step(0.05f, rawRms = 0.05f) }
+        assertTrue("expected dbVu below 0, got ${engine.dbVu}", engine.dbVu < 0f)
+        assertEquals(0f, engine.amberLedBrightness(), 0.05f)
+        assertEquals(0f, engine.peakLedBrightness(), 0.001f)
+
+        // A moderately hot signal settles around +1.5 dB VU -- above the amber threshold (0) but
+        // below the red peak threshold (~2.85) -- amber should light without red ever firing.
+        repeat(40) { engine.step(0.05f, rawRms = 0.15f) }
+        assertTrue("expected dbVu between 0 and the red threshold, got ${engine.dbVu}", engine.dbVu in 0f..2.5f)
+        assertTrue("expected amber lit, got ${engine.amberLedBrightness()}", engine.amberLedBrightness() > 0.9f)
+        assertEquals(0f, engine.peakLedBrightness(), 0.001f)
+    }
+
+    @Test
+    fun `reset drops the needle and both LEDs back to rest`() {
         val engine = VuMeterEngine()
         repeat(40) { engine.step(0.05f, rawRms = 1f) }
         engine.reset()
         assertEquals(VuMeterEngine.SCALE_MIN_DB_VU, engine.dbVu, 0.001f)
         assertEquals(0f, engine.peakLedBrightness(), 0.001f)
+        assertEquals(0f, engine.amberLedBrightness(), 0.001f)
     }
 
     @Test

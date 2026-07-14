@@ -77,8 +77,10 @@ private fun classifyRelease(context: Context, release: UpdateChecker.LatestRelea
 
 /**
  * A full-screen, app-wide settings surface -- distinct from each visualizer mode's own gear-icon
- * panel, which only tunes that mode's look. Covers player shortcuts, display behavior, GitHub-
- * based OTA updates, and an about section.
+ * panel, which only tunes that mode's look. Sections run Display, Haptics, Appearance, Modes,
+ * Players, Updates, Diagnostics, About: settings that change how the app behaves or looks come
+ * first, launcher shortcuts to other apps (not really a setting at all) come after, and update/
+ * diagnostic/about administrivia comes last.
  */
 @Composable
 fun AppSettingsScreen(onDismiss: () -> Unit) {
@@ -148,21 +150,6 @@ fun AppSettingsScreen(onDismiss: () -> Unit) {
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp),
             ) {
-                SettingsSectionTitle("Players")
-                Text(
-                    text = "Sam's Music Viz listens to whatever's playing system-wide, so it already " +
-                        "works with any of these -- no account or setup needed. These just jump " +
-                        "straight to the app.",
-                    color = VisualizerTheme.TEXT_SECONDARY,
-                    fontSize = 12.sp,
-                    fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.padding(bottom = 10.dp),
-                )
-                for (player in PLAYER_APPS) {
-                    PlayerRow(player, context)
-                }
-
-                Spacer(modifier = Modifier.height(20.dp))
                 SettingsSectionTitle("Display")
                 SettingsToggleRow(
                     label = "Keep Screen On",
@@ -184,6 +171,12 @@ fun AppSettingsScreen(onDismiss: () -> Unit) {
                     immersiveMode = it
                     SettingsStore.putBoolean(context, KEY_IMMERSIVE_MODE, it)
                 }
+
+                // A separate section rather than folding this into Display -- it's not a display
+                // behavior, and a dedicated "Haptics" section is also where any future vibration
+                // setting belongs, instead of every unrelated toggle accumulating under Display.
+                Spacer(modifier = Modifier.height(20.dp))
+                SettingsSectionTitle("Haptics")
                 SettingsToggleRow(
                     label = "Bass Drop Vibration",
                     description = "A short pulse each time Bass Drop Shockwave triggers on a hit.",
@@ -209,6 +202,25 @@ fun AppSettingsScreen(onDismiss: () -> Unit) {
                     modifier = Modifier.padding(bottom = 10.dp),
                 )
                 ModeCustomizationSection(context)
+
+                // Players moved below the settings that actually change app behavior/look --
+                // these are just launcher shortcuts to other apps, not a Sam's Music Viz setting,
+                // so they read better as a lower-priority convenience section than the first
+                // thing in the list.
+                Spacer(modifier = Modifier.height(20.dp))
+                SettingsSectionTitle("Players")
+                Text(
+                    text = "Sam's Music Viz listens to whatever's playing system-wide, so it already " +
+                        "works with any of these -- no account or setup needed. These just jump " +
+                        "straight to the app.",
+                    color = VisualizerTheme.TEXT_SECONDARY,
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.padding(bottom = 10.dp),
+                )
+                for (player in PLAYER_APPS) {
+                    PlayerRow(player, context)
+                }
 
                 Spacer(modifier = Modifier.height(20.dp))
                 SettingsSectionTitle("Updates")

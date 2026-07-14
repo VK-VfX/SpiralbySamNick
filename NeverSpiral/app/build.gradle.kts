@@ -11,8 +11,8 @@ android {
         applicationId = "com.samnick.neverspiral"
         minSdk = 24
         targetSdk = 34
-        versionCode = 17
-        versionName = "4.2.0"
+        versionCode = 18
+        versionName = "4.3.0"
     }
 
     // Without this, Gradle falls back to its own default debug config, which auto-generates

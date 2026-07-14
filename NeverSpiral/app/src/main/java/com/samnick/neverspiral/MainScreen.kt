@@ -99,8 +99,10 @@ private val MODES_ALLOWING_LANDSCAPE = setOf(
  * (Rainbow Spectrum, Neon Cyan Pulse, Audio Fireflies, Kaleidoscope Bloom, Bass Drop Shockwave,
  * Equalizer Constellation) is a pure rendering treatment of [SpectrumEngine]'s already
  * fast-rise/slower-fall smoothed bands, the same data [SpectrumScreen] and [GraphicEqScreen] draw,
- * so none of them need a dedicated engine of their own -- just their own [BarSpectrumSettings] for
- * Scale, Stroke Weight, and Height, same as every other mode's gear-icon panel.
+ * so none of them need a dedicated engine of their own -- just their own [BarSpectrumSettings],
+ * the same three underlying sliders every such mode shares, each labeled per mode in
+ * [BarSpectrumSettingsPanel] to describe what it actually controls there instead of a generic
+ * "Scale/Stroke Weight/Height" for everything.
  */
 @Composable
 fun MainScreen() {
@@ -486,16 +488,41 @@ private fun SettingsPanelContent(
                 SettingsStore.putInt(context, KEY_GRAPHIC_EQ_COLOR_SCHEME, it.ordinal)
             }
         }
-        VisualMode.RAINBOW_SPECTRUM -> BarSpectrumSettingsPanel(rainbowSpectrumSettings, context, KEY_RAINBOW_SCALE, KEY_RAINBOW_STROKE_WEIGHT, KEY_RAINBOW_HEIGHT)
-        VisualMode.NEON_CYAN_PULSE -> BarSpectrumSettingsPanel(neonCyanPulseSettings, context, KEY_NEON_SCALE, KEY_NEON_STROKE_WEIGHT, KEY_NEON_HEIGHT)
-        VisualMode.AUDIO_FIREFLIES -> BarSpectrumSettingsPanel(audioFirefliesSettings, context, KEY_FIREFLIES_SCALE, KEY_FIREFLIES_STROKE_WEIGHT, KEY_FIREFLIES_HEIGHT)
-        VisualMode.KALEIDOSCOPE_BLOOM -> BarSpectrumSettingsPanel(kaleidoscopeBloomSettings, context, KEY_BLOOM_SCALE, KEY_BLOOM_STROKE_WEIGHT, KEY_BLOOM_HEIGHT)
-        VisualMode.BASS_DROP_SHOCKWAVE -> BarSpectrumSettingsPanel(bassDropShockwaveSettings, context, KEY_SHOCKWAVE_SCALE, KEY_SHOCKWAVE_STROKE_WEIGHT, KEY_SHOCKWAVE_HEIGHT)
-        VisualMode.EQUALIZER_CONSTELLATION -> BarSpectrumSettingsPanel(equalizerConstellationSettings, context, KEY_CONSTELLATION_SCALE, KEY_CONSTELLATION_STROKE_WEIGHT, KEY_CONSTELLATION_HEIGHT)
+        VisualMode.RAINBOW_SPECTRUM -> BarSpectrumSettingsPanel(
+            rainbowSpectrumSettings, context, KEY_RAINBOW_SCALE, KEY_RAINBOW_STROKE_WEIGHT, KEY_RAINBOW_HEIGHT,
+            scaleLabel = "Sensitivity", strokeWeightLabel = "Bar Thickness", heightLabel = "Bar Height",
+        )
+        VisualMode.NEON_CYAN_PULSE -> BarSpectrumSettingsPanel(
+            neonCyanPulseSettings, context, KEY_NEON_SCALE, KEY_NEON_STROKE_WEIGHT, KEY_NEON_HEIGHT,
+            scaleLabel = "Sensitivity", strokeWeightLabel = "Bar Thickness", heightLabel = "Bar Height",
+        )
+        VisualMode.AUDIO_FIREFLIES -> BarSpectrumSettingsPanel(
+            audioFirefliesSettings, context, KEY_FIREFLIES_SCALE, KEY_FIREFLIES_STROKE_WEIGHT, KEY_FIREFLIES_HEIGHT,
+            scaleLabel = "Spawn Rate", strokeWeightLabel = "Particle Size", heightLabel = "Travel Speed",
+        )
+        VisualMode.KALEIDOSCOPE_BLOOM -> BarSpectrumSettingsPanel(
+            kaleidoscopeBloomSettings, context, KEY_BLOOM_SCALE, KEY_BLOOM_STROKE_WEIGHT, KEY_BLOOM_HEIGHT,
+            scaleLabel = "Sensitivity", strokeWeightLabel = "Petal Thickness", heightLabel = "Bloom Size",
+        )
+        VisualMode.BASS_DROP_SHOCKWAVE -> BarSpectrumSettingsPanel(
+            bassDropShockwaveSettings, context, KEY_SHOCKWAVE_SCALE, KEY_SHOCKWAVE_STROKE_WEIGHT, KEY_SHOCKWAVE_HEIGHT,
+            scaleLabel = "Sensitivity", strokeWeightLabel = "Ring Thickness", heightLabel = "Max Radius",
+        )
+        VisualMode.EQUALIZER_CONSTELLATION -> BarSpectrumSettingsPanel(
+            equalizerConstellationSettings, context, KEY_CONSTELLATION_SCALE, KEY_CONSTELLATION_STROKE_WEIGHT, KEY_CONSTELLATION_HEIGHT,
+            scaleLabel = "Sensitivity", strokeWeightLabel = "Line Thickness", heightLabel = "Star Growth",
+        )
     }
 }
 
-/** Scale/Stroke Weight/Height sliders shared by every mode that reuses [BarSpectrumSettings]. */
+/**
+ * Scale/Stroke Weight/Height sliders shared by every mode that reuses [BarSpectrumSettings] --
+ * the three underlying fields are the same across every mode (so the persisted data model and
+ * each mode's own rendering code don't need mode-specific settings classes), but what each field
+ * actually *does* differs a lot per mode (see each mode's own file doc comment and the README's
+ * mode list), so the label shown here is passed in per call site rather than hardcoded, instead of
+ * showing an overloaded "Scale" for everything from bar sensitivity to onset trigger sensitivity.
+ */
 @Composable
 private fun BarSpectrumSettingsPanel(
     settings: BarSpectrumSettings,
@@ -503,9 +530,12 @@ private fun BarSpectrumSettingsPanel(
     keyScale: String,
     keyStrokeWeight: String,
     keyHeight: String,
+    scaleLabel: String = "Scale",
+    strokeWeightLabel: String = "Stroke Weight",
+    heightLabel: String = "Height",
 ) {
     SettingSliderRow(
-        "Scale",
+        scaleLabel,
         settings.scale,
         BarSpectrumSettings.SCALE_MIN..BarSpectrumSettings.SCALE_MAX,
     ) {
@@ -513,7 +543,7 @@ private fun BarSpectrumSettingsPanel(
         SettingsStore.putFloat(context, keyScale, it)
     }
     SettingSliderRow(
-        "Stroke Weight",
+        strokeWeightLabel,
         settings.strokeWeight,
         BarSpectrumSettings.STROKE_WEIGHT_MIN..BarSpectrumSettings.STROKE_WEIGHT_MAX,
     ) {
@@ -521,7 +551,7 @@ private fun BarSpectrumSettingsPanel(
         SettingsStore.putFloat(context, keyStrokeWeight, it)
     }
     SettingSliderRow(
-        "Height",
+        heightLabel,
         settings.height,
         BarSpectrumSettings.HEIGHT_MIN..BarSpectrumSettings.HEIGHT_MAX,
     ) {

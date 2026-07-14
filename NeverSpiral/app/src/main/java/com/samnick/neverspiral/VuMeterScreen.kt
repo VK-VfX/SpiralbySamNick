@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.sp
 import kotlin.math.cos
 import kotlin.math.min
+import kotlin.math.pow
 import kotlin.math.sin
 
 /**
@@ -53,6 +54,16 @@ private val TICK_COLOR = VisualizerTheme.TEXT_SECONDARY
 private val REDLINE_COLOR = VisualizerTheme.CRITICAL
 private val LED_OFF_COLOR = Color(0xFF2A1214)
 private val LED_ON_COLOR = VisualizerTheme.CRITICAL
+private val AMBER_LED_OFF_COLOR = Color(0xFF2A2312)
+private val AMBER_LED_ON_COLOR = VisualizerTheme.WARN
+
+/** LEDs (and human brightness perception generally) aren't linear -- a physical brightness of
+ * 0.5 doesn't look half as bright as 1.0, it looks noticeably dimmer than that, so a plain linear
+ * alpha/color-lerp reads as washed out at low brightness and undramatic at the top. Applying this
+ * gamma only to the *visual* mapping (never to the underlying decay/hold physics in
+ * [VuMeterEngine]) makes the flash read as snappier and the fade-out read as a proper taper. */
+private const val LED_BRIGHTNESS_GAMMA = 0.45f
+private fun visualBrightness(physicalBrightness: Float): Float = physicalBrightness.coerceIn(0f, 1f).pow(LED_BRIGHTNESS_GAMMA)
 
 /**
  * Tick labels used to be a fixed 13sp/22sp regardless of how big the meter itself actually
@@ -68,8 +79,10 @@ private val LED_ON_COLOR = VisualizerTheme.CRITICAL
  */
 private const val TICK_FONT_HEIGHT_FRACTION = 0.048f
 private const val VU_LABEL_FONT_HEIGHT_FRACTION = 0.081f
+private const val PEAK_LABEL_FONT_HEIGHT_FRACTION = 0.030f
 private val TICK_FONT_SIZE_RANGE = 9f..17f
 private val VU_LABEL_FONT_SIZE_RANGE = 14f..26f
+private val PEAK_LABEL_FONT_SIZE_RANGE = 6f..10f
 
 /**
  * Pure rendering of [meter]'s current reading; stepping happens in the shared frame loop. The
@@ -97,6 +110,10 @@ fun VuMeterScreen(meter: VuMeterEngine) {
         with(density) { (meterHeightPx * VU_LABEL_FONT_HEIGHT_FRACTION).toDp().toSp() }
             .value.coerceIn(VU_LABEL_FONT_SIZE_RANGE.start, VU_LABEL_FONT_SIZE_RANGE.endInclusive).sp
     }
+    val peakLabelFontSizeSp = remember(meterHeightPx, density) {
+        with(density) { (meterHeightPx * PEAK_LABEL_FONT_HEIGHT_FRACTION).toDp().toSp() }
+            .value.coerceIn(PEAK_LABEL_FONT_SIZE_RANGE.start, PEAK_LABEL_FONT_SIZE_RANGE.endInclusive).sp
+    }
 
     val tickLayouts = remember(textMeasurer, tickFontSizeSp) {
         TICK_VALUES.map { value ->
@@ -116,6 +133,18 @@ fun VuMeterScreen(meter: VuMeterEngine) {
         textMeasurer.measure(
             "VU",
             style = TextStyle(fontSize = vuLabelFontSizeSp, color = VisualizerTheme.TEXT_SECONDARY, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold),
+        )
+    }
+    val peakLabelLayout = remember(textMeasurer, peakLabelFontSizeSp) {
+        textMeasurer.measure(
+            "PK",
+            style = TextStyle(
+                fontSize = peakLabelFontSizeSp,
+                color = VisualizerTheme.TEXT_SECONDARY,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Medium,
+                letterSpacing = 1.sp,
+            ),
         )
     }
 
@@ -166,7 +195,10 @@ fun VuMeterScreen(meter: VuMeterEngine) {
         glowCanvas.drawLine(pivot.x, pivot.y, tip.x, tip.y, glowPaint)
         drawImage(glow.asImageBitmap())
 
-        drawVuMeter(textMeasurer, tickLayouts, vuLabelLayout, topLeft, meterWidth, meterHeight, meter.dbVu, meter.peakLedBrightness())
+        drawVuMeter(
+            textMeasurer, tickLayouts, vuLabelLayout, peakLabelLayout, topLeft, meterWidth, meterHeight,
+            meter.dbVu, meter.peakLedBrightness(), meter.amberLedBrightness(),
+        )
     }
 }
 
@@ -174,11 +206,13 @@ private fun DrawScope.drawVuMeter(
     textMeasurer: androidx.compose.ui.text.TextMeasurer,
     tickLayouts: List<Triple<Float, Color, TextLayoutResult>>,
     vuLabelLayout: TextLayoutResult,
+    peakLabelLayout: TextLayoutResult,
     topLeft: Offset,
     width: Float,
     height: Float,
     dbVu: Float,
     peakBrightness: Float,
+    amberBrightness: Float,
 ) {
     // Flat panel with a thin hairline border instead of a thick bezel -- the "modern mastering
     // suite" look reads as a recessed instrument in the panel rather than a boxed-in gauge.
@@ -198,14 +232,23 @@ private fun DrawScope.drawVuMeter(
 
     drawText(vuLabelLayout, topLeft = Offset(topLeft.x + width * 0.05f, topLeft.y + height * 0.07f))
 
-    val ledCenter = Offset(topLeft.x + width * 0.92f, topLeft.y + height * 0.11f)
+    // A two-LED ladder, amber then red left-to-right, mirrors a real channel strip's warning
+    // stages instead of one bulb doing double duty -- see VuMeterEngine's class doc for how the
+    // two brightness values differ (amber: direct level indicator; red: peak-hold with a hold
+    // window). Brightness is gamma-corrected for display only; the physics stay linear.
     val ledRadius = height * 0.045f
-    if (peakBrightness > 0.02f) {
-        drawCircle(color = LED_ON_COLOR.copy(alpha = peakBrightness * 0.4f), radius = ledRadius * 2.6f, center = ledCenter)
-        drawCircle(color = LED_ON_COLOR.copy(alpha = peakBrightness * 0.75f), radius = ledRadius * 1.6f, center = ledCenter)
-    }
-    drawCircle(color = lerpColor(LED_OFF_COLOR, LED_ON_COLOR, peakBrightness), radius = ledRadius, center = ledCenter)
-    drawCircle(color = VisualizerTheme.HAIRLINE, radius = ledRadius, center = ledCenter, style = Stroke(width = 1.5f))
+    val ledCenter = Offset(topLeft.x + width * 0.92f, topLeft.y + height * 0.11f)
+    val amberLedCenter = Offset(ledCenter.x - ledRadius * 2.6f, ledCenter.y)
+    drawLed(amberLedCenter, ledRadius, visualBrightness(amberBrightness), AMBER_LED_OFF_COLOR, AMBER_LED_ON_COLOR)
+    drawLed(ledCenter, ledRadius, visualBrightness(peakBrightness), LED_OFF_COLOR, LED_ON_COLOR)
+
+    drawText(
+        peakLabelLayout,
+        topLeft = Offset(
+            (amberLedCenter.x + ledCenter.x) / 2f - peakLabelLayout.size.width / 2f,
+            ledCenter.y + ledRadius + height * 0.025f,
+        ),
+    )
 
     val pivot = Offset(topLeft.x + width / 2f, topLeft.y + height * 1.05f)
     val tickOuterRadius = height * 0.96f
@@ -257,6 +300,17 @@ private fun DrawScope.drawVuMeter(
             topLeft.y + height * 0.07f + vuLabelLayout.size.height + height * 0.02f,
         ),
     )
+}
+
+/** One indicator LED: a soft two-ring glow beneath a solid core, shared by both the amber and
+ * red LEDs so their look stays identical apart from color and brightness. */
+private fun DrawScope.drawLed(center: Offset, radius: Float, brightness: Float, offColor: Color, onColor: Color) {
+    if (brightness > 0.02f) {
+        drawCircle(color = onColor.copy(alpha = brightness * 0.4f), radius = radius * 2.6f, center = center)
+        drawCircle(color = onColor.copy(alpha = brightness * 0.75f), radius = radius * 1.6f, center = center)
+    }
+    drawCircle(color = lerpColor(offColor, onColor, brightness), radius = radius, center = center)
+    drawCircle(color = VisualizerTheme.HAIRLINE, radius = radius, center = center, style = Stroke(width = 1.5f))
 }
 
 /**

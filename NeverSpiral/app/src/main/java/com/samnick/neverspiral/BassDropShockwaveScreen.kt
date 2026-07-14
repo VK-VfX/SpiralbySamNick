@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import kotlin.math.exp
+import kotlin.math.pow
 
 /** Not private: [AppSettingsScreen] reads/writes this directly for the "Bass Drop Vibration"
  * toggle -- colocated here rather than in a shared settings file since this mode is the only
@@ -56,6 +57,16 @@ private const val SPRING_DAMPING = 6f
 private const val RESTING_RADIUS_FRACTION = 0.10f
 private const val MAX_RADIUS_FRACTION = 0.55f
 private const val STROKE_WIDTH_FRACTION = 0.014f
+
+/** How much the ring's radius grows directly from the *current* bass level, layered on top of the
+ * spring displacement below -- this is what makes the ring visibly breathe with the live FFT at
+ * all times, rather than sitting dead-still between discrete drops. Deliberately smaller than
+ * [MAX_RADIUS_FRACTION] so a genuine drop's spring bounce still reads as the main event; this is
+ * ambient motion underneath it, not a replacement for it. Reuses the same [BASS_BAND_COUNT]-band
+ * average the onset detector reads, so both the constant breathing and the snap respond to
+ * exactly the same signal. */
+private const val CONTINUOUS_RADIUS_FRACTION = 0.16f
+private const val CONTINUOUS_SENSITIVITY_GAMMA = 0.8f
 
 /** Full-screen tint on a hit -- subtle, not a blinding flash. */
 private const val FLASH_ALPHA_MAX = 90
@@ -100,9 +111,13 @@ internal fun bassDropShouldTrigger(
  *
  * Rendering is deliberately minimal: a full-screen flash tinted with the app's own
  * [VisualizerTheme.ACCENT] (only on the positive half of the bounce, not the overshoot-past-zero
- * part) plus a single glowing ring whose radius directly tracks the spring's displacement --
- * allowing displacement to go slightly negative lets the ring visibly contract below its resting
- * size before springing back out, rather than clamping the bounce away.
+ * part) plus a single glowing ring. The ring's radius is the sum of two independent things: the
+ * spring displacement (the sparse, event-driven "shockwave" itself) *plus* a smaller continuous
+ * term driven directly by the current bass level (see [CONTINUOUS_RADIUS_FRACTION]) -- without
+ * that second term the ring sat completely still except during the split-second of an actual
+ * drop, which read as disconnected from the music the rest of the time no matter how loud the
+ * bass was. Allowing the spring's displacement to go slightly negative lets the ring visibly
+ * contract below its resting size before springing back out, rather than clamping the bounce away.
  */
 @Composable
 fun BassDropShockwaveScreen(engine: SpectrumEngine, settings: BarSpectrumSettings) {
@@ -167,7 +182,9 @@ fun BassDropShockwaveScreen(engine: SpectrumEngine, settings: BarSpectrumSetting
         val heightScale = settings.height / BarSpectrumSettings.HEIGHT_MAX
         val restingRadius = minDim * RESTING_RADIUS_FRACTION
         val maxRadius = minDim * MAX_RADIUS_FRACTION * heightScale
-        val radius = (restingRadius + displacementHolder[0] * maxRadius).coerceAtLeast(0f)
+        val continuousRadius = minDim * CONTINUOUS_RADIUS_FRACTION *
+            bassEnergy.coerceIn(0f, 1f).pow(CONTINUOUS_SENSITIVITY_GAMMA) * heightScale
+        val radius = (restingRadius + continuousRadius + displacementHolder[0] * maxRadius).coerceAtLeast(0f)
         val accentArgb = VisualizerTheme.ACCENT.toArgb()
 
         val ringCanvas = AndroidCanvas(ring)

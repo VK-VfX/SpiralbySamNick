@@ -67,6 +67,11 @@ private const val HUE_STEPS = 12
 @Composable
 fun KaleidoscopeBloomScreen(engine: SpectrumEngine, settings: BarSpectrumSettings) {
     val pushLevels = remember { FloatArray(HALF_POINT_COUNT) }
+    // The mirrored full-petal arrays -- reused frame to frame and overwritten in place, rather
+    // than allocated fresh every frame (a fixed HALF_POINT_COUNT*2 = 40 floats each, but there's
+    // no reason to churn the allocator for a size that never changes).
+    val petalLocalAngles = remember { FloatArray(HALF_POINT_COUNT * 2) }
+    val petalRadii = remember { FloatArray(HALF_POINT_COUNT * 2) }
     val bloomHolder = remember { arrayOfNulls<Bitmap>(1) }
     val glowHolder = remember { arrayOfNulls<Bitmap>(1) }
     val lastElapsedHolder = remember { floatArrayOf(0f) }
@@ -118,9 +123,8 @@ fun KaleidoscopeBloomScreen(engine: SpectrumEngine, settings: BarSpectrumSetting
         }
 
         // Mirror the half-petal into a full, bilaterally-symmetric petal spanning -halfWedge to
-        // +halfWedge, local to the wedge's own center line.
-        val petalLocalAngles = FloatArray(HALF_POINT_COUNT * 2)
-        val petalRadii = FloatArray(HALF_POINT_COUNT * 2)
+        // +halfWedge, local to the wedge's own center line -- overwriting the remembered arrays
+        // above in place rather than allocating new ones.
         for (i in 0 until HALF_POINT_COUNT) {
             val t = i.toFloat() / (HALF_POINT_COUNT - 1)
             val localAngle = t * halfWedgeAngleDeg
