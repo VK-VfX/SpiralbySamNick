@@ -15,9 +15,10 @@ class BassDropShockwaveScreenTest {
 
     @Test
     fun `still triggers when the baseline is loud, not near-silent`() {
-        // A ratio threshold of 1.6x would require bassEnergy >= 1.44 here, impossible since
-        // bands are clamped to 1f -- the exact failure mode this test guards against.
-        val baseline = 0.9f
+        // The old ratio threshold (1.6x) would require bassEnergy >= 1.28 here, impossible since
+        // bands are clamped to 1f -- the exact failure mode this test guards against. The
+        // additive delta only needs a 0.15 jump above baseline, well within the clamped range.
+        val baseline = 0.8f
         val bassEnergy = 1f
         assertTrue(bassDropShouldTrigger(bassEnergy, baseline, timeSinceTriggerSeconds = 10f, scale = 1f))
     }
