@@ -4,6 +4,6 @@
      private storage. -->
 <paths>
     <!-- Where FrameCapture writes a captured visualizer frame before handing it to the share
-         sheet -- cache rather than files/ since these are disposable, regeneratable on demand. -->
+         sheet: cache rather than files/, since these are disposable, regeneratable on demand. -->
     <cache-path name="shared-frames" path="shared_frames/" />
 </paths>
