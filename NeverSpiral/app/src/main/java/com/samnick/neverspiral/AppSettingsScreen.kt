@@ -38,7 +38,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -53,7 +52,8 @@ private val PLAYER_APPS = listOf(
     PlayerApp("Tidal", "com.aspiro.tidal"),
 )
 
-private const val KEY_KEEP_SCREEN_ON = "keep_screen_on"
+/** Not private: [MainScreen] reads this directly to actually apply the flag to the window. */
+internal const val KEY_KEEP_SCREEN_ON = "keep_screen_on"
 private const val KEY_AUTO_CHECK_UPDATES = "auto_check_updates"
 
 /** Not private: [MainScreen] reads this directly to decide whether to hide system bars. */
@@ -85,9 +85,12 @@ private fun classifyRelease(context: Context, release: UpdateChecker.LatestRelea
 @Composable
 fun AppSettingsScreen(onDismiss: () -> Unit) {
     val context = LocalContext.current
-    val view = LocalView.current
     val scope = rememberCoroutineScope()
 
+    // Only the persisted value and the toggle's own UI live here -- actually applying it to the
+    // window is MainScreen's job (see its own keepScreenOn state, refreshed via onDismiss below),
+    // the same split already used for Immersive Mode. Applying it here too would only take effect
+    // while this screen itself happened to be on screen, not for the rest of the session.
     var keepScreenOn by remember { mutableStateOf(SettingsStore.getBoolean(context, KEY_KEEP_SCREEN_ON, false)) }
     var immersiveMode by remember { mutableStateOf(SettingsStore.getBoolean(context, KEY_IMMERSIVE_MODE, true)) }
     var autoCheckUpdates by remember { mutableStateOf(SettingsStore.getBoolean(context, KEY_AUTO_CHECK_UPDATES, false)) }
@@ -98,10 +101,6 @@ fun AppSettingsScreen(onDismiss: () -> Unit) {
         } catch (e: Exception) {
             "unknown"
         }
-    }
-
-    LaunchedEffect(keepScreenOn) {
-        view.keepScreenOn = keepScreenOn
     }
 
     LaunchedEffect(Unit) {

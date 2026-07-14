@@ -19,34 +19,38 @@ import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.random.Random
 
-private const val MAX_PARTICLES = 140
+private const val MAX_PARTICLES = 200
 
 /** Base spawn attempts per second at full band level -- scaled down per band by that band's own
  * level, and converted through delta time like every rate in this app, so spawn density stays
  * consistent across refresh rates rather than spiking on faster displays. */
-private const val SPAWN_RATE_PER_SECOND = 26f
+private const val SPAWN_RATE_PER_SECOND = 40f
 
-/** Exponent on band level before it drives spawn probability: >1 so spawning stays rare at low
- * levels and only really picks up once a band is genuinely loud, instead of a constant light drizzle. */
-private const val SPAWN_LEVEL_GAMMA = 1.3f
+/** Exponent on band level before it drives spawn probability: <1 lifts moderate levels so most of
+ * the spectrum visibly spawns particles rather than only the loudest transients, matching the
+ * "gamma < 1 lifts quiet content" convention every other reactive mode uses. */
+private const val SPAWN_LEVEL_GAMMA = 0.8f
 
-private const val LIFE_MIN_SECONDS = 0.6f
-private const val LIFE_MAX_SECONDS = 1.6f
+private const val LIFE_MIN_SECONDS = 0.9f
+private const val LIFE_MAX_SECONDS = 2.2f
 
-private const val SPEED_MIN_FRACTION = 0.08f
-private const val SPEED_MAX_FRACTION = 0.30f
+private const val SPEED_MIN_FRACTION = 0.16f
+private const val SPEED_MAX_FRACTION = 0.62f
 
-/** Exponential drag on velocity, expressed as a time constant -- a spark launches fast then eases
- * off, rather than coasting at a constant speed until it dies. */
-private const val DRAG_TAU_SECONDS = 0.5f
+/** Exponential drag on velocity, expressed as a time constant. Deliberately long relative to
+ * particle life (see [LIFE_MIN_SECONDS]/[LIFE_MAX_SECONDS]): a short tau here decays a particle's
+ * launch speed to near-zero well before it dies, which is what made earlier tuning look like
+ * particles barely left the center -- a spark should still be visibly moving for most of its life,
+ * not just its first few frames. */
+private const val DRAG_TAU_SECONDS = 1.6f
 
 /** Gentle constant upward drift applied to every particle's vertical velocity, as a fraction of
  * the canvas's shorter dimension per second-squared -- the "firefly" rather than "spark" feel. */
-private const val BUOYANCY_FRACTION = 0.05f
+private const val BUOYANCY_FRACTION = 0.10f
 
-private const val PARTICLE_RADIUS_FRACTION = 0.010f
-private const val GLOW_RADIUS_FRACTION = 0.022f
-private const val GLOW_ALPHA = 170
+private const val PARTICLE_RADIUS_FRACTION = 0.012f
+private const val GLOW_RADIUS_FRACTION = 0.024f
+private const val GLOW_ALPHA = 175
 
 /**
  * A particle-burst mode -- deliberately the opposite shape language from every bar/ring mode in

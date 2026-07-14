@@ -169,6 +169,15 @@ fun MainScreen() {
     var showSettings by remember { mutableStateOf(false) }
     var showAppSettings by remember { mutableStateOf(false) }
     var immersiveMode by remember { mutableStateOf(SettingsStore.getBoolean(context, KEY_IMMERSIVE_MODE, true)) }
+    var keepScreenOn by remember { mutableStateOf(SettingsStore.getBoolean(context, KEY_KEEP_SCREEN_ON, false)) }
+
+    // Applied here, at the top level, rather than only inside AppSettingsScreen's own toggle --
+    // that screen only exists in composition while Settings is actually open, so an effect living
+    // there would only keep the flag current for as long as the user stayed on that screen instead
+    // of applying the persisted preference for the whole session as soon as the app launches.
+    LaunchedEffect(keepScreenOn) {
+        view.keepScreenOn = keepScreenOn
+    }
 
     LaunchedEffect(visualizerOn, immersiveMode) {
         val window = (view.context as? Activity)?.window ?: return@LaunchedEffect
@@ -397,6 +406,7 @@ fun MainScreen() {
                         mode = visibleModes.firstOrNull() ?: mode
                     }
                     immersiveMode = SettingsStore.getBoolean(context, KEY_IMMERSIVE_MODE, true)
+                    keepScreenOn = SettingsStore.getBoolean(context, KEY_KEEP_SCREEN_ON, false)
                 },
             )
         }
