@@ -25,9 +25,15 @@ private const val BASS_BAND_COUNT = 4
  * relative to what's been playing" rather than "loud in an absolute sense." */
 private const val ENERGY_BASELINE_TAU_SECONDS = 1.2f
 
-/** A drop fires when bass energy exceeds the rolling baseline by this ratio, divided by
- * [BarSpectrumSettings.scale] -- a higher Scale is more sensitive (more triggers). */
-private const val BASE_ONSET_RATIO_THRESHOLD = 1.6f
+/** A drop fires when bass energy exceeds the rolling baseline by at least this much, divided by
+ * [BarSpectrumSettings.scale] -- a higher Scale is more sensitive (more triggers). This is an
+ * additive delta, not a ratio: [SpectrumEngine.bands] is already a dB-normalized value hard-clamped
+ * to [0, 1] (see [SpectrumAnalyzer.computeBands]), and real music rarely leaves the bass bands near
+ * silence, so a ratio threshold like "1.6x the baseline" becomes unreachable the moment the rolling
+ * baseline climbs past 1f / 1.6 -- at that point `baseline * 1.6` exceeds the maximum possible
+ * bassEnergy of 1f, and the mode can never trigger again. An additive delta stays reachable no
+ * matter where the baseline sits in the bounded range. */
+private const val BASE_ONSET_DELTA_THRESHOLD = 0.15f
 
 private const val MIN_ABSOLUTE_ENERGY = 0.06f
 
@@ -115,10 +121,10 @@ fun BassDropShockwaveScreen(engine: SpectrumEngine, settings: BarSpectrumSetting
         energyBaselineHolder[0] += (bassEnergy - energyBaselineHolder[0]) * baselineAlpha
         timeSinceTriggerHolder[0] += dt
 
-        val threshold = BASE_ONSET_RATIO_THRESHOLD / settings.scale
+        val threshold = BASE_ONSET_DELTA_THRESHOLD / settings.scale
         val canTrigger = timeSinceTriggerHolder[0] >= MIN_RETRIGGER_SECONDS &&
             bassEnergy >= MIN_ABSOLUTE_ENERGY &&
-            bassEnergy >= energyBaselineHolder[0] * threshold
+            (bassEnergy - energyBaselineHolder[0]) >= threshold
         if (canTrigger) {
             displacementHolder[0] = 1f
             velocityHolder[0] = 0f
