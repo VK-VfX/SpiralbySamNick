@@ -74,31 +74,12 @@ class VuMeterEngineTest {
     }
 
     @Test
-    fun `amber LED lights before the red LED, as an unlatched level indicator`() {
-        val engine = VuMeterEngine()
-
-        // A quiet signal settles around -8 dB VU, well below the amber threshold.
-        repeat(40) { engine.step(0.05f, rawRms = 0.05f) }
-        assertTrue("expected dbVu below 0, got ${engine.dbVu}", engine.dbVu < 0f)
-        assertEquals(0f, engine.amberLedBrightness(), 0.05f)
-        assertEquals(0f, engine.peakLedBrightness(), 0.001f)
-
-        // A moderately hot signal settles around +1.5 dB VU -- above the amber threshold (0) but
-        // below the red peak threshold (~2.85) -- amber should light without red ever firing.
-        repeat(40) { engine.step(0.05f, rawRms = 0.15f) }
-        assertTrue("expected dbVu between 0 and the red threshold, got ${engine.dbVu}", engine.dbVu in 0f..2.5f)
-        assertTrue("expected amber lit, got ${engine.amberLedBrightness()}", engine.amberLedBrightness() > 0.9f)
-        assertEquals(0f, engine.peakLedBrightness(), 0.001f)
-    }
-
-    @Test
-    fun `reset drops the needle and both LEDs back to rest`() {
+    fun `reset drops the needle and LED back to rest`() {
         val engine = VuMeterEngine()
         repeat(40) { engine.step(0.05f, rawRms = 1f) }
         engine.reset()
         assertEquals(VuMeterEngine.SCALE_MIN_DB_VU, engine.dbVu, 0.001f)
         assertEquals(0f, engine.peakLedBrightness(), 0.001f)
-        assertEquals(0f, engine.amberLedBrightness(), 0.001f)
     }
 
     @Test

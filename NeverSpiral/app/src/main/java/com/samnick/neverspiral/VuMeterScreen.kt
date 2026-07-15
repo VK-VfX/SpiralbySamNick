@@ -54,8 +54,16 @@ private val TICK_COLOR = VisualizerTheme.TEXT_SECONDARY
 private val REDLINE_COLOR = VisualizerTheme.CRITICAL
 private val LED_OFF_COLOR = Color(0xFF2A1214)
 private val LED_ON_COLOR = VisualizerTheme.CRITICAL
-private val AMBER_LED_OFF_COLOR = Color(0xFF2A2312)
-private val AMBER_LED_ON_COLOR = VisualizerTheme.WARN
+
+/** What a lit LED's die looks like right at the center under full current -- near-white, not a
+ * flat saturated red, the same "overexposed hot spot" look a photo of a lit LED shows. Only ever
+ * blended in near full brightness (see [drawLed]), so a dim LED still reads as its own color. */
+private val LED_HOT_CORE_COLOR = Color(0xFFFFF4E8)
+
+/** A fixed, low-alpha highlight near the LED's upper-left -- a physical LED's domed plastic lens
+ * always shows a small specular reflection of ambient light, on or off, since it's light bouncing
+ * off the lens itself rather than the die's own emission. */
+private val LED_HIGHLIGHT_COLOR = Color(0x55FFFFFF)
 
 /** LEDs (and human brightness perception generally) aren't linear -- a physical brightness of
  * 0.5 doesn't look half as bright as 1.0, it looks noticeably dimmer than that, so a plain linear
@@ -197,7 +205,7 @@ fun VuMeterScreen(meter: VuMeterEngine) {
 
         drawVuMeter(
             textMeasurer, tickLayouts, vuLabelLayout, peakLabelLayout, topLeft, meterWidth, meterHeight,
-            meter.dbVu, meter.peakLedBrightness(), meter.amberLedBrightness(),
+            meter.dbVu, meter.peakLedBrightness(),
         )
     }
 }
@@ -212,7 +220,6 @@ private fun DrawScope.drawVuMeter(
     height: Float,
     dbVu: Float,
     peakBrightness: Float,
-    amberBrightness: Float,
 ) {
     // Flat panel with a thin hairline border instead of a thick bezel -- the "modern mastering
     // suite" look reads as a recessed instrument in the panel rather than a boxed-in gauge.
@@ -232,20 +239,17 @@ private fun DrawScope.drawVuMeter(
 
     drawText(vuLabelLayout, topLeft = Offset(topLeft.x + width * 0.05f, topLeft.y + height * 0.07f))
 
-    // A two-LED ladder, amber then red left-to-right, mirrors a real channel strip's warning
-    // stages instead of one bulb doing double duty -- see VuMeterEngine's class doc for how the
-    // two brightness values differ (amber: direct level indicator; red: peak-hold with a hold
-    // window). Brightness is gamma-corrected for display only; the physics stay linear.
+    // A single red peak LED -- one lamp for "you hit the top of the scale," matching a real analog
+    // VU meter's peak indicator, not a two-color ladder. Brightness is gamma-corrected for display
+    // only (see visualBrightness); the underlying decay/hold physics in VuMeterEngine stay linear.
     val ledRadius = height * 0.045f
     val ledCenter = Offset(topLeft.x + width * 0.92f, topLeft.y + height * 0.11f)
-    val amberLedCenter = Offset(ledCenter.x - ledRadius * 2.6f, ledCenter.y)
-    drawLed(amberLedCenter, ledRadius, visualBrightness(amberBrightness), AMBER_LED_OFF_COLOR, AMBER_LED_ON_COLOR)
     drawLed(ledCenter, ledRadius, visualBrightness(peakBrightness), LED_OFF_COLOR, LED_ON_COLOR)
 
     drawText(
         peakLabelLayout,
         topLeft = Offset(
-            (amberLedCenter.x + ledCenter.x) / 2f - peakLabelLayout.size.width / 2f,
+            ledCenter.x - peakLabelLayout.size.width / 2f,
             ledCenter.y + ledRadius + height * 0.025f,
         ),
     )
@@ -302,15 +306,25 @@ private fun DrawScope.drawVuMeter(
     )
 }
 
-/** One indicator LED: a soft two-ring glow beneath a solid core, shared by both the amber and
- * red LEDs so their look stays identical apart from color and brightness. */
+/** One indicator LED: a soft two-ring glow beneath a solid core, plus two physical-LED details
+ * that don't depend on brightness state changing -- a hot white core blended in only near full
+ * brightness (see [LED_HOT_CORE_COLOR]) and a fixed specular highlight from the lens (see
+ * [LED_HIGHLIGHT_COLOR]) drawn every frame regardless of on/off state. */
 private fun DrawScope.drawLed(center: Offset, radius: Float, brightness: Float, offColor: Color, onColor: Color) {
     if (brightness > 0.02f) {
         drawCircle(color = onColor.copy(alpha = brightness * 0.4f), radius = radius * 2.6f, center = center)
         drawCircle(color = onColor.copy(alpha = brightness * 0.75f), radius = radius * 1.6f, center = center)
     }
-    drawCircle(color = lerpColor(offColor, onColor, brightness), radius = radius, center = center)
+    val baseColor = lerpColor(offColor, onColor, brightness)
+    val hotCoreMix = ((brightness - 0.6f) / 0.4f).coerceIn(0f, 1f)
+    val coreColor = lerpColor(baseColor, LED_HOT_CORE_COLOR, hotCoreMix)
+    drawCircle(color = coreColor, radius = radius, center = center)
     drawCircle(color = VisualizerTheme.HAIRLINE, radius = radius, center = center, style = Stroke(width = 1.5f))
+    drawCircle(
+        color = LED_HIGHLIGHT_COLOR,
+        radius = radius * 0.32f,
+        center = Offset(center.x - radius * 0.32f, center.y - radius * 0.32f),
+    )
 }
 
 /**
