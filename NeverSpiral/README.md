@@ -16,8 +16,8 @@ on the device: Spotify, YouTube Music, or anything else.
 - Every mode has its own tunable settings behind a gear icon in the top-right corner; every
   setting persists across app restarts. Six modes share the same three underlying sliders
   (`BarSpectrumSettings`: amplitude scale, stroke/line weight, and a size/reach control), but each
-  is labeled for what it actually does in that mode (e.g. "Sensitivity"/"Ring Thickness"/"Max
-  Radius" for Bass Drop Shockwave) rather than a generic "Scale/Stroke Weight/Height" everywhere --
+  is labeled for what it actually does in that mode (e.g. "Sensitivity"/"Ray Thickness"/"Max
+  Reach" for Radial Spectrum Burst) rather than a generic "Scale/Stroke Weight/Height" everywhere --
   see `BarSpectrumSettingsPanel` in `MainScreen.kt`. The rest have their own controls entirely
   (VU Meter's calibration reference, Spectrum/Graphic EQ's color-scheme choice).
 - A hamburger icon (top-right, above the visualizer) opens app-wide Settings -- see below. Its
@@ -66,15 +66,14 @@ on the device: Spotify, YouTube Music, or anything else.
   petal is repeated 8 times around a slow, continuously rotating circle. Colored with a true closed
   360-degree rainbow hue wheel centered on the bloom, so the whole rainbow visibly rotates along with
   the pattern. *Settings: Sensitivity, Petal Thickness, Bloom Size.*
-- **Bass Drop Shockwave**: sparse and event-driven, deliberately quiet between hits rather than
-  continuously busy -- a dedicated onset detector watches only the lowest few bands (sub-bass/kick
-  energy specifically, not the whole spectrum), and a genuine hit drives a damped-spring simulation
-  rather than an eased fade: the shockwave visibly overshoots past its resting size and springs back
-  over a couple of bounces, like a real physical thump, plus a subtle full-screen flash in the app's
-  own accent color. The ring's radius is never purely event-driven, though -- a smaller continuous
-  term tracks the current bass level directly, on top of the spring, so it visibly breathes with the
-  music between drops instead of sitting dead-still except for that split-second snap. *Settings:
-  Sensitivity, Ring Thickness, Max Radius.*
+- **Radial Spectrum Burst**: a full 360-degree burst of rays, one per FFT band, radiating from
+  center like sun rays -- every band is continuously, visibly live at all times (band 0 at 12
+  o'clock, sweeping clockwise, the same low-to-high convention every other mode uses), rather than
+  reacting to only a handful of bass bands and sitting still otherwise. A genuine bass drop still
+  gets its own moment: the same onset detector Bass Drop Shockwave (the mode this replaces) used,
+  scoped to only the lowest few bands, fires a single one-shot expanding ring plus a brief
+  full-screen flash in the app's own accent color, layered on top of the rays rather than replacing
+  them. *Settings: Sensitivity, Ray Thickness, Max Reach.*
 - **Equalizer Constellation**: a small constellation of 12 stars, each a coarse aggregate of a
   contiguous range of FFT bands (not one dot per raw band -- 28 of them crammed around one ring read
   as a wiring diagram, not stars). Each star continuously drifts around its own base position at its
@@ -175,23 +174,23 @@ its gear panel rather than a generic "Scale/Stroke Weight/Height").
   `GradientColors.kt`, the same technique Radial Pulse Ring used earlier) centered on the bloom --
   since the shader is keyed to canvas-space angle rather than petal-local position, the whole
   rainbow visibly rotates along with the pattern with no color logic of its own to keep in sync.
-- **Bass Drop Shockwave**: `BassDropShockwaveScreen` runs its own onset detector scoped to only the
-  lowest few bands (`BASS_BAND_COUNT`) -- a rolling exponential average of sub-bass/kick energy
-  specifically, not the whole-spectrum average a general transient detector would use -- debounced
-  so one hit can't retrigger before the previous one has had a chance to settle. Where every other
-  event-driven idea in this app used an eased expansion curve, this one runs a real damped-spring
-  simulation every frame regardless of whether a trigger just happened:
-  `acceleration = -stiffness * displacement - damping * velocity`, then semi-implicit-Euler
-  integrates velocity and displacement through real per-frame delta time. Tuned underdamped
-  (`SPRING_STIFFNESS`, `SPRING_DAMPING`), so a hit visibly overshoots past its resting size and
-  springs back over a couple of bounces rather than easing straight to zero -- letting displacement
-  go slightly negative (rather than clamping it away) is what lets the ring visibly contract below
-  its resting radius before springing back out. The full-screen flash and the ring both use
-  `VisualizerTheme.ACCENT` rather than a fixed color. The ring's radius isn't purely the spring's
-  displacement, though: a second, smaller term (`CONTINUOUS_RADIUS_FRACTION`) adds the current
-  `bassEnergy` (the same reading the onset detector itself uses, raised to a sensitivity gamma) on
-  top of it every frame, so the ring visibly breathes with the live bass level at all times instead
-  of sitting completely still except during the instant of an actual drop.
+- **Radial Spectrum Burst**: `RadialSpectrumBurstScreen` replaces Bass Drop Shockwave, whose ring
+  only ever reacted to `BASS_BAND_COUNT` bass bands and otherwise sat nearly still -- this mode
+  inverts the balance so the *primary* visual is continuously live across the whole spectrum. Every
+  one of `SpectrumEngine`'s bands draws its own ray from center each frame (`angle = (i/bandCount) *
+  360 - 90`, so band 0 sits at 12 o'clock and rays sweep clockwise), length driven by that band's own
+  level raised to a sensitivity gamma, colored with `frequencyZoneColor` keyed to the band's position
+  -- so every band is visibly live at all times rather than only the lowest few. Reuses the exact
+  onset detector from Bass Drop Shockwave unchanged (renamed `radialBurstShouldTrigger` -- the
+  additive-delta-above-a-rolling-baseline math was never what was broken about that mode, only its
+  balance of continuous-vs-event-driven motion was), scoped to only the lowest few bands as before.
+  Unlike Bass Drop Shockwave's damped-spring ring, a trigger here fires a single one-shot expanding
+  ring plus a brief full-screen flash, both pure functions of time-since-trigger rather than their
+  own physics simulation -- this mode doesn't need a spring's overshoot-and-settle because the rays
+  already carry all the continuous motion; the ripple only has to read as one clean pulse layered on
+  top. Sensitivity (`settings.scale`) now does double duty: it drives both the onset threshold and
+  the rays' amplitude response, so turning it up makes the whole mode visibly more reactive in one
+  coherent motion instead of only affecting an invisible trigger threshold.
 - **Equalizer Constellation**: `EqualizerConstellationScreen` aggregates `SpectrumEngine`'s bands
   into a fixed `STAR_COUNT` (12) rather than one node per raw FFT band -- 28 dots crammed around one
   ring read as a wiring diagram, not a constellation, so each star instead averages a contiguous
@@ -246,8 +245,8 @@ setting at all (Players), then update/diagnostic/about administrivia last.
   The app also isn't locked to portrait anymore -- it follows whatever the device's own
   rotation-lock setting allows, rather than forcing one orientation.
 - **Haptics**: a "Bass Drop Vibration" toggle -- a short `VibrationEffect.createOneShot` pulse
-  (`HapticPulse`) fired once per Bass Drop Shockwave trigger, not per frame, so it punctuates a hit
-  rather than buzzing continuously. Its own section rather than folded into Display, since it isn't
+  (`HapticPulse`) fired once per Radial Spectrum Burst bass-drop trigger, not per frame, so it
+  punctuates a hit rather than buzzing continuously. Its own section rather than folded into Display, since it isn't
   a display behavior and it's where any future vibration setting belongs.
 - **Appearance**: a custom accent color and a custom canvas background color, both expressed as
   Hue/Saturation/Brightness sliders (via `android.graphics.Color.HSVToColor`) rather than RGB so
@@ -255,7 +254,7 @@ setting at all (Players), then update/diagnostic/about administrivia last.
   and `VisualizerTheme.CANVAS_BACKGROUND` are both mutable Compose state rather than fixed
   constants specifically so this section can override them -- and since every mode already reads
   `ACCENT` (chips, the VU needle's glow, Spectrum's Cool and Frequency schemes, Graphic EQ's lit
-  segments, Bass Drop Shockwave's ring and flash, and more) and draws `CANVAS_BACKGROUND` as its
+  segments, Radial Spectrum Burst's rays, ring and flash, and more) and draws `CANVAS_BACKGROUND` as its
   first draw call, one custom color each cascades across the whole app instead of needing a picker
   per mode. `ACCENT_DIM` derives from `ACCENT` rather than being independent, so it stays coherent
   with whatever's picked. The background picker caps Brightness at 0.4 (unlike the accent picker's

@@ -7,8 +7,8 @@ import android.os.Vibrator
 import android.os.VibratorManager
 
 /**
- * A single short, sharp vibration for event-driven visual hits (currently just Bass Drop
- * Shockwave's onset trigger) -- deliberately not a per-frame or continuous buzz, which would
+ * A single short, sharp vibration for event-driven visual hits (currently just Radial Spectrum
+ * Burst's onset trigger) -- deliberately not a per-frame or continuous buzz, which would
  * just drain the battery and feel like noise rather than punctuating a distinct "hit."
  */
 object HapticPulse {

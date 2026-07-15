@@ -93,7 +93,7 @@ fun AppSettingsScreen(onDismiss: () -> Unit) {
     // while this screen itself happened to be on screen, not for the rest of the session.
     var keepScreenOn by remember { mutableStateOf(SettingsStore.getBoolean(context, KEY_KEEP_SCREEN_ON, false)) }
     var immersiveMode by remember { mutableStateOf(SettingsStore.getBoolean(context, KEY_IMMERSIVE_MODE, true)) }
-    var bassDropHaptics by remember { mutableStateOf(SettingsStore.getBoolean(context, KEY_BASS_DROP_HAPTICS, true)) }
+    var burstHaptics by remember { mutableStateOf(SettingsStore.getBoolean(context, KEY_BURST_HAPTICS, true)) }
     var autoCheckUpdates by remember { mutableStateOf(SettingsStore.getBoolean(context, KEY_AUTO_CHECK_UPDATES, false)) }
     var updateState by remember { mutableStateOf<UpdateCheckState>(UpdateCheckState.Idle) }
     val versionName = remember {
@@ -179,11 +179,11 @@ fun AppSettingsScreen(onDismiss: () -> Unit) {
                 SettingsSectionTitle("Haptics")
                 SettingsToggleRow(
                     label = "Bass Drop Vibration",
-                    description = "A short pulse each time Bass Drop Shockwave triggers on a hit.",
-                    checked = bassDropHaptics,
+                    description = "A short pulse each time Radial Spectrum Burst detects a bass drop.",
+                    checked = burstHaptics,
                 ) {
-                    bassDropHaptics = it
-                    SettingsStore.putBoolean(context, KEY_BASS_DROP_HAPTICS, it)
+                    burstHaptics = it
+                    SettingsStore.putBoolean(context, KEY_BURST_HAPTICS, it)
                 }
 
                 Spacer(modifier = Modifier.height(20.dp))

@@ -14,7 +14,7 @@ enum class VisualMode(val label: String) {
     NEON_CYAN_PULSE("Neon Cyan Pulse"),
     AUDIO_FIREFLIES("Audio Fireflies"),
     KALEIDOSCOPE_BLOOM("Kaleidoscope Bloom"),
-    BASS_DROP_SHOCKWAVE("Bass Drop Shockwave"),
+    RADIAL_SPECTRUM_BURST("Radial Spectrum Burst"),
     EQUALIZER_CONSTELLATION("Equalizer Constellation"),
 }
 

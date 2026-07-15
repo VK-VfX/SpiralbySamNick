@@ -68,7 +68,7 @@ private val MODES_WITH_SETTINGS = setOf(
     VisualMode.NEON_CYAN_PULSE,
     VisualMode.AUDIO_FIREFLIES,
     VisualMode.KALEIDOSCOPE_BLOOM,
-    VisualMode.BASS_DROP_SHOCKWAVE,
+    VisualMode.RADIAL_SPECTRUM_BURST,
     VisualMode.EQUALIZER_CONSTELLATION,
 )
 
@@ -96,7 +96,7 @@ private val MODES_ALLOWING_LANDSCAPE = setOf(
  * about) -- distinct from each mode's own gear-icon tuning panel. VU Meter and Spectrum are stepped
  * every frame regardless of which mode is showing, so switching between them and any other mode
  * still feels instant rather than starting from a frozen reading. Every mode past Graphic EQ
- * (Rainbow Spectrum, Neon Cyan Pulse, Audio Fireflies, Kaleidoscope Bloom, Bass Drop Shockwave,
+ * (Rainbow Spectrum, Neon Cyan Pulse, Audio Fireflies, Kaleidoscope Bloom, Radial Spectrum Burst,
  * Equalizer Constellation) is a pure rendering treatment of [SpectrumEngine]'s already
  * fast-rise/slower-fall smoothed bands, the same data [SpectrumScreen] and [GraphicEqScreen] draw,
  * so none of them need a dedicated engine of their own -- just their own [BarSpectrumSettings],
@@ -151,11 +151,11 @@ fun MainScreen() {
             initialHeight = SettingsStore.getFloat(context, KEY_BLOOM_HEIGHT, 0.46f),
         )
     }
-    val bassDropShockwaveSettings = remember {
+    val radialSpectrumBurstSettings = remember {
         BarSpectrumSettings(
-            initialScale = SettingsStore.getFloat(context, KEY_SHOCKWAVE_SCALE, 1f),
-            initialStrokeWeight = SettingsStore.getFloat(context, KEY_SHOCKWAVE_STROKE_WEIGHT, 1f),
-            initialHeight = SettingsStore.getFloat(context, KEY_SHOCKWAVE_HEIGHT, 0.46f),
+            initialScale = SettingsStore.getFloat(context, KEY_BURST_SCALE, 1f),
+            initialStrokeWeight = SettingsStore.getFloat(context, KEY_BURST_STROKE_WEIGHT, 1f),
+            initialHeight = SettingsStore.getFloat(context, KEY_BURST_HEIGHT, 0.46f),
         )
     }
     val equalizerConstellationSettings = remember {
@@ -311,7 +311,7 @@ fun MainScreen() {
                         VisualMode.NEON_CYAN_PULSE -> NeonCyanPulseScreen(spectrum, neonCyanPulseSettings)
                         VisualMode.AUDIO_FIREFLIES -> AudioFirefliesScreen(spectrum, audioFirefliesSettings)
                         VisualMode.KALEIDOSCOPE_BLOOM -> KaleidoscopeBloomScreen(spectrum, kaleidoscopeBloomSettings)
-                        VisualMode.BASS_DROP_SHOCKWAVE -> BassDropShockwaveScreen(spectrum, bassDropShockwaveSettings)
+                        VisualMode.RADIAL_SPECTRUM_BURST -> RadialSpectrumBurstScreen(spectrum, radialSpectrumBurstSettings)
                         VisualMode.EQUALIZER_CONSTELLATION -> EqualizerConstellationScreen(spectrum, equalizerConstellationSettings)
                     }
                 }
@@ -378,7 +378,7 @@ fun MainScreen() {
                                 neonCyanPulseSettings = neonCyanPulseSettings,
                                 audioFirefliesSettings = audioFirefliesSettings,
                                 kaleidoscopeBloomSettings = kaleidoscopeBloomSettings,
-                                bassDropShockwaveSettings = bassDropShockwaveSettings,
+                                radialSpectrumBurstSettings = radialSpectrumBurstSettings,
                                 equalizerConstellationSettings = equalizerConstellationSettings,
                             )
                         }
@@ -454,7 +454,7 @@ private fun SettingsPanelContent(
     neonCyanPulseSettings: BarSpectrumSettings,
     audioFirefliesSettings: BarSpectrumSettings,
     kaleidoscopeBloomSettings: BarSpectrumSettings,
-    bassDropShockwaveSettings: BarSpectrumSettings,
+    radialSpectrumBurstSettings: BarSpectrumSettings,
     equalizerConstellationSettings: BarSpectrumSettings,
 ) {
     when (mode) {
@@ -504,9 +504,9 @@ private fun SettingsPanelContent(
             kaleidoscopeBloomSettings, context, KEY_BLOOM_SCALE, KEY_BLOOM_STROKE_WEIGHT, KEY_BLOOM_HEIGHT,
             scaleLabel = "Sensitivity", strokeWeightLabel = "Petal Thickness", heightLabel = "Bloom Size",
         )
-        VisualMode.BASS_DROP_SHOCKWAVE -> BarSpectrumSettingsPanel(
-            bassDropShockwaveSettings, context, KEY_SHOCKWAVE_SCALE, KEY_SHOCKWAVE_STROKE_WEIGHT, KEY_SHOCKWAVE_HEIGHT,
-            scaleLabel = "Sensitivity", strokeWeightLabel = "Ring Thickness", heightLabel = "Max Radius",
+        VisualMode.RADIAL_SPECTRUM_BURST -> BarSpectrumSettingsPanel(
+            radialSpectrumBurstSettings, context, KEY_BURST_SCALE, KEY_BURST_STROKE_WEIGHT, KEY_BURST_HEIGHT,
+            scaleLabel = "Sensitivity", strokeWeightLabel = "Ray Thickness", heightLabel = "Max Reach",
         )
         VisualMode.EQUALIZER_CONSTELLATION -> BarSpectrumSettingsPanel(
             equalizerConstellationSettings, context, KEY_CONSTELLATION_SCALE, KEY_CONSTELLATION_STROKE_WEIGHT, KEY_CONSTELLATION_HEIGHT,
@@ -618,9 +618,9 @@ private const val KEY_FIREFLIES_HEIGHT = "audio_fireflies_height"
 private const val KEY_BLOOM_SCALE = "kaleidoscope_bloom_scale"
 private const val KEY_BLOOM_STROKE_WEIGHT = "kaleidoscope_bloom_stroke_weight"
 private const val KEY_BLOOM_HEIGHT = "kaleidoscope_bloom_height"
-private const val KEY_SHOCKWAVE_SCALE = "bass_drop_shockwave_scale"
-private const val KEY_SHOCKWAVE_STROKE_WEIGHT = "bass_drop_shockwave_stroke_weight"
-private const val KEY_SHOCKWAVE_HEIGHT = "bass_drop_shockwave_height"
+private const val KEY_BURST_SCALE = "radial_spectrum_burst_scale"
+private const val KEY_BURST_STROKE_WEIGHT = "radial_spectrum_burst_stroke_weight"
+private const val KEY_BURST_HEIGHT = "radial_spectrum_burst_height"
 private const val KEY_CONSTELLATION_SCALE = "equalizer_constellation_scale"
 private const val KEY_CONSTELLATION_STROKE_WEIGHT = "equalizer_constellation_stroke_weight"
 private const val KEY_CONSTELLATION_HEIGHT = "equalizer_constellation_height"
