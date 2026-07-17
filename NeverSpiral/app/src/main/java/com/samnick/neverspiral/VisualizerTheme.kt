@@ -12,9 +12,9 @@ import androidx.compose.ui.graphics.Color
  *
  * [ACCENT] is mutable Compose state, not a fixed constant: [AppearanceSettings] lets a custom
  * color override it, and since every mode already reads [ACCENT] (chips, VU needle highlights,
- * Spectrum's Cool scheme, Graphic EQ's lit segments below the warning zone, and more), changing
- * this one value cascades a custom look across the whole app for free. [ACCENT_DIM] is derived
- * from it rather than an independent color, so it stays coherent with whatever [ACCENT] is set to.
+ * Spectrum's Cool scheme, and more), changing this one value cascades a custom look across the
+ * whole app for free. [ACCENT_DIM] is derived from it rather than an independent color, so it
+ * stays coherent with whatever [ACCENT] is set to.
  */
 object VisualizerTheme {
     val BACKGROUND = Color(0xFF0A0A0D)

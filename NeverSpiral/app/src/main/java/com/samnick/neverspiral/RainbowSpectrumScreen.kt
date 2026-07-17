@@ -31,8 +31,8 @@ private const val GLOW_ALPHA = 150
  * off a horizontal center axis, rather than growing from the bottom only, colored by a fixed
  * horizontal rainbow gradient across the row, with a soft glow behind each bar on a pure black
  * background. Reuses [SpectrumEngine] directly -- the same fast-rise/slower-fall smoothed bands
- * [SpectrumScreen] and [GraphicEqScreen] draw -- so this is a different rendering treatment of
- * already-proven data, not new DSP.
+ * [SpectrumScreen] draws -- so this is a different rendering treatment of already-proven data,
+ * not new DSP.
  *
  * Bars are drawn once, solid, into their own bitmap; the glow is a *single* blurred copy of that
  * whole composited layer, not a per-bar blur. `BlurMaskFilter`'s cost is dominated by per-call

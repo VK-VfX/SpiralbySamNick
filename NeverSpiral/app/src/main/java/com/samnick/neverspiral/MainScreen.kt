@@ -63,22 +63,20 @@ import kotlinx.coroutines.isActive
 private val MODES_WITH_SETTINGS = setOf(
     VisualMode.VU_METER,
     VisualMode.SPECTRUM,
-    VisualMode.GRAPHIC_EQ,
     VisualMode.RAINBOW_SPECTRUM,
     VisualMode.NEON_CYAN_PULSE,
     VisualMode.AUDIO_FIREFLIES,
     VisualMode.KALEIDOSCOPE_BLOOM,
-    VisualMode.RADIAL_SPECTRUM_BURST,
-    VisualMode.EQUALIZER_CONSTELLATION,
+    VisualMode.LAVA_WAVEFORM,
 )
 
 private const val SWIPE_THRESHOLD_PX = 90f
 
 /** Modes that render well wide -- everything else forces portrait, since a VU meter's arc or a
  * centered radial/particle composition either doesn't gain anything from landscape or (VU Meter)
- * actively looks worse stretched that wide. Every mode past Graphic EQ is a centered radial/point
- * composition rather than a horizontal layout, so none of them currently benefit from landscape
- * either. */
+ * actively looks worse stretched that wide. Every mode past Neon Cyan Pulse is a centered
+ * radial/point/single-line composition rather than a horizontal layout, so none of them currently
+ * benefit from landscape either. */
 private val MODES_ALLOWING_LANDSCAPE = setOf(
     VisualMode.SPECTRUM,
     VisualMode.RAINBOW_SPECTRUM,
@@ -86,7 +84,7 @@ private val MODES_ALLOWING_LANDSCAPE = setOf(
 )
 
 /**
- * Hosts up to nine visualizer modes (fewer if the user's hidden some via the "Modes" section in
+ * Hosts up to seven visualizer modes (fewer if the user's hidden some via the "Modes" section in
  * [AppSettingsScreen], see [ModePreferences]) plus the single shared "Visualize music" capture
  * toggle. A persistent, horizontally-scrollable row of mode chips below the visualizer is the
  * primary way to switch -- tap the specific mode you want directly, rather than repeatedly tapping
@@ -95,14 +93,16 @@ private val MODES_ALLOWING_LANDSCAPE = setOf(
  * app-wide [AppSettingsScreen] (player shortcuts, keep-screen-on, OTA updates, mode customization,
  * about) -- distinct from each mode's own gear-icon tuning panel. VU Meter and Spectrum are stepped
  * every frame regardless of which mode is showing, so switching between them and any other mode
- * still feels instant rather than starting from a frozen reading. Every mode past Graphic EQ
- * (Rainbow Spectrum, Neon Cyan Pulse, Audio Fireflies, Kaleidoscope Bloom, Radial Spectrum Burst,
- * Equalizer Constellation) is a pure rendering treatment of [SpectrumEngine]'s already
- * fast-rise/slower-fall smoothed bands, the same data [SpectrumScreen] and [GraphicEqScreen] draw,
- * so none of them need a dedicated engine of their own -- just their own [BarSpectrumSettings],
- * the same three underlying sliders every such mode shares, each labeled per mode in
- * [BarSpectrumSettingsPanel] to describe what it actually controls there instead of a generic
- * "Scale/Stroke Weight/Height" for everything.
+ * still feels instant rather than starting from a frozen reading. Every mode past Spectrum
+ * (Rainbow Spectrum, Neon Cyan Pulse, Audio Fireflies, Kaleidoscope Bloom) is a pure rendering
+ * treatment of [SpectrumEngine]'s already fast-rise/slower-fall smoothed bands, the same data
+ * [SpectrumScreen] draws, so none of them need a dedicated engine of their own -- just their own
+ * [BarSpectrumSettings], the same three underlying sliders every such mode shares, each labeled per
+ * mode in [BarSpectrumSettingsPanel] to describe what it actually controls there instead of a
+ * generic "Scale/Stroke Weight/Height" for everything. [LavaWaveformScreen] is the one exception --
+ * it reads raw PCM waveform data from [AudioAnalyzer] directly rather than [SpectrumEngine]'s
+ * bands, since it's a time-domain trace rather than a frequency-domain one, but still shares the
+ * same [BarSpectrumSettings] shape for consistency with every other mode's gear panel.
  */
 @Composable
 fun MainScreen() {
@@ -118,10 +118,6 @@ fun MainScreen() {
     val spectrumSettings = remember {
         val ordinal = SettingsStore.getInt(context, KEY_SPECTRUM_COLOR_SCHEME, SpectrumColorScheme.COOL.ordinal)
         SpectrumSettings(SpectrumColorScheme.entries.getOrElse(ordinal) { SpectrumColorScheme.COOL })
-    }
-    val graphicEqSettings = remember {
-        val ordinal = SettingsStore.getInt(context, KEY_GRAPHIC_EQ_COLOR_SCHEME, GraphicEqColorScheme.CLASSIC.ordinal)
-        GraphicEqSettings(GraphicEqColorScheme.entries.getOrElse(ordinal) { GraphicEqColorScheme.CLASSIC })
     }
     val rainbowSpectrumSettings = remember {
         BarSpectrumSettings(
@@ -151,18 +147,11 @@ fun MainScreen() {
             initialHeight = SettingsStore.getFloat(context, KEY_BLOOM_HEIGHT, 0.46f),
         )
     }
-    val radialSpectrumBurstSettings = remember {
+    val lavaWaveformSettings = remember {
         BarSpectrumSettings(
-            initialScale = SettingsStore.getFloat(context, KEY_BURST_SCALE, 1f),
-            initialStrokeWeight = SettingsStore.getFloat(context, KEY_BURST_STROKE_WEIGHT, 1f),
-            initialHeight = SettingsStore.getFloat(context, KEY_BURST_HEIGHT, 0.46f),
-        )
-    }
-    val equalizerConstellationSettings = remember {
-        BarSpectrumSettings(
-            initialScale = SettingsStore.getFloat(context, KEY_CONSTELLATION_SCALE, 1f),
-            initialStrokeWeight = SettingsStore.getFloat(context, KEY_CONSTELLATION_STROKE_WEIGHT, 1f),
-            initialHeight = SettingsStore.getFloat(context, KEY_CONSTELLATION_HEIGHT, 0.46f),
+            initialScale = SettingsStore.getFloat(context, KEY_LAVA_SCALE, 1f),
+            initialStrokeWeight = SettingsStore.getFloat(context, KEY_LAVA_STROKE_WEIGHT, 1f),
+            initialHeight = SettingsStore.getFloat(context, KEY_LAVA_HEIGHT, 0.46f),
         )
     }
 
@@ -306,13 +295,11 @@ fun MainScreen() {
                     when (current) {
                         VisualMode.VU_METER -> VuMeterScreen(vuMeter)
                         VisualMode.SPECTRUM -> SpectrumScreen(spectrum, spectrumSettings)
-                        VisualMode.GRAPHIC_EQ -> GraphicEqScreen(spectrum, graphicEqSettings)
                         VisualMode.RAINBOW_SPECTRUM -> RainbowSpectrumScreen(spectrum, rainbowSpectrumSettings)
                         VisualMode.NEON_CYAN_PULSE -> NeonCyanPulseScreen(spectrum, neonCyanPulseSettings)
                         VisualMode.AUDIO_FIREFLIES -> AudioFirefliesScreen(spectrum, audioFirefliesSettings)
                         VisualMode.KALEIDOSCOPE_BLOOM -> KaleidoscopeBloomScreen(spectrum, kaleidoscopeBloomSettings)
-                        VisualMode.RADIAL_SPECTRUM_BURST -> RadialSpectrumBurstScreen(spectrum, radialSpectrumBurstSettings)
-                        VisualMode.EQUALIZER_CONSTELLATION -> EqualizerConstellationScreen(spectrum, equalizerConstellationSettings)
+                        VisualMode.LAVA_WAVEFORM -> LavaWaveformScreen(spectrum, lavaWaveformSettings)
                     }
                 }
 
@@ -373,13 +360,11 @@ fun MainScreen() {
                                 context = context,
                                 vuMeterSettings = vuMeterSettings,
                                 spectrumSettings = spectrumSettings,
-                                graphicEqSettings = graphicEqSettings,
                                 rainbowSpectrumSettings = rainbowSpectrumSettings,
                                 neonCyanPulseSettings = neonCyanPulseSettings,
                                 audioFirefliesSettings = audioFirefliesSettings,
                                 kaleidoscopeBloomSettings = kaleidoscopeBloomSettings,
-                                radialSpectrumBurstSettings = radialSpectrumBurstSettings,
-                                equalizerConstellationSettings = equalizerConstellationSettings,
+                                lavaWaveformSettings = lavaWaveformSettings,
                             )
                         }
                     }
@@ -449,13 +434,11 @@ private fun SettingsPanelContent(
     context: Context,
     vuMeterSettings: VuMeterSettings,
     spectrumSettings: SpectrumSettings,
-    graphicEqSettings: GraphicEqSettings,
     rainbowSpectrumSettings: BarSpectrumSettings,
     neonCyanPulseSettings: BarSpectrumSettings,
     audioFirefliesSettings: BarSpectrumSettings,
     kaleidoscopeBloomSettings: BarSpectrumSettings,
-    radialSpectrumBurstSettings: BarSpectrumSettings,
-    equalizerConstellationSettings: BarSpectrumSettings,
+    lavaWaveformSettings: BarSpectrumSettings,
 ) {
     when (mode) {
         VisualMode.VU_METER -> {
@@ -478,16 +461,6 @@ private fun SettingsPanelContent(
                 SettingsStore.putInt(context, KEY_SPECTRUM_COLOR_SCHEME, it.ordinal)
             }
         }
-        VisualMode.GRAPHIC_EQ -> {
-            SettingChoiceRow(
-                "Colors",
-                GraphicEqColorScheme.entries.map { it to it.label },
-                graphicEqSettings.colorScheme,
-            ) {
-                graphicEqSettings.colorScheme = it
-                SettingsStore.putInt(context, KEY_GRAPHIC_EQ_COLOR_SCHEME, it.ordinal)
-            }
-        }
         VisualMode.RAINBOW_SPECTRUM -> BarSpectrumSettingsPanel(
             rainbowSpectrumSettings, context, KEY_RAINBOW_SCALE, KEY_RAINBOW_STROKE_WEIGHT, KEY_RAINBOW_HEIGHT,
             scaleLabel = "Sensitivity", strokeWeightLabel = "Bar Thickness", heightLabel = "Bar Height",
@@ -504,13 +477,9 @@ private fun SettingsPanelContent(
             kaleidoscopeBloomSettings, context, KEY_BLOOM_SCALE, KEY_BLOOM_STROKE_WEIGHT, KEY_BLOOM_HEIGHT,
             scaleLabel = "Sensitivity", strokeWeightLabel = "Petal Thickness", heightLabel = "Bloom Size",
         )
-        VisualMode.RADIAL_SPECTRUM_BURST -> BarSpectrumSettingsPanel(
-            radialSpectrumBurstSettings, context, KEY_BURST_SCALE, KEY_BURST_STROKE_WEIGHT, KEY_BURST_HEIGHT,
-            scaleLabel = "Sensitivity", strokeWeightLabel = "Ray Thickness", heightLabel = "Max Reach",
-        )
-        VisualMode.EQUALIZER_CONSTELLATION -> BarSpectrumSettingsPanel(
-            equalizerConstellationSettings, context, KEY_CONSTELLATION_SCALE, KEY_CONSTELLATION_STROKE_WEIGHT, KEY_CONSTELLATION_HEIGHT,
-            scaleLabel = "Sensitivity", strokeWeightLabel = "Line Thickness", heightLabel = "Star Growth",
+        VisualMode.LAVA_WAVEFORM -> BarSpectrumSettingsPanel(
+            lavaWaveformSettings, context, KEY_LAVA_SCALE, KEY_LAVA_STROKE_WEIGHT, KEY_LAVA_HEIGHT,
+            scaleLabel = "Sensitivity", strokeWeightLabel = "Line Thickness", heightLabel = "Max Amplitude",
         )
     }
 }
@@ -605,7 +574,6 @@ private fun ModeSelectorRow(currentMode: VisualMode, modes: List<VisualMode>, on
 
 private const val KEY_VU_CALIBRATION = "vu_calibration_offset_db"
 private const val KEY_SPECTRUM_COLOR_SCHEME = "spectrum_color_scheme"
-private const val KEY_GRAPHIC_EQ_COLOR_SCHEME = "graphic_eq_color_scheme"
 private const val KEY_RAINBOW_SCALE = "rainbow_spectrum_scale"
 private const val KEY_RAINBOW_STROKE_WEIGHT = "rainbow_spectrum_stroke_weight"
 private const val KEY_RAINBOW_HEIGHT = "rainbow_spectrum_height"
@@ -618,9 +586,6 @@ private const val KEY_FIREFLIES_HEIGHT = "audio_fireflies_height"
 private const val KEY_BLOOM_SCALE = "kaleidoscope_bloom_scale"
 private const val KEY_BLOOM_STROKE_WEIGHT = "kaleidoscope_bloom_stroke_weight"
 private const val KEY_BLOOM_HEIGHT = "kaleidoscope_bloom_height"
-private const val KEY_BURST_SCALE = "radial_spectrum_burst_scale"
-private const val KEY_BURST_STROKE_WEIGHT = "radial_spectrum_burst_stroke_weight"
-private const val KEY_BURST_HEIGHT = "radial_spectrum_burst_height"
-private const val KEY_CONSTELLATION_SCALE = "equalizer_constellation_scale"
-private const val KEY_CONSTELLATION_STROKE_WEIGHT = "equalizer_constellation_stroke_weight"
-private const val KEY_CONSTELLATION_HEIGHT = "equalizer_constellation_height"
+private const val KEY_LAVA_SCALE = "lava_waveform_scale"
+private const val KEY_LAVA_STROKE_WEIGHT = "lava_waveform_stroke_weight"
+private const val KEY_LAVA_HEIGHT = "lava_waveform_height"

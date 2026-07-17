@@ -77,9 +77,9 @@ private fun classifyRelease(context: Context, release: UpdateChecker.LatestRelea
 
 /**
  * A full-screen, app-wide settings surface -- distinct from each visualizer mode's own gear-icon
- * panel, which only tunes that mode's look. Sections run Display, Haptics, Appearance, Modes,
- * Players, Updates, Diagnostics, About: settings that change how the app behaves or looks come
- * first, launcher shortcuts to other apps (not really a setting at all) come after, and update/
+ * panel, which only tunes that mode's look. Sections run Display, Appearance, Modes, Players,
+ * Updates, Diagnostics, About: settings that change how the app behaves or looks come first,
+ * launcher shortcuts to other apps (not really a setting at all) come after, and update/
  * diagnostic/about administrivia comes last.
  */
 @Composable
@@ -93,7 +93,6 @@ fun AppSettingsScreen(onDismiss: () -> Unit) {
     // while this screen itself happened to be on screen, not for the rest of the session.
     var keepScreenOn by remember { mutableStateOf(SettingsStore.getBoolean(context, KEY_KEEP_SCREEN_ON, false)) }
     var immersiveMode by remember { mutableStateOf(SettingsStore.getBoolean(context, KEY_IMMERSIVE_MODE, true)) }
-    var burstHaptics by remember { mutableStateOf(SettingsStore.getBoolean(context, KEY_BURST_HAPTICS, true)) }
     var autoCheckUpdates by remember { mutableStateOf(SettingsStore.getBoolean(context, KEY_AUTO_CHECK_UPDATES, false)) }
     var updateState by remember { mutableStateOf<UpdateCheckState>(UpdateCheckState.Idle) }
     val versionName = remember {
@@ -170,20 +169,6 @@ fun AppSettingsScreen(onDismiss: () -> Unit) {
                 ) {
                     immersiveMode = it
                     SettingsStore.putBoolean(context, KEY_IMMERSIVE_MODE, it)
-                }
-
-                // A separate section rather than folding this into Display -- it's not a display
-                // behavior, and a dedicated "Haptics" section is also where any future vibration
-                // setting belongs, instead of every unrelated toggle accumulating under Display.
-                Spacer(modifier = Modifier.height(20.dp))
-                SettingsSectionTitle("Haptics")
-                SettingsToggleRow(
-                    label = "Bass Drop Vibration",
-                    description = "A short pulse each time Radial Spectrum Burst detects a bass drop.",
-                    checked = burstHaptics,
-                ) {
-                    burstHaptics = it
-                    SettingsStore.putBoolean(context, KEY_BURST_HAPTICS, it)
                 }
 
                 Spacer(modifier = Modifier.height(20.dp))

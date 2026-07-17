@@ -1,6 +1,6 @@
 # Sam's Music Viz
 
-Nine audio-reactive visualizer modes, styled as a modern dark mastering-suite instrument panel --
+Seven audio-reactive visualizer modes, styled as a modern dark mastering-suite instrument panel --
 flat near-black panels, thin hairline dividers, a cool desaturated accent, and red reserved strictly
 for clip/overload warnings, the way studio metering looks. All driven by whatever music is playing
 on the device: Spotify, YouTube Music, or anything else.
@@ -14,16 +14,16 @@ on the device: Spotify, YouTube Music, or anything else.
 - **Swipe** left or right on the visualization to move either direction, for quick cycling without
   looking down at the strip.
 - Every mode has its own tunable settings behind a gear icon in the top-right corner; every
-  setting persists across app restarts. Six modes share the same three underlying sliders
+  setting persists across app restarts. Five modes share the same three underlying sliders
   (`BarSpectrumSettings`: amplitude scale, stroke/line weight, and a size/reach control), but each
-  is labeled for what it actually does in that mode (e.g. "Sensitivity"/"Ray Thickness"/"Max
-  Reach" for Radial Spectrum Burst) rather than a generic "Scale/Stroke Weight/Height" everywhere --
+  is labeled for what it actually does in that mode (e.g. "Sensitivity"/"Line Thickness"/"Max
+  Amplitude" for Lava Waveform) rather than a generic "Scale/Stroke Weight/Height" everywhere --
   see `BarSpectrumSettingsPanel` in `MainScreen.kt`. The rest have their own controls entirely
-  (VU Meter's calibration reference, Spectrum/Graphic EQ's color-scheme choice).
+  (VU Meter's calibration reference, Spectrum's color-scheme choice).
 - A hamburger icon (top-right, above the visualizer) opens app-wide Settings -- see below. Its
   **Modes** section lets you hide modes you don't use and reorder the rest; both the mode strip and
   swipe cycling follow that customized order (`ModePreferences`, backed by `SettingsStore`). There
-  are nine modes total when nothing's hidden.
+  are seven modes total when nothing's hidden.
 - **Landscape** works for Spectrum, Rainbow Spectrum, and Neon Cyan Pulse -- the modes that
   actually gain something from the extra width. Every other mode is a centered radial/point
   composition rather than a horizontal layout, so it's locked back to portrait the instant it's
@@ -39,11 +39,6 @@ on the device: Spotify, YouTube Music, or anything else.
   reference grid and frequency labels for orientation across the range. *Settings: Cool (blue-to-
   white), Classic (green-yellow-red), or Frequency (Neon Cyan Pulse's frequency-reactive coloring,
   applied to Spectrum's own upward bars) color scheme.*
-- **Graphic EQ**: a classic discrete-LED equalizer bank -- the kind of spectrum display built into
-  receivers and separates -- with per-band peak-hold segments and the same dB/frequency axes as
-  Spectrum, built on the same FFT bands. *Settings: Classic (green/amber/red-by-height) or
-  Frequency (same frequency-reactive coloring as Spectrum/Neon Cyan Pulse, with the top segment
-  always flashing red as a clip warning regardless of scheme) color scheme.*
 - **Rainbow Spectrum**: a mirrored FFT bar spectrum -- bars reflect top and bottom off a horizontal
   center axis instead of growing from the bottom only -- with a fixed horizontal rainbow gradient
   (blue/purple through magenta and orange to yellow) and a soft glow, on pure black. *Settings:
@@ -66,21 +61,13 @@ on the device: Spotify, YouTube Music, or anything else.
   petal is repeated 8 times around a slow, continuously rotating circle. Colored with a true closed
   360-degree rainbow hue wheel centered on the bloom, so the whole rainbow visibly rotates along with
   the pattern. *Settings: Sensitivity, Petal Thickness, Bloom Size.*
-- **Radial Spectrum Burst**: a full 360-degree burst of rays, one per FFT band, radiating from
-  center like sun rays -- every band is continuously, visibly live at all times (band 0 at 12
-  o'clock, sweeping clockwise, the same low-to-high convention every other mode uses), rather than
-  reacting to only a handful of bass bands and sitting still otherwise. A genuine bass drop still
-  gets its own moment: the same onset detector Bass Drop Shockwave (the mode this replaces) used,
-  scoped to only the lowest few bands, fires a single one-shot expanding ring plus a brief
-  full-screen flash in the app's own accent color, layered on top of the rays rather than replacing
-  them. *Settings: Sensitivity, Ray Thickness, Max Reach.*
-- **Equalizer Constellation**: a small constellation of 12 stars, each a coarse aggregate of a
-  contiguous range of FFT bands (not one dot per raw band -- 28 of them crammed around one ring read
-  as a wiring diagram, not stars). Each star continuously drifts around its own base position at its
-  own slightly-offset period and pushes outward with its own current level, so the whole shape is
-  always gently, independently moving rather than permanently fixed in place with only size/
-  brightness reacting. Thin lines connect neighboring stars, brightening and thickening with the
-  music. *Settings: Sensitivity, Line Thickness, Star Growth.*
+- **Lava Waveform**: the only time-domain mode in the app -- a single jagged line tracing the raw
+  captured audio waveform itself, the literal oscilloscope look, rather than a treatment of FFT
+  band levels like every other mode. Colored with a full rainbow hue sweep along the line's length
+  that continuously, slowly rotates over time, so the color genuinely flows like molten lava instead
+  of sitting in fixed frequency zones -- louder moments along the trace glow hotter/brighter than
+  quiet ones, rather than the whole line staying one flat brightness. *Settings: Sensitivity, Line
+  Thickness, Max Amplitude.*
 
 ## How the meter works
 
@@ -134,10 +121,11 @@ until other modes started depending on genuine per-band contrast to work at all.
 
 ## How the newer instruments work
 
-Every mode past Graphic EQ reads [SpectrumEngine]'s bands directly, with no dedicated engine or
+Every mode past Spectrum reads [SpectrumEngine]'s bands directly, with no dedicated engine or
 capture path of its own -- each is a different rendering treatment of the exact same already-smoothed
 data, tunable through its own `BarSpectrumSettings` (three underlying sliders, labeled per mode in
-its gear panel rather than a generic "Scale/Stroke Weight/Height").
+its gear panel rather than a generic "Scale/Stroke Weight/Height"). Lava Waveform is the one
+exception -- see its own paragraph below.
 
 - **Rainbow Spectrum** and **Neon Cyan Pulse**: `RainbowSpectrumScreen` and `NeonCyanPulseScreen`
   are pure rendering choices on `SpectrumEngine`'s bands -- the mirrored layout, colors, bar
@@ -174,36 +162,22 @@ its gear panel rather than a generic "Scale/Stroke Weight/Height").
   `GradientColors.kt`, the same technique Radial Pulse Ring used earlier) centered on the bloom --
   since the shader is keyed to canvas-space angle rather than petal-local position, the whole
   rainbow visibly rotates along with the pattern with no color logic of its own to keep in sync.
-- **Radial Spectrum Burst**: `RadialSpectrumBurstScreen` replaces Bass Drop Shockwave, whose ring
-  only ever reacted to `BASS_BAND_COUNT` bass bands and otherwise sat nearly still -- this mode
-  inverts the balance so the *primary* visual is continuously live across the whole spectrum. Every
-  one of `SpectrumEngine`'s bands draws its own ray from center each frame (`angle = (i/bandCount) *
-  360 - 90`, so band 0 sits at 12 o'clock and rays sweep clockwise), length driven by that band's own
-  level raised to a sensitivity gamma, colored with `frequencyZoneColor` keyed to the band's position
-  -- so every band is visibly live at all times rather than only the lowest few. Reuses the exact
-  onset detector from Bass Drop Shockwave unchanged (renamed `radialBurstShouldTrigger` -- the
-  additive-delta-above-a-rolling-baseline math was never what was broken about that mode, only its
-  balance of continuous-vs-event-driven motion was), scoped to only the lowest few bands as before.
-  Unlike Bass Drop Shockwave's damped-spring ring, a trigger here fires a single one-shot expanding
-  ring plus a brief full-screen flash, both pure functions of time-since-trigger rather than their
-  own physics simulation -- this mode doesn't need a spring's overshoot-and-settle because the rays
-  already carry all the continuous motion; the ripple only has to read as one clean pulse layered on
-  top. Sensitivity (`settings.scale`) now does double duty: it drives both the onset threshold and
-  the rays' amplitude response, so turning it up makes the whole mode visibly more reactive in one
-  coherent motion instead of only affecting an invisible trigger threshold.
-- **Equalizer Constellation**: `EqualizerConstellationScreen` aggregates `SpectrumEngine`'s bands
-  into a fixed `STAR_COUNT` (12) rather than one node per raw FFT band -- 28 dots crammed around one
-  ring read as a wiring diagram, not a constellation, so each star instead averages a contiguous
-  range of bands, still spanning the full bass-to-treble sweep at a coarser resolution. Each star's
-  angular position continuously drifts around its own base angle (a per-star sine wave, offset in
-  both phase and period so stars move independently rather than in unison) and its radial distance
-  pushes outward with its own current level -- real per-frame motion, not the earlier version's
-  permanently fixed layout with only size/brightness reacting. Lines connect each star only to its
-  immediate neighbors around the ring, not every star to every other star, with width and alpha
-  driven by the average of the two endpoints' levels and floored at a minimum alpha so the network
-  never fully vanishes at silence. Color is `frequencyZoneColor` keyed to each star's position in
-  the sequence; a connection's color is the midpoint between its two endpoints' colors via
-  `lerpGradientColor`.
+- **Lava Waveform**: `LavaWaveformScreen` is the one mode that reads raw PCM directly from
+  `AudioAnalyzer.snapshots.value.waveform` rather than `SpectrumEngine`'s FFT bands -- a genuine
+  time-domain trace instead of a frequency-domain one. That raw mono waveform has been captured and
+  published by `AudioCaptureService` since the original Oscilloscope/Waveform Ribbon modes existed,
+  but nothing consumed it after those were removed; this is the first live reader again. Each frame
+  decimates the freshest buffer to a fixed `POINT_COUNT` (160) display points by taking the signed
+  sample of *largest magnitude* within each bucket, not an average -- an average would smear out
+  exactly the sharp transients a waveform trace exists to show. Points are connected with straight
+  segments and deliberately not smoothed frame-to-frame, unlike every band-driven mode's
+  fast-attack/slow-decay filtering -- each frame's buffer is genuinely different audio content, not
+  a continuous quantity that benefits from easing toward a new target. Color is a full rainbow hue
+  sweep along the line's length, continuously rotating over time (`HUE_ROTATION_DEGREES_PER_SECOND`,
+  delta-time based like Kaleidoscope Bloom's rotation) via `android.graphics.Color.HSVToColor`
+  computed per point rather than a fixed shader, with each point's own amplitude independently
+  boosting its brightness -- louder moments glow hotter, and even silence still glows dimly
+  (`LAVA_BASE_BRIGHTNESS`) rather than going fully dark, the way real lava never looks black.
 
 ### Refresh rate handling
 
@@ -233,9 +207,9 @@ the same target over the same wall-clock time, not faster-looking motion.
 Distinct from each visualizer mode's own gear-icon tuning panel, the hamburger icon opens an
 app-wide settings screen:
 
-Sections run in the order settings that change how the app behaves or looks (Display, Haptics,
-Appearance, Modes), then launcher shortcuts to other apps that aren't really a Sam's Music Viz
-setting at all (Players), then update/diagnostic/about administrivia last.
+Sections run in the order settings that change how the app behaves or looks (Display, Appearance,
+Modes), then launcher shortcuts to other apps that aren't really a Sam's Music Viz setting at all
+(Players), then update/diagnostic/about administrivia last.
 
 - **Display**: a "Keep Screen On" toggle (`View.keepScreenOn` -- Android doesn't let third-party
   apps change the system screen-timeout duration directly, that needs the sensitive
@@ -244,17 +218,13 @@ setting at all (Players), then update/diagnostic/about administrivia last.
   `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE` so a swipe from an edge still reveals them temporarily).
   The app also isn't locked to portrait anymore -- it follows whatever the device's own
   rotation-lock setting allows, rather than forcing one orientation.
-- **Haptics**: a "Bass Drop Vibration" toggle -- a short `VibrationEffect.createOneShot` pulse
-  (`HapticPulse`) fired once per Radial Spectrum Burst bass-drop trigger, not per frame, so it
-  punctuates a hit rather than buzzing continuously. Its own section rather than folded into Display, since it isn't
-  a display behavior and it's where any future vibration setting belongs.
 - **Appearance**: a custom accent color and a custom canvas background color, both expressed as
   Hue/Saturation/Brightness sliders (via `android.graphics.Color.HSVToColor`) rather than RGB so
   three sliders cover the whole range, each with a live preview swatch. `VisualizerTheme.ACCENT`
   and `VisualizerTheme.CANVAS_BACKGROUND` are both mutable Compose state rather than fixed
   constants specifically so this section can override them -- and since every mode already reads
-  `ACCENT` (chips, the VU needle's glow, Spectrum's Cool and Frequency schemes, Graphic EQ's lit
-  segments, Radial Spectrum Burst's rays, ring and flash, and more) and draws `CANVAS_BACKGROUND` as its
+  `ACCENT` (chips, the VU needle's glow, Spectrum's Cool and Frequency schemes, and more) and draws
+  `CANVAS_BACKGROUND` as its
   first draw call, one custom color each cascades across the whole app instead of needing a picker
   per mode. `ACCENT_DIM` derives from `ACCENT` rather than being independent, so it stays coherent
   with whatever's picked. The background picker caps Brightness at 0.4 (unlike the accent picker's
@@ -357,9 +327,10 @@ framework calls, so their ballistics/DSP math has plain-JVM JUnit coverage under
 `app/src/test/java/` -- no Robolectric or emulator needed. `SpectrumAnalyzerTest` in particular is
 a regression guard for the FFT-magnitude-normalization bug described above: without dividing raw
 FFT magnitude back down by `FFT_SIZE` before the dB conversion, every band reads pinned near the
-ceiling regardless of what's actually playing. Every visualizer mode past Graphic EQ is a pure
-rendering treatment of already-tested `SpectrumEngine` data with no DSP of its own, so none of them
-need a dedicated test file the way an engine with real math does.
+ceiling regardless of what's actually playing. Every visualizer mode past Spectrum is a pure
+rendering treatment of already-tested `SpectrumEngine` data (or, for Lava Waveform, of the raw PCM
+`AudioAnalyzer` already publishes) with no DSP of its own, so none of them need a dedicated test
+file the way an engine with real math does.
 
 ```
 cd NeverSpiral
