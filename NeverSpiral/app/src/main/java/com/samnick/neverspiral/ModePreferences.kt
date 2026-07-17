@@ -14,6 +14,8 @@ enum class VisualMode(val label: String) {
     AUDIO_FIREFLIES("Audio Fireflies"),
     KALEIDOSCOPE_BLOOM("Kaleidoscope Bloom"),
     LAVA_WAVEFORM("Lava Waveform"),
+    WHITE_WAVEFORM("White Waveform"),
+    ECHO_WAVEFORM("Echo Waveform"),
 }
 
 private const val KEY_MODE_ORDER = "mode_order"

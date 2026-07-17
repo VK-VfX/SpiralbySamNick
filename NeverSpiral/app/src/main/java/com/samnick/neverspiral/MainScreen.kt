@@ -68,6 +68,8 @@ private val MODES_WITH_SETTINGS = setOf(
     VisualMode.AUDIO_FIREFLIES,
     VisualMode.KALEIDOSCOPE_BLOOM,
     VisualMode.LAVA_WAVEFORM,
+    VisualMode.WHITE_WAVEFORM,
+    VisualMode.ECHO_WAVEFORM,
 )
 
 private const val SWIPE_THRESHOLD_PX = 90f
@@ -84,7 +86,7 @@ private val MODES_ALLOWING_LANDSCAPE = setOf(
 )
 
 /**
- * Hosts up to seven visualizer modes (fewer if the user's hidden some via the "Modes" section in
+ * Hosts up to nine visualizer modes (fewer if the user's hidden some via the "Modes" section in
  * [AppSettingsScreen], see [ModePreferences]) plus the single shared "Visualize music" capture
  * toggle. A persistent, horizontally-scrollable row of mode chips below the visualizer is the
  * primary way to switch -- tap the specific mode you want directly, rather than repeatedly tapping
@@ -99,10 +101,11 @@ private val MODES_ALLOWING_LANDSCAPE = setOf(
  * [SpectrumScreen] draws, so none of them need a dedicated engine of their own -- just their own
  * [BarSpectrumSettings], the same three underlying sliders every such mode shares, each labeled per
  * mode in [BarSpectrumSettingsPanel] to describe what it actually controls there instead of a
- * generic "Scale/Stroke Weight/Height" for everything. [LavaWaveformScreen] is the one exception --
- * it reads raw PCM waveform data from [AudioAnalyzer] directly rather than [SpectrumEngine]'s
- * bands, since it's a time-domain trace rather than a frequency-domain one, but still shares the
- * same [BarSpectrumSettings] shape for consistency with every other mode's gear panel.
+ * generic "Scale/Stroke Weight/Height" for everything. [LavaWaveformScreen], [WhiteWaveformScreen],
+ * and [EchoWaveformScreen] are the exceptions -- they read raw PCM waveform data from
+ * [AudioAnalyzer] directly rather than [SpectrumEngine]'s bands, since they're time-domain traces
+ * rather than frequency-domain ones, but still share the same [BarSpectrumSettings] shape for
+ * consistency with every other mode's gear panel.
  */
 @Composable
 fun MainScreen() {
@@ -152,6 +155,20 @@ fun MainScreen() {
             initialScale = SettingsStore.getFloat(context, KEY_LAVA_SCALE, 1f),
             initialStrokeWeight = SettingsStore.getFloat(context, KEY_LAVA_STROKE_WEIGHT, 1f),
             initialHeight = SettingsStore.getFloat(context, KEY_LAVA_HEIGHT, 0.46f),
+        )
+    }
+    val whiteWaveformSettings = remember {
+        BarSpectrumSettings(
+            initialScale = SettingsStore.getFloat(context, KEY_WHITE_SCALE, 1f),
+            initialStrokeWeight = SettingsStore.getFloat(context, KEY_WHITE_STROKE_WEIGHT, 1f),
+            initialHeight = SettingsStore.getFloat(context, KEY_WHITE_HEIGHT, 0.46f),
+        )
+    }
+    val echoWaveformSettings = remember {
+        BarSpectrumSettings(
+            initialScale = SettingsStore.getFloat(context, KEY_ECHO_SCALE, 1f),
+            initialStrokeWeight = SettingsStore.getFloat(context, KEY_ECHO_STROKE_WEIGHT, 1f),
+            initialHeight = SettingsStore.getFloat(context, KEY_ECHO_HEIGHT, 0.46f),
         )
     }
 
@@ -300,6 +317,8 @@ fun MainScreen() {
                         VisualMode.AUDIO_FIREFLIES -> AudioFirefliesScreen(spectrum, audioFirefliesSettings)
                         VisualMode.KALEIDOSCOPE_BLOOM -> KaleidoscopeBloomScreen(spectrum, kaleidoscopeBloomSettings)
                         VisualMode.LAVA_WAVEFORM -> LavaWaveformScreen(spectrum, lavaWaveformSettings)
+                        VisualMode.WHITE_WAVEFORM -> WhiteWaveformScreen(spectrum, whiteWaveformSettings)
+                        VisualMode.ECHO_WAVEFORM -> EchoWaveformScreen(spectrum, echoWaveformSettings)
                     }
                 }
 
@@ -365,6 +384,8 @@ fun MainScreen() {
                                 audioFirefliesSettings = audioFirefliesSettings,
                                 kaleidoscopeBloomSettings = kaleidoscopeBloomSettings,
                                 lavaWaveformSettings = lavaWaveformSettings,
+                                whiteWaveformSettings = whiteWaveformSettings,
+                                echoWaveformSettings = echoWaveformSettings,
                             )
                         }
                     }
@@ -439,6 +460,8 @@ private fun SettingsPanelContent(
     audioFirefliesSettings: BarSpectrumSettings,
     kaleidoscopeBloomSettings: BarSpectrumSettings,
     lavaWaveformSettings: BarSpectrumSettings,
+    whiteWaveformSettings: BarSpectrumSettings,
+    echoWaveformSettings: BarSpectrumSettings,
 ) {
     when (mode) {
         VisualMode.VU_METER -> {
@@ -479,6 +502,14 @@ private fun SettingsPanelContent(
         )
         VisualMode.LAVA_WAVEFORM -> BarSpectrumSettingsPanel(
             lavaWaveformSettings, context, KEY_LAVA_SCALE, KEY_LAVA_STROKE_WEIGHT, KEY_LAVA_HEIGHT,
+            scaleLabel = "Sensitivity", strokeWeightLabel = "Line Thickness", heightLabel = "Max Amplitude",
+        )
+        VisualMode.WHITE_WAVEFORM -> BarSpectrumSettingsPanel(
+            whiteWaveformSettings, context, KEY_WHITE_SCALE, KEY_WHITE_STROKE_WEIGHT, KEY_WHITE_HEIGHT,
+            scaleLabel = "Sensitivity", strokeWeightLabel = "Outline Thickness", heightLabel = "Max Amplitude",
+        )
+        VisualMode.ECHO_WAVEFORM -> BarSpectrumSettingsPanel(
+            echoWaveformSettings, context, KEY_ECHO_SCALE, KEY_ECHO_STROKE_WEIGHT, KEY_ECHO_HEIGHT,
             scaleLabel = "Sensitivity", strokeWeightLabel = "Line Thickness", heightLabel = "Max Amplitude",
         )
     }
@@ -589,3 +620,9 @@ private const val KEY_BLOOM_HEIGHT = "kaleidoscope_bloom_height"
 private const val KEY_LAVA_SCALE = "lava_waveform_scale"
 private const val KEY_LAVA_STROKE_WEIGHT = "lava_waveform_stroke_weight"
 private const val KEY_LAVA_HEIGHT = "lava_waveform_height"
+private const val KEY_WHITE_SCALE = "white_waveform_scale"
+private const val KEY_WHITE_STROKE_WEIGHT = "white_waveform_stroke_weight"
+private const val KEY_WHITE_HEIGHT = "white_waveform_height"
+private const val KEY_ECHO_SCALE = "echo_waveform_scale"
+private const val KEY_ECHO_STROKE_WEIGHT = "echo_waveform_stroke_weight"
+private const val KEY_ECHO_HEIGHT = "echo_waveform_height"

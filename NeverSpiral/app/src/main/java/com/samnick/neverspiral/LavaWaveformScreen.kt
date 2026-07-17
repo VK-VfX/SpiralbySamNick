@@ -94,26 +94,8 @@ fun LavaWaveformScreen(engine: SpectrumEngine, settings: BarSpectrumSettings) {
             glowHolder[0] = glow
         }
 
-        val raw = AudioAnalyzer.snapshots.value.waveform
-        val n = raw.size
         val points = pointsHolder
-        if (n == 0) {
-            points.fill(0f)
-        } else if (n <= POINT_COUNT) {
-            for (i in points.indices) points[i] = raw[(i.toLong() * n / POINT_COUNT).toInt().coerceIn(0, n - 1)]
-        } else {
-            val bucket = n / POINT_COUNT
-            for (i in points.indices) {
-                val start = i * bucket
-                val end = if (i == POINT_COUNT - 1) n else start + bucket
-                var best = 0f
-                for (j in start until end) {
-                    val v = raw[j]
-                    if (abs(v) > abs(best)) best = v
-                }
-                points[i] = best
-            }
-        }
+        decimateWaveform(AudioAnalyzer.snapshots.value.waveform, points)
 
         val minDim = size.minDimension
         val centerY = size.height / 2f
