@@ -11,18 +11,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
-import kotlin.math.PI
 import kotlin.math.pow
-import kotlin.math.sin
 
 private const val BAR_COUNT = SpectrumAnalyzer.BAND_COUNT * 2
 private const val DOT_RADIUS_FRACTION = 0.0038f
 private const val DOT_SPACING_FRACTION = 0.014f
 private const val SENSITIVITY_GAMMA = 0.85f
-
-/** A dot's brightness never drops fully to zero even at the row's faded edges, so the shape stays
- * legible rather than disappearing outright. */
-private const val EDGE_FADE_MIN_FRACTION = 0.3f
 
 private const val GLOW_RADIUS_FRACTION = 0.024f
 private const val GLOW_ALPHA = 150
@@ -32,12 +26,9 @@ private const val GLOW_ALPHA = 150
  * level becomes a column of small filled circles marching outward from the mirror axis instead of
  * one solid stroke, a dot-matrix/LED-cluster texture distinct from every other bar mode's solid
  * fill. Color is a single user-picked hue via [ColorWheelPicker] ([CustomColorSettings]), like
- * [HorizonSpectrumScreen], rather than fixed or frequency-reactive.
- *
- * Brightness also fades toward the row's left and right edges (a raised-cosine window peaking at
- * the center column, floored at [EDGE_FADE_MIN_FRACTION] so the edges dim rather than vanish) --
- * the faded-edges texture from the reference this mode is based on, distinct from every other bar
- * mode's uniform-brightness row.
+ * [SkylineSpectrumScreen] and [ShadowWaveformScreen], rather than fixed or frequency-reactive --
+ * with no artificial left/right fade of its own, so the column heights and their live variation
+ * come entirely from the actual audio.
  */
 @Composable
 fun DotSpectrumScreen(engine: SpectrumEngine, settings: BarSpectrumSettings, colorSettings: CustomColorSettings) {
@@ -73,6 +64,7 @@ fun DotSpectrumScreen(engine: SpectrumEngine, settings: BarSpectrumSettings, col
         val dotPaint = AndroidPaint().apply {
             isAntiAlias = true
             style = AndroidPaint.Style.FILL
+            color = android.graphics.Color.HSVToColor(floatArrayOf(colorSettings.hue, colorSettings.saturation, colorSettings.value))
         }
 
         for (i in 0 until BAR_COUNT) {
@@ -80,12 +72,6 @@ fun DotSpectrumScreen(engine: SpectrumEngine, settings: BarSpectrumSettings, col
             val level = (rawLevel.pow(SENSITIVITY_GAMMA) * settings.scale).coerceIn(0f, 1f)
             val half = level * maxHalf
             val cx = (i + 0.5f) * pitch
-
-            val edgeFade = EDGE_FADE_MIN_FRACTION +
-                (1f - EDGE_FADE_MIN_FRACTION) * sin(PI * i / (BAR_COUNT - 1).coerceAtLeast(1)).toFloat()
-            dotPaint.color = android.graphics.Color.HSVToColor(
-                floatArrayOf(colorSettings.hue, colorSettings.saturation, colorSettings.value * edgeFade),
-            )
 
             val dotCount = (half / dotSpacing).toInt()
             for (j in 0..dotCount) {
@@ -110,7 +96,7 @@ fun DotSpectrumScreen(engine: SpectrumEngine, settings: BarSpectrumSettings, col
     }
 }
 
-/** Linearly interpolates [bands] up to [totalBars] positions -- see [HorizonSpectrumScreen]'s copy
+/** Linearly interpolates [bands] up to [totalBars] positions -- see [NeonCyanPulseScreen]'s copy
  * of the same helper for why this is duplicated rather than shared. */
 private fun interpolatedBand(bands: FloatArray, i: Int, totalBars: Int): Float {
     if (bands.isEmpty()) return 0f

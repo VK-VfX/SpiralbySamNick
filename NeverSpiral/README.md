@@ -65,20 +65,20 @@ on the device: Spotify, YouTube Music, or anything else.
   axis is filled solid, reading as a soft glowing silhouette rather than a wire outline, with a
   thin crisp white edge on top of the fill. *Settings: Sensitivity, Outline Thickness, Max
   Amplitude.*
-- **Horizon Spectrum**: a very dense mirrored FFT bar spectrum -- three times the source band
-  count via linear interpolation, for a solid "wall of bars" mass -- colored with a single
-  user-picked hue (`ColorWheelPicker`, see below) rather than a fixed or frequency-reactive
-  palette, with a bright horizontal seam drawn across the middle of the bar mass. *Settings:
-  Sensitivity, Bar Thickness, Bar Height, plus a color wheel.*
-- **Dot Spectrum**: the same mirrored bar-spectrum idea, but each band's level is a column of
-  small stacked dots rather than one continuous bar -- a dot-matrix/LED-cluster texture. Also a
-  single user-picked hue, with brightness additionally fading toward the row's left and right
-  edges. *Settings: Sensitivity, Dot Size, Bar Height, plus a color wheel.*
-- **Skyline Spectrum**: the same FFT bands drawn three times at decreasing scale, opacity, and
-  brightness rather than once, growing from the bottom edge only (not mirrored) -- a city-skyline
-  read, where the back layers sit behind and below the front one like hazier, more distant
-  buildings. Also a single user-picked hue. *Settings: Sensitivity, Bar Thickness, Bar Height,
-  plus a color wheel.*
+- **Shadow Waveform**: also the same raw waveform trace as Lava/White Waveform, but drawn twice --
+  the live trace at full brightness, plus a second "shadow" trace holding whatever it looked like a
+  moment ago, dimmer and drawn first so the live trace sits on top of it. Colored with a single
+  user-picked hue (`ColorWheelPicker`, see below) rather than Lava Waveform's rotating rainbow.
+  *Settings: Sensitivity, Line Thickness, Max Amplitude, plus a color wheel.*
+- **Dot Spectrum**: a mirrored FFT bar spectrum where each band's level is a column of small
+  stacked dots rather than one continuous bar -- a dot-matrix/LED-cluster texture. Also a single
+  user-picked hue. *Settings: Sensitivity, Dot Size, Bar Height, plus a color wheel.*
+- **Skyline Spectrum**: an FFT bar spectrum, growing from the bottom edge only (not mirrored),
+  where each bar is its own vertical gradient -- the full picked color at the tip fading down to
+  near-black at the base, a shaded-segment look rather than one flat fill. Unlike every other bar
+  mode, quiet bands are never floored to a minimum height, so genuine gaps of silence appear on
+  their own between bursts of activity. *Settings: Sensitivity, Bar Thickness, Bar Height, plus a
+  color wheel.*
 
 ## How the meter works
 
@@ -135,10 +135,10 @@ until other modes started depending on genuine per-band contrast to work at all.
 Every mode past Spectrum reads [SpectrumEngine]'s bands directly, with no dedicated engine or
 capture path of its own -- each is a different rendering treatment of the exact same already-smoothed
 data, tunable through its own `BarSpectrumSettings` (three underlying sliders, labeled per mode in
-its gear panel rather than a generic "Scale/Stroke Weight/Height"). Lava Waveform and White
-Waveform are the exceptions -- see their own paragraph below. Horizon Spectrum, Dot Spectrum, and
-Skyline Spectrum also each pair a `BarSpectrumSettings` with a `CustomColorSettings` for a
-user-picked fill color -- see "How the color wheel works" further down.
+its gear panel rather than a generic "Scale/Stroke Weight/Height"). Lava Waveform, White Waveform,
+and Shadow Waveform are the exceptions -- see their own paragraph below. Shadow Waveform, Dot
+Spectrum, and Skyline Spectrum also each pair a `BarSpectrumSettings` with a `CustomColorSettings`
+for a user-picked fill color -- see "How the color wheel works" further down.
 
 - **Rainbow Spectrum** and **Neon Cyan Pulse**: `RainbowSpectrumScreen` and `NeonCyanPulseScreen`
   are pure rendering choices on `SpectrumEngine`'s bands -- the mirrored layout, colors, bar
@@ -167,13 +167,13 @@ user-picked fill color -- see "How the color wheel works" further down.
   `GradientColors.kt`, the same technique Radial Pulse Ring used earlier) centered on the bloom --
   since the shader is keyed to canvas-space angle rather than petal-local position, the whole
   rainbow visibly rotates along with the pattern with no color logic of its own to keep in sync.
-- **Lava Waveform** and **White Waveform** both read raw PCM directly from
+- **Lava Waveform**, **White Waveform**, and **Shadow Waveform** all read raw PCM directly from
   `AudioAnalyzer.snapshots.value.waveform` rather than `SpectrumEngine`'s FFT bands -- a genuine
   time-domain trace instead of a frequency-domain one. That raw mono waveform has been captured and
   published by `AudioCaptureService` since the original Oscilloscope/Waveform Ribbon modes existed,
   but nothing consumed it after those were removed; Lava Waveform was the first live reader again.
-  Each frame, both modes decimate the freshest buffer to a fixed `POINT_COUNT` (160) display points
-  via the shared `decimateWaveform` (`WaveformDecimation.kt`) by taking the signed sample of
+  Each frame, all three modes decimate the freshest buffer to a fixed `POINT_COUNT` (160) display
+  points via the shared `decimateWaveform` (`WaveformDecimation.kt`) by taking the signed sample of
   *largest magnitude* within each bucket, not an average -- an average would smear out exactly the
   sharp transients a waveform trace exists to show. Points are connected with straight segments and
   deliberately not smoothed frame-to-frame, unlike every band-driven mode's fast-attack/slow-decay
@@ -192,26 +192,30 @@ user-picked fill color -- see "How the color wheel works" further down.
     crosses the axis many times, without needing separate top/bottom sub-paths. A thin white
     outline stroke of the same path on top keeps the silhouette's edge crisp rather than a soft
     blurred blob.
-- **Horizon Spectrum**, **Dot Spectrum**, and **Skyline Spectrum** are all single-hue variants of
-  the mirrored/upward FFT bar spectrum, colored via a user-picked `CustomColorSettings` rather than
-  fixed or frequency-reactive -- see "How the color wheel works" below for the picker itself.
-  - **Horizon Spectrum** (`HorizonSpectrumScreen`): `SpectrumAnalyzer.BAND_COUNT * 3` bars via the
-    same linear-interpolation technique Neon Cyan Pulse uses, for a denser "wall of bars" mass than
-    any other bar mode. Brightness (not hue) reacts to each bar's own level, floored at
-    `BASE_BRIGHTNESS_FRACTION` so quiet bars stay visible rather than vanishing. A bright horizontal
-    seam is drawn once across the full width at the mirror axis, into the same bitmap as the bars,
-    before the single glow blur pass.
+  - **Shadow Waveform** (`ShadowWaveformScreen`): draws the decimated points twice per frame rather
+    than once -- the live trace at full brightness/alpha, and a second "shadow" trace holding
+    whatever the live trace looked like `SHADOW_CAPTURE_INTERVAL_SECONDS` ago (a plain
+    `FloatArray.copyInto` snapshot on a fixed timer, not a rolling multi-frame history), drawn first
+    and dimmer so the live trace sits on top of it. Both traces share the same single user-picked
+    hue via `ColorWheelPicker`, differing only in brightness and alpha, rather than Lava Waveform's
+    rotating rainbow.
+- **Dot Spectrum** and **Skyline Spectrum** are both single-hue variants of the FFT bar spectrum,
+  colored via a user-picked `CustomColorSettings` rather than fixed or frequency-reactive -- see
+  "How the color wheel works" below for the picker itself.
   - **Dot Spectrum** (`DotSpectrumScreen`): each band's level becomes a column of small filled
     circles marching outward from the mirror axis (mirrored top and bottom) rather than one
-    continuous stroke -- a dot-matrix texture, spaced by a fixed `DOT_SPACING_FRACTION`. Brightness
-    also fades toward the row's left and right edges via a raised-cosine window
-    (`sin(PI * i / (BAR_COUNT - 1))`) floored at `EDGE_FADE_MIN_FRACTION`, so the edges dim rather
-    than disappear.
-  - **Skyline Spectrum** (`SkylineSpectrumScreen`): the same band data is drawn three times
-    (`LAYERS`) at decreasing scale, alpha, and brightness rather than once, each layer a full pass
-    of filled (not stroked) bars growing from the bottom edge, not mirrored. The back layers read
-    as more distant, hazier buildings and the front layer as the nearest and brightest -- a simple
-    parallax-depth cue from three static draws of the same data rather than real depth or offset.
+    continuous stroke -- a dot-matrix texture, spaced by a fixed `DOT_SPACING_FRACTION`. Color is
+    the same picked hue for every dot; the column heights' own live variation, driven entirely by
+    the real audio, is what gives the row its shape -- no artificial per-position fade layered on
+    top.
+  - **Skyline Spectrum** (`SkylineSpectrumScreen`): each bar is its own `LinearGradient`, the full
+    picked color at the tip fading to `BASE_BRIGHTNESS_FRACTION` of it (near-black) at the base --
+    a shaded-segment look per bar, rather than every mode's flat single-color fill. Unlike every
+    other bar mode, a bar's height is never floored to a minimum -- a genuinely silent band draws
+    at zero height and is skipped entirely, so real gaps of silence between bursts of activity
+    appear on their own from the live audio, matching the reference this mode is based on, rather
+    than a bar mass that never fully empties. Bars grow from the bottom edge only, like
+    `SpectrumScreen`, not mirrored.
 
 ### How the color wheel works
 
@@ -227,7 +231,7 @@ touch point relative to center. A brightness slider sits below the wheel, and a 
 above it shows the exact selected color (true `HSVToColor`, not the wheel's visual approximation).
 
 `CustomColorSettings` (hue/saturation/value, mirroring `AppearanceSettings`'s own HSV storage) is a
-small settings holder shared by Horizon Spectrum, Dot Spectrum, and Skyline Spectrum -- kept
+small settings holder shared by Shadow Waveform, Dot Spectrum, and Skyline Spectrum -- kept
 separate from `BarSpectrumSettings` rather than folded into it, since only these three modes need a
 custom color and every other `BarSpectrumSettings` consumer would otherwise carry three unused
 fields. Each mode still gets its own `BarSpectrumSettingsPanel` (Sensitivity/Thickness/Height)
@@ -383,9 +387,9 @@ framework calls, so their ballistics/DSP math has plain-JVM JUnit coverage under
 a regression guard for the FFT-magnitude-normalization bug described above: without dividing raw
 FFT magnitude back down by `FFT_SIZE` before the dB conversion, every band reads pinned near the
 ceiling regardless of what's actually playing. Every visualizer mode past Spectrum is a pure
-rendering treatment of already-tested `SpectrumEngine` data (or, for Lava Waveform and White
-Waveform, of the raw PCM `AudioAnalyzer` already publishes) with no DSP of its own, so none of them
-need a dedicated test file the way an engine with real math does.
+rendering treatment of already-tested `SpectrumEngine` data (or, for Lava Waveform, White Waveform,
+and Shadow Waveform, of the raw PCM `AudioAnalyzer` already publishes) with no DSP of its own, so
+none of them need a dedicated test file the way an engine with real math does.
 
 ```
 cd NeverSpiral

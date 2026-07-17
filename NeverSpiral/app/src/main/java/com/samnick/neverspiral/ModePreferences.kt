@@ -14,7 +14,7 @@ enum class VisualMode(val label: String) {
     KALEIDOSCOPE_BLOOM("Kaleidoscope Bloom"),
     LAVA_WAVEFORM("Lava Waveform"),
     WHITE_WAVEFORM("White Waveform"),
-    HORIZON_SPECTRUM("Horizon Spectrum"),
+    SHADOW_WAVEFORM("Shadow Waveform"),
     DOT_SPECTRUM("Dot Spectrum"),
     SKYLINE_SPECTRUM("Skyline Spectrum"),
 }

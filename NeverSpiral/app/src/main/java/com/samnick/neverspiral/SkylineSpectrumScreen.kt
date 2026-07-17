@@ -3,8 +3,10 @@ package com.samnick.neverspiral
 import android.graphics.Bitmap
 import android.graphics.BlurMaskFilter
 import android.graphics.Canvas as AndroidCanvas
+import android.graphics.LinearGradient
 import android.graphics.Paint as AndroidPaint
 import android.graphics.PorterDuff
+import android.graphics.Shader
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -20,25 +22,20 @@ private const val SENSITIVITY_GAMMA = 0.85f
 private const val GLOW_RADIUS_FRACTION = 0.024f
 private const val GLOW_ALPHA = 160
 
-/** Back-to-front layers: [scale] shrinks each layer's max height, [alpha] and [brightnessFraction]
- * both dim it, so the back layers read as distant, hazier buildings and the front layer as the
- * nearest, brightest, tallest one -- a simple parallax-depth cue from three static draws of the
- * same data rather than actual depth or offset. */
-private data class SkylineLayer(val scale: Float, val alpha: Int, val brightnessFraction: Float)
-
-private val LAYERS = listOf(
-    SkylineLayer(scale = 0.55f, alpha = 90, brightnessFraction = 0.45f),
-    SkylineLayer(scale = 0.78f, alpha = 160, brightnessFraction = 0.7f),
-    SkylineLayer(scale = 1f, alpha = 255, brightnessFraction = 1f),
-)
+/** How dark the base of each bar goes, as a fraction of the picked color's own brightness -- the
+ * tip stays the full picked color, the base fades nearly to black, so a single bar reads as a
+ * vertical gradient of shaded bands rather than one flat fill. */
+private const val BASE_BRIGHTNESS_FRACTION = 0.12f
 
 /**
  * A single-hue FFT bar spectrum (color via [ColorWheelPicker] / [CustomColorSettings], like
- * [HorizonSpectrumScreen] and [DotSpectrumScreen]) drawn three times at decreasing scale, alpha,
- * and brightness ([LAYERS]) rather than once -- a city-skyline read, where the back layers sit
- * behind and below the front one like hazier, more distant buildings, instead of every mode's
- * usual single solid row. Bars grow from the bottom edge only, like [SpectrumScreen], not mirrored
- * -- a skyline's buildings all share one ground line.
+ * [DotSpectrumScreen] and [ShadowWaveformScreen]) where each bar is its own vertical gradient --
+ * the full picked color at the tip fading down to near-black at the base -- rather than one flat
+ * fill, the shaded-segment look this mode is based on. Unlike every other bar mode, quiet bands are
+ * never floored to a minimum visible height: a genuinely silent band draws at zero height, so real
+ * gaps of silence between clusters of activity appear on their own from the live audio rather than
+ * a bar mass that never fully empties. Bars grow from the bottom edge only, like [SpectrumScreen],
+ * not mirrored.
  */
 @Composable
 fun SkylineSpectrumScreen(engine: SpectrumEngine, settings: BarSpectrumSettings, colorSettings: CustomColorSettings) {
@@ -70,24 +67,32 @@ fun SkylineSpectrumScreen(engine: SpectrumEngine, settings: BarSpectrumSettings,
         val pitch = size.width / BAR_COUNT
         val barWidth = pitch * BAR_WIDTH_FRACTION * settings.strokeWeight
 
+        val tipColor = android.graphics.Color.HSVToColor(
+            floatArrayOf(colorSettings.hue, colorSettings.saturation, colorSettings.value),
+        )
+        val baseColor = android.graphics.Color.HSVToColor(
+            floatArrayOf(colorSettings.hue, colorSettings.saturation, colorSettings.value * BASE_BRIGHTNESS_FRACTION),
+        )
+
         val barPaint = AndroidPaint().apply {
             isAntiAlias = true
             style = AndroidPaint.Style.FILL
         }
 
-        for (layer in LAYERS) {
-            barPaint.alpha = layer.alpha
-            for (i in 0 until BAR_COUNT) {
-                val rawLevel = engine.bands.getOrElse(i) { 0f }.coerceIn(0f, 1f)
-                val level = (rawLevel.pow(SENSITIVITY_GAMMA) * settings.scale).coerceIn(0f, 1f)
-                val barHeight = (level * maxHeight * layer.scale).coerceAtLeast(barWidth * 0.3f)
-                val left = i * pitch + (pitch - barWidth) / 2f
+        for (i in 0 until BAR_COUNT) {
+            val rawLevel = engine.bands.getOrElse(i) { 0f }.coerceIn(0f, 1f)
+            val level = (rawLevel.pow(SENSITIVITY_GAMMA) * settings.scale).coerceIn(0f, 1f)
+            val barHeight = level * maxHeight
+            if (barHeight <= 0f) continue
+            val left = i * pitch + (pitch - barWidth) / 2f
+            val top = baseY - barHeight
 
-                barPaint.color = android.graphics.Color.HSVToColor(
-                    floatArrayOf(colorSettings.hue, colorSettings.saturation, colorSettings.value * layer.brightnessFraction),
-                )
-                barsCanvas.drawRect(left, baseY - barHeight, left + barWidth, baseY, barPaint)
-            }
+            barPaint.shader = LinearGradient(
+                left, top, left, baseY,
+                tipColor, baseColor,
+                Shader.TileMode.CLAMP,
+            )
+            barsCanvas.drawRect(left, top, left + barWidth, baseY, barPaint)
         }
 
         val glowCanvas = AndroidCanvas(glow)

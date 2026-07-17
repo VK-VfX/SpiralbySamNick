@@ -7,8 +7,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 
 /**
- * A user-tunable HSV fill color, shared by every mode that exposes a [ColorWheelPicker] (Horizon
- * Spectrum, Dot Spectrum, Skyline Spectrum) -- kept separate from [BarSpectrumSettings] rather
+ * A user-tunable HSV fill color, shared by every mode that exposes a [ColorWheelPicker] (Shadow
+ * Waveform, Dot Spectrum, Skyline Spectrum) -- kept separate from [BarSpectrumSettings] rather
  * than folded into it, since only these three modes need a custom color and every other
  * [BarSpectrumSettings] consumer would otherwise carry three unused fields.
  */

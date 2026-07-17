@@ -73,7 +73,7 @@ private val MODES_WITH_SETTINGS = setOf(
     VisualMode.KALEIDOSCOPE_BLOOM,
     VisualMode.LAVA_WAVEFORM,
     VisualMode.WHITE_WAVEFORM,
-    VisualMode.HORIZON_SPECTRUM,
+    VisualMode.SHADOW_WAVEFORM,
     VisualMode.DOT_SPECTRUM,
     VisualMode.SKYLINE_SPECTRUM,
 )
@@ -102,18 +102,18 @@ private val MODES_ALLOWING_LANDSCAPE = setOf(
  * about) -- distinct from each mode's own gear-icon tuning panel. VU Meter and Spectrum are stepped
  * every frame regardless of which mode is showing, so switching between them and any other mode
  * still feels instant rather than starting from a frozen reading. Every mode past Spectrum
- * (Rainbow Spectrum, Neon Cyan Pulse, Kaleidoscope Bloom, Horizon Spectrum, Dot Spectrum, Skyline
- * Spectrum) is a pure rendering treatment of [SpectrumEngine]'s already fast-rise/slower-fall
- * smoothed bands, the same data [SpectrumScreen] draws, so none of them need a dedicated engine of
- * their own -- just their own [BarSpectrumSettings], the same three underlying sliders every such
- * mode shares, each labeled per mode in [BarSpectrumSettingsPanel] to describe what it actually
- * controls there instead of a generic "Scale/Stroke Weight/Height" for everything.
- * [LavaWaveformScreen] and [WhiteWaveformScreen] are the exceptions -- they read raw PCM waveform
- * data from [AudioAnalyzer] directly rather than [SpectrumEngine]'s bands, since they're
+ * (Rainbow Spectrum, Neon Cyan Pulse, Kaleidoscope Bloom, Dot Spectrum, Skyline Spectrum) is a pure
+ * rendering treatment of [SpectrumEngine]'s already fast-rise/slower-fall smoothed bands, the same
+ * data [SpectrumScreen] draws, so none of them need a dedicated engine of their own -- just their
+ * own [BarSpectrumSettings], the same three underlying sliders every such mode shares, each
+ * labeled per mode in [BarSpectrumSettingsPanel] to describe what it actually controls there
+ * instead of a generic "Scale/Stroke Weight/Height" for everything. [LavaWaveformScreen],
+ * [WhiteWaveformScreen], and [ShadowWaveformScreen] are the exceptions -- they read raw PCM
+ * waveform data from [AudioAnalyzer] directly rather than [SpectrumEngine]'s bands, since they're
  * time-domain traces rather than frequency-domain ones, but still share the same
- * [BarSpectrumSettings] shape for consistency with every other mode's gear panel. Horizon
- * Spectrum, Dot Spectrum, and Skyline Spectrum are also each paired with a [CustomColorSettings]
- * for a user-picked fill color via [ColorWheelPicker], rather than the fixed or frequency-reactive
+ * [BarSpectrumSettings] shape for consistency with every other mode's gear panel. Shadow Waveform,
+ * Dot Spectrum, and Skyline Spectrum are also each paired with a [CustomColorSettings] for a
+ * user-picked fill color via [ColorWheelPicker], rather than the fixed or frequency-reactive
  * coloring every other mode uses.
  */
 @Composable
@@ -166,18 +166,18 @@ fun MainScreen() {
             initialHeight = SettingsStore.getFloat(context, KEY_WHITE_HEIGHT, 0.46f),
         )
     }
-    val horizonSpectrumSettings = remember {
+    val shadowWaveformSettings = remember {
         BarSpectrumSettings(
-            initialScale = SettingsStore.getFloat(context, KEY_HORIZON_SCALE, 1f),
-            initialStrokeWeight = SettingsStore.getFloat(context, KEY_HORIZON_STROKE_WEIGHT, 1f),
-            initialHeight = SettingsStore.getFloat(context, KEY_HORIZON_HEIGHT, 0.46f),
+            initialScale = SettingsStore.getFloat(context, KEY_SHADOW_SCALE, 1f),
+            initialStrokeWeight = SettingsStore.getFloat(context, KEY_SHADOW_STROKE_WEIGHT, 1f),
+            initialHeight = SettingsStore.getFloat(context, KEY_SHADOW_HEIGHT, 0.46f),
         )
     }
-    val horizonColorSettings = remember {
+    val shadowColorSettings = remember {
         CustomColorSettings(
-            initialHue = SettingsStore.getFloat(context, KEY_HORIZON_HUE, 190f),
-            initialSaturation = SettingsStore.getFloat(context, KEY_HORIZON_SATURATION, 0.75f),
-            initialValue = SettingsStore.getFloat(context, KEY_HORIZON_VALUE, 0.85f),
+            initialHue = SettingsStore.getFloat(context, KEY_SHADOW_HUE, 190f),
+            initialSaturation = SettingsStore.getFloat(context, KEY_SHADOW_SATURATION, 0.75f),
+            initialValue = SettingsStore.getFloat(context, KEY_SHADOW_VALUE, 0.85f),
         )
     }
     val dotSpectrumSettings = remember {
@@ -354,7 +354,7 @@ fun MainScreen() {
                         VisualMode.KALEIDOSCOPE_BLOOM -> KaleidoscopeBloomScreen(spectrum, kaleidoscopeBloomSettings)
                         VisualMode.LAVA_WAVEFORM -> LavaWaveformScreen(spectrum, lavaWaveformSettings)
                         VisualMode.WHITE_WAVEFORM -> WhiteWaveformScreen(spectrum, whiteWaveformSettings)
-                        VisualMode.HORIZON_SPECTRUM -> HorizonSpectrumScreen(spectrum, horizonSpectrumSettings, horizonColorSettings)
+                        VisualMode.SHADOW_WAVEFORM -> ShadowWaveformScreen(spectrum, shadowWaveformSettings, shadowColorSettings)
                         VisualMode.DOT_SPECTRUM -> DotSpectrumScreen(spectrum, dotSpectrumSettings, dotColorSettings)
                         VisualMode.SKYLINE_SPECTRUM -> SkylineSpectrumScreen(spectrum, skylineSpectrumSettings, skylineColorSettings)
                     }
@@ -424,8 +424,8 @@ fun MainScreen() {
                                 kaleidoscopeBloomSettings = kaleidoscopeBloomSettings,
                                 lavaWaveformSettings = lavaWaveformSettings,
                                 whiteWaveformSettings = whiteWaveformSettings,
-                                horizonSpectrumSettings = horizonSpectrumSettings,
-                                horizonColorSettings = horizonColorSettings,
+                                shadowWaveformSettings = shadowWaveformSettings,
+                                shadowColorSettings = shadowColorSettings,
                                 dotSpectrumSettings = dotSpectrumSettings,
                                 dotColorSettings = dotColorSettings,
                                 skylineSpectrumSettings = skylineSpectrumSettings,
@@ -504,8 +504,8 @@ private fun SettingsPanelContent(
     kaleidoscopeBloomSettings: BarSpectrumSettings,
     lavaWaveformSettings: BarSpectrumSettings,
     whiteWaveformSettings: BarSpectrumSettings,
-    horizonSpectrumSettings: BarSpectrumSettings,
-    horizonColorSettings: CustomColorSettings,
+    shadowWaveformSettings: BarSpectrumSettings,
+    shadowColorSettings: CustomColorSettings,
     dotSpectrumSettings: BarSpectrumSettings,
     dotColorSettings: CustomColorSettings,
     skylineSpectrumSettings: BarSpectrumSettings,
@@ -552,13 +552,13 @@ private fun SettingsPanelContent(
             whiteWaveformSettings, context, KEY_WHITE_SCALE, KEY_WHITE_STROKE_WEIGHT, KEY_WHITE_HEIGHT,
             scaleLabel = "Sensitivity", strokeWeightLabel = "Outline Thickness", heightLabel = "Max Amplitude",
         )
-        VisualMode.HORIZON_SPECTRUM -> {
+        VisualMode.SHADOW_WAVEFORM -> {
             BarSpectrumSettingsPanel(
-                horizonSpectrumSettings, context, KEY_HORIZON_SCALE, KEY_HORIZON_STROKE_WEIGHT, KEY_HORIZON_HEIGHT,
-                scaleLabel = "Sensitivity", strokeWeightLabel = "Bar Thickness", heightLabel = "Bar Height",
+                shadowWaveformSettings, context, KEY_SHADOW_SCALE, KEY_SHADOW_STROKE_WEIGHT, KEY_SHADOW_HEIGHT,
+                scaleLabel = "Sensitivity", strokeWeightLabel = "Line Thickness", heightLabel = "Max Amplitude",
             )
             Spacer(modifier = Modifier.height(12.dp))
-            ColorWheelSettingsPanel(horizonColorSettings, context, KEY_HORIZON_HUE, KEY_HORIZON_SATURATION, KEY_HORIZON_VALUE)
+            ColorWheelSettingsPanel(shadowColorSettings, context, KEY_SHADOW_HUE, KEY_SHADOW_SATURATION, KEY_SHADOW_VALUE)
         }
         VisualMode.DOT_SPECTRUM -> {
             BarSpectrumSettingsPanel(
@@ -705,12 +705,12 @@ private const val KEY_LAVA_HEIGHT = "lava_waveform_height"
 private const val KEY_WHITE_SCALE = "white_waveform_scale"
 private const val KEY_WHITE_STROKE_WEIGHT = "white_waveform_stroke_weight"
 private const val KEY_WHITE_HEIGHT = "white_waveform_height"
-private const val KEY_HORIZON_SCALE = "horizon_spectrum_scale"
-private const val KEY_HORIZON_STROKE_WEIGHT = "horizon_spectrum_stroke_weight"
-private const val KEY_HORIZON_HEIGHT = "horizon_spectrum_height"
-private const val KEY_HORIZON_HUE = "horizon_spectrum_color_hue"
-private const val KEY_HORIZON_SATURATION = "horizon_spectrum_color_saturation"
-private const val KEY_HORIZON_VALUE = "horizon_spectrum_color_value"
+private const val KEY_SHADOW_SCALE = "shadow_waveform_scale"
+private const val KEY_SHADOW_STROKE_WEIGHT = "shadow_waveform_stroke_weight"
+private const val KEY_SHADOW_HEIGHT = "shadow_waveform_height"
+private const val KEY_SHADOW_HUE = "shadow_waveform_color_hue"
+private const val KEY_SHADOW_SATURATION = "shadow_waveform_color_saturation"
+private const val KEY_SHADOW_VALUE = "shadow_waveform_color_value"
 private const val KEY_DOT_SCALE = "dot_spectrum_scale"
 private const val KEY_DOT_STROKE_WEIGHT = "dot_spectrum_stroke_weight"
 private const val KEY_DOT_HEIGHT = "dot_spectrum_height"
