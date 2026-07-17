@@ -9,9 +9,8 @@ import kotlin.math.abs
  * many raw samples [AudioCaptureService] happened to hand back in a given buffer (that size
  * varies with however much the system had ready to read), so a trace's visual density stays
  * constant rather than fluctuating with buffer size. Shared by every mode that renders the raw
- * waveform (Lava Waveform, White Waveform, Echo Waveform) rather than duplicated per file, since
- * the decimation itself has nothing mode-specific about it -- only what each mode draws from the
- * result differs.
+ * waveform (Lava Waveform, White Waveform) rather than duplicated per file, since the decimation
+ * itself has nothing mode-specific about it -- only what each mode draws from the result differs.
  */
 internal fun decimateWaveform(waveform: FloatArray, out: FloatArray) {
     val n = waveform.size

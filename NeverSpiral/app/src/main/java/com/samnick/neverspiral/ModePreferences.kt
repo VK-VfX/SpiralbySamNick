@@ -11,11 +11,12 @@ enum class VisualMode(val label: String) {
     SPECTRUM("Spectrum"),
     RAINBOW_SPECTRUM("Rainbow Spectrum"),
     NEON_CYAN_PULSE("Neon Cyan Pulse"),
-    AUDIO_FIREFLIES("Audio Fireflies"),
     KALEIDOSCOPE_BLOOM("Kaleidoscope Bloom"),
     LAVA_WAVEFORM("Lava Waveform"),
     WHITE_WAVEFORM("White Waveform"),
-    ECHO_WAVEFORM("Echo Waveform"),
+    HORIZON_SPECTRUM("Horizon Spectrum"),
+    DOT_SPECTRUM("Dot Spectrum"),
+    SKYLINE_SPECTRUM("Skyline Spectrum"),
 }
 
 private const val KEY_MODE_ORDER = "mode_order"

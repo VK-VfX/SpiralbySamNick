@@ -1,6 +1,6 @@
 # Sam's Music Viz
 
-Nine audio-reactive visualizer modes, styled as a modern dark mastering-suite instrument panel --
+Ten audio-reactive visualizer modes, styled as a modern dark mastering-suite instrument panel --
 flat near-black panels, thin hairline dividers, a cool desaturated accent, and red reserved strictly
 for clip/overload warnings, the way studio metering looks. All driven by whatever music is playing
 on the device: Spotify, YouTube Music, or anything else.
@@ -23,7 +23,7 @@ on the device: Spotify, YouTube Music, or anything else.
 - A hamburger icon (top-right, above the visualizer) opens app-wide Settings -- see below. Its
   **Modes** section lets you hide modes you don't use and reorder the rest; both the mode strip and
   swipe cycling follow that customized order (`ModePreferences`, backed by `SettingsStore`). There
-  are nine modes total when nothing's hidden.
+  are ten modes total when nothing's hidden.
 - **Landscape** works for Spectrum, Rainbow Spectrum, and Neon Cyan Pulse -- the modes that
   actually gain something from the extra width. Every other mode is a centered radial/point
   composition rather than a horizontal layout, so it's locked back to portrait the instant it's
@@ -48,13 +48,6 @@ on the device: Spotify, YouTube Music, or anything else.
   toward a color keyed to its own frequency band as its level rises -- bass flashes red, low-mid
   orange, mids yellow-green, presence stays cyan, treble goes violet -- rather than one flat color
   across the whole row. *Settings: Sensitivity, Bar Thickness, Bar Height.*
-- **Audio Fireflies**: instead of a fixed row or ring of bars, a pool of small glowing particles
-  bursts outward from center whenever a frequency band's level crosses a probability threshold --
-  more scattered sparks than a meter. Each burst launches in a random direction (not an angle tied
-  to its band) at a speed scaled by that band's own level, colored by which band spawned it (bass
-  reads warm, treble reads cool, the same `frequencyZoneColor` mapping Neon Cyan Pulse uses), then
-  drifts with real physics -- drag and a gentle upward buoyancy -- before fading out. *Settings:
-  Spawn Rate, Particle Size, Travel Speed.*
 - **Kaleidoscope Bloom**: an ornamental, rotationally-symmetric mandala rather than a meter, a
   scatter, or a scrolling trend. One petal shape is built from the spectrum and mirrored across its
   own center line for a genuine "one wedge, reflected" kaleidoscope look, then that single symmetric
@@ -72,11 +65,20 @@ on the device: Spotify, YouTube Music, or anything else.
   axis is filled solid, reading as a soft glowing silhouette rather than a wire outline, with a
   thin crisp white edge on top of the fill. *Settings: Sensitivity, Outline Thickness, Max
   Amplitude.*
-- **Echo Waveform**: also the same raw waveform trace, but with a short trailing history of past
-  moments drawn behind the live line at decreasing opacity -- each trailing echo also keeps the
-  lava-rainbow hue that was active the instant it was captured, so the trail shows genuine color
-  history flowing past rather than a uniform smear. *Settings: Sensitivity, Line Thickness, Max
-  Amplitude.*
+- **Horizon Spectrum**: a very dense mirrored FFT bar spectrum -- three times the source band
+  count via linear interpolation, for a solid "wall of bars" mass -- colored with a single
+  user-picked hue (`ColorWheelPicker`, see below) rather than a fixed or frequency-reactive
+  palette, with a bright horizontal seam drawn across the middle of the bar mass. *Settings:
+  Sensitivity, Bar Thickness, Bar Height, plus a color wheel.*
+- **Dot Spectrum**: the same mirrored bar-spectrum idea, but each band's level is a column of
+  small stacked dots rather than one continuous bar -- a dot-matrix/LED-cluster texture. Also a
+  single user-picked hue, with brightness additionally fading toward the row's left and right
+  edges. *Settings: Sensitivity, Dot Size, Bar Height, plus a color wheel.*
+- **Skyline Spectrum**: the same FFT bands drawn three times at decreasing scale, opacity, and
+  brightness rather than once, growing from the bottom edge only (not mirrored) -- a city-skyline
+  read, where the back layers sit behind and below the front one like hazier, more distant
+  buildings. Also a single user-picked hue. *Settings: Sensitivity, Bar Thickness, Bar Height,
+  plus a color wheel.*
 
 ## How the meter works
 
@@ -133,8 +135,10 @@ until other modes started depending on genuine per-band contrast to work at all.
 Every mode past Spectrum reads [SpectrumEngine]'s bands directly, with no dedicated engine or
 capture path of its own -- each is a different rendering treatment of the exact same already-smoothed
 data, tunable through its own `BarSpectrumSettings` (three underlying sliders, labeled per mode in
-its gear panel rather than a generic "Scale/Stroke Weight/Height"). Lava Waveform, White Waveform,
-and Echo Waveform are the exceptions -- see their own paragraphs below.
+its gear panel rather than a generic "Scale/Stroke Weight/Height"). Lava Waveform and White
+Waveform are the exceptions -- see their own paragraph below. Horizon Spectrum, Dot Spectrum, and
+Skyline Spectrum also each pair a `BarSpectrumSettings` with a `CustomColorSettings` for a
+user-picked fill color -- see "How the color wheel works" further down.
 
 - **Rainbow Spectrum** and **Neon Cyan Pulse**: `RainbowSpectrumScreen` and `NeonCyanPulseScreen`
   are pure rendering choices on `SpectrumEngine`'s bands -- the mirrored layout, colors, bar
@@ -151,14 +155,6 @@ and Echo Waveform are the exceptions -- see their own paragraphs below.
   purely so `BlurMaskFilter` has a software canvas to blur against -- Android silently ignores mask
   filters on Compose's hardware-accelerated canvas.) Bar count, sensitivity gamma, and glow
   radius/alpha are named constants at the top of each file.
-- **Audio Fireflies**: `AudioFirefliesScreen` spawns from a fixed-size pool of up to 140 particles,
-  pre-allocated once and reused rather than allocated per spawn. Spawning is probabilistic and
-  delta-time-scaled rather than edge-triggered: each frame, each band gets a spawn chance of
-  `level^gamma * scale * SPAWN_RATE_PER_SECOND * dt`, so expected spawns per second stay correct
-  regardless of the display's refresh rate. Each live particle is real physics -- exponential drag
-  on velocity plus a constant upward buoyancy, both converted through real per-frame delta time --
-  rather than a value tied to a stable slot the way every bar/ring mode's data is. Glow is the same
-  draw-solid-then-blur-once technique as Rainbow Spectrum.
 - **Kaleidoscope Bloom**: `KaleidoscopeBloomScreen` builds one petal's worth of radius data each
   frame -- a straight sweep across the spectrum condensed into half a petal's angular width, each
   point independently smoothed with the usual fast-attack/slower-decay pattern -- then mirrors it
@@ -171,18 +167,18 @@ and Echo Waveform are the exceptions -- see their own paragraphs below.
   `GradientColors.kt`, the same technique Radial Pulse Ring used earlier) centered on the bloom --
   since the shader is keyed to canvas-space angle rather than petal-local position, the whole
   rainbow visibly rotates along with the pattern with no color logic of its own to keep in sync.
-- **Lava Waveform**, **White Waveform**, and **Echo Waveform** all read raw PCM directly from
+- **Lava Waveform** and **White Waveform** both read raw PCM directly from
   `AudioAnalyzer.snapshots.value.waveform` rather than `SpectrumEngine`'s FFT bands -- a genuine
   time-domain trace instead of a frequency-domain one. That raw mono waveform has been captured and
   published by `AudioCaptureService` since the original Oscilloscope/Waveform Ribbon modes existed,
   but nothing consumed it after those were removed; Lava Waveform was the first live reader again.
-  Each frame, every one of these three modes decimates the freshest buffer to a fixed `POINT_COUNT`
-  (160) display points via the shared `decimateWaveform` (`WaveformDecimation.kt`) by taking the
-  signed sample of *largest magnitude* within each bucket, not an average -- an average would smear
-  out exactly the sharp transients a waveform trace exists to show. Points are connected with
-  straight segments and deliberately not smoothed frame-to-frame, unlike every band-driven mode's
-  fast-attack/slow-decay filtering -- each frame's buffer is genuinely different audio content, not
-  a continuous quantity that benefits from easing toward a new target.
+  Each frame, both modes decimate the freshest buffer to a fixed `POINT_COUNT` (160) display points
+  via the shared `decimateWaveform` (`WaveformDecimation.kt`) by taking the signed sample of
+  *largest magnitude* within each bucket, not an average -- an average would smear out exactly the
+  sharp transients a waveform trace exists to show. Points are connected with straight segments and
+  deliberately not smoothed frame-to-frame, unlike every band-driven mode's fast-attack/slow-decay
+  filtering -- each frame's buffer is genuinely different audio content, not a continuous quantity
+  that benefits from easing toward a new target.
   - **Lava Waveform** (`LavaWaveformScreen`): color is a full rainbow hue sweep along the line's
     length, continuously rotating over time (`HUE_ROTATION_DEGREES_PER_SECOND`, delta-time based
     like Kaleidoscope Bloom's rotation) via `android.graphics.Color.HSVToColor` computed per point
@@ -196,14 +192,47 @@ and Echo Waveform are the exceptions -- see their own paragraphs below.
     crosses the axis many times, without needing separate top/bottom sub-paths. A thin white
     outline stroke of the same path on top keeps the silhouette's edge crisp rather than a soft
     blurred blob.
-  - **Echo Waveform** (`EchoWaveformScreen`): keeps a short rolling history (`TRAIL_LAYER_COUNT`, 5)
-    of past decimated traces, captured on a fixed `CAPTURE_INTERVAL_SECONDS` cadence rather than
-    every frame -- capturing every frame at 60-120fps would produce a smear of near-duplicate copies
-    instead of visually distinct echoes of specific past moments. Each captured copy also freezes
-    the hue-rotation angle that was active at the moment it was captured alongside its points, so
-    replaying the trail shows genuine color history flowing past rather than every echo repainted
-    in whatever hue happens to be active now. Trailing copies are drawn oldest-to-newest at
-    increasing opacity, with the live trace drawn last, fully opaque, on top.
+- **Horizon Spectrum**, **Dot Spectrum**, and **Skyline Spectrum** are all single-hue variants of
+  the mirrored/upward FFT bar spectrum, colored via a user-picked `CustomColorSettings` rather than
+  fixed or frequency-reactive -- see "How the color wheel works" below for the picker itself.
+  - **Horizon Spectrum** (`HorizonSpectrumScreen`): `SpectrumAnalyzer.BAND_COUNT * 3` bars via the
+    same linear-interpolation technique Neon Cyan Pulse uses, for a denser "wall of bars" mass than
+    any other bar mode. Brightness (not hue) reacts to each bar's own level, floored at
+    `BASE_BRIGHTNESS_FRACTION` so quiet bars stay visible rather than vanishing. A bright horizontal
+    seam is drawn once across the full width at the mirror axis, into the same bitmap as the bars,
+    before the single glow blur pass.
+  - **Dot Spectrum** (`DotSpectrumScreen`): each band's level becomes a column of small filled
+    circles marching outward from the mirror axis (mirrored top and bottom) rather than one
+    continuous stroke -- a dot-matrix texture, spaced by a fixed `DOT_SPACING_FRACTION`. Brightness
+    also fades toward the row's left and right edges via a raised-cosine window
+    (`sin(PI * i / (BAR_COUNT - 1))`) floored at `EDGE_FADE_MIN_FRACTION`, so the edges dim rather
+    than disappear.
+  - **Skyline Spectrum** (`SkylineSpectrumScreen`): the same band data is drawn three times
+    (`LAYERS`) at decreasing scale, alpha, and brightness rather than once, each layer a full pass
+    of filled (not stroked) bars growing from the bottom edge, not mirrored. The back layers read
+    as more distant, hazier buildings and the front layer as the nearest and brightest -- a simple
+    parallax-depth cue from three static draws of the same data rather than real depth or offset.
+
+### How the color wheel works
+
+`ColorWheelPicker` is a genuine circular hue/saturation picker (angle = hue, radial distance =
+saturation), unlike `AppearanceSettings`'s three-slider accent/background picker, which was built
+specifically to avoid needing one. The wheel is drawn as a `Brush.sweepGradient` hue circle with a
+white-to-transparent `Brush.radialGradient` composited on top via normal alpha blending --
+`result = white * (1-saturation) + hueColor * saturation` is exactly what SRC_OVER-compositing a
+white circle at alpha `(1-saturation)` over the hue circle produces, so that single extra draw call
+depicts the desaturation-toward-center falloff without computing per-pixel HSV. Dragging or tapping
+anywhere on the wheel computes `hue = atan2(dy, dx)` and `saturation = distance / radius` from the
+touch point relative to center. A brightness slider sits below the wheel, and a live preview swatch
+above it shows the exact selected color (true `HSVToColor`, not the wheel's visual approximation).
+
+`CustomColorSettings` (hue/saturation/value, mirroring `AppearanceSettings`'s own HSV storage) is a
+small settings holder shared by Horizon Spectrum, Dot Spectrum, and Skyline Spectrum -- kept
+separate from `BarSpectrumSettings` rather than folded into it, since only these three modes need a
+custom color and every other `BarSpectrumSettings` consumer would otherwise carry three unused
+fields. Each mode still gets its own `BarSpectrumSettingsPanel` (Sensitivity/Thickness/Height)
+directly above its `ColorWheelPicker` in the gear panel, persisted through `SettingsStore` the same
+way every other per-mode setting is.
 
 ### Refresh rate handling
 
@@ -223,7 +252,7 @@ rate. `MainScreen`'s shared frame loop reads real per-frame delta time from
 `withFrameNanos { frameNanos -> ... }` -- the actual Choreographer timestamp, not a fixed step --
 and every engine's `step(dtSeconds, ...)` converts that into an exponential-smoothing rate via
 `alpha = 1f - exp(-dt / tauSeconds)`, where every `tauSeconds` constant (VU ballistics, spectrum
-rise/fall, Audio Fireflies' drag decay, and so on) is documented as a time-based rate, not a flat
+rise/fall, Kaleidoscope Bloom's rotation, and so on) is documented as a time-based rate, not a flat
 per-frame multiplier. That's what keeps motion speed and smoothness consistent whether the device
 ends up running at 60Hz, 90Hz, or 120Hz -- a higher refresh rate means more, smaller steps toward
 the same target over the same wall-clock time, not faster-looking motion.
@@ -354,9 +383,9 @@ framework calls, so their ballistics/DSP math has plain-JVM JUnit coverage under
 a regression guard for the FFT-magnitude-normalization bug described above: without dividing raw
 FFT magnitude back down by `FFT_SIZE` before the dB conversion, every band reads pinned near the
 ceiling regardless of what's actually playing. Every visualizer mode past Spectrum is a pure
-rendering treatment of already-tested `SpectrumEngine` data (or, for the three Waveform modes, of
-the raw PCM `AudioAnalyzer` already publishes) with no DSP of its own, so none of them need a
-dedicated test file the way an engine with real math does.
+rendering treatment of already-tested `SpectrumEngine` data (or, for Lava Waveform and White
+Waveform, of the raw PCM `AudioAnalyzer` already publishes) with no DSP of its own, so none of them
+need a dedicated test file the way an engine with real math does.
 
 ```
 cd NeverSpiral

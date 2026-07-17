@@ -22,16 +22,21 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -65,11 +70,12 @@ private val MODES_WITH_SETTINGS = setOf(
     VisualMode.SPECTRUM,
     VisualMode.RAINBOW_SPECTRUM,
     VisualMode.NEON_CYAN_PULSE,
-    VisualMode.AUDIO_FIREFLIES,
     VisualMode.KALEIDOSCOPE_BLOOM,
     VisualMode.LAVA_WAVEFORM,
     VisualMode.WHITE_WAVEFORM,
-    VisualMode.ECHO_WAVEFORM,
+    VisualMode.HORIZON_SPECTRUM,
+    VisualMode.DOT_SPECTRUM,
+    VisualMode.SKYLINE_SPECTRUM,
 )
 
 private const val SWIPE_THRESHOLD_PX = 90f
@@ -86,7 +92,7 @@ private val MODES_ALLOWING_LANDSCAPE = setOf(
 )
 
 /**
- * Hosts up to nine visualizer modes (fewer if the user's hidden some via the "Modes" section in
+ * Hosts up to ten visualizer modes (fewer if the user's hidden some via the "Modes" section in
  * [AppSettingsScreen], see [ModePreferences]) plus the single shared "Visualize music" capture
  * toggle. A persistent, horizontally-scrollable row of mode chips below the visualizer is the
  * primary way to switch -- tap the specific mode you want directly, rather than repeatedly tapping
@@ -96,16 +102,19 @@ private val MODES_ALLOWING_LANDSCAPE = setOf(
  * about) -- distinct from each mode's own gear-icon tuning panel. VU Meter and Spectrum are stepped
  * every frame regardless of which mode is showing, so switching between them and any other mode
  * still feels instant rather than starting from a frozen reading. Every mode past Spectrum
- * (Rainbow Spectrum, Neon Cyan Pulse, Audio Fireflies, Kaleidoscope Bloom) is a pure rendering
- * treatment of [SpectrumEngine]'s already fast-rise/slower-fall smoothed bands, the same data
- * [SpectrumScreen] draws, so none of them need a dedicated engine of their own -- just their own
- * [BarSpectrumSettings], the same three underlying sliders every such mode shares, each labeled per
- * mode in [BarSpectrumSettingsPanel] to describe what it actually controls there instead of a
- * generic "Scale/Stroke Weight/Height" for everything. [LavaWaveformScreen], [WhiteWaveformScreen],
- * and [EchoWaveformScreen] are the exceptions -- they read raw PCM waveform data from
- * [AudioAnalyzer] directly rather than [SpectrumEngine]'s bands, since they're time-domain traces
- * rather than frequency-domain ones, but still share the same [BarSpectrumSettings] shape for
- * consistency with every other mode's gear panel.
+ * (Rainbow Spectrum, Neon Cyan Pulse, Kaleidoscope Bloom, Horizon Spectrum, Dot Spectrum, Skyline
+ * Spectrum) is a pure rendering treatment of [SpectrumEngine]'s already fast-rise/slower-fall
+ * smoothed bands, the same data [SpectrumScreen] draws, so none of them need a dedicated engine of
+ * their own -- just their own [BarSpectrumSettings], the same three underlying sliders every such
+ * mode shares, each labeled per mode in [BarSpectrumSettingsPanel] to describe what it actually
+ * controls there instead of a generic "Scale/Stroke Weight/Height" for everything.
+ * [LavaWaveformScreen] and [WhiteWaveformScreen] are the exceptions -- they read raw PCM waveform
+ * data from [AudioAnalyzer] directly rather than [SpectrumEngine]'s bands, since they're
+ * time-domain traces rather than frequency-domain ones, but still share the same
+ * [BarSpectrumSettings] shape for consistency with every other mode's gear panel. Horizon
+ * Spectrum, Dot Spectrum, and Skyline Spectrum are also each paired with a [CustomColorSettings]
+ * for a user-picked fill color via [ColorWheelPicker], rather than the fixed or frequency-reactive
+ * coloring every other mode uses.
  */
 @Composable
 fun MainScreen() {
@@ -136,13 +145,6 @@ fun MainScreen() {
             initialHeight = SettingsStore.getFloat(context, KEY_NEON_HEIGHT, 0.46f),
         )
     }
-    val audioFirefliesSettings = remember {
-        BarSpectrumSettings(
-            initialScale = SettingsStore.getFloat(context, KEY_FIREFLIES_SCALE, 1f),
-            initialStrokeWeight = SettingsStore.getFloat(context, KEY_FIREFLIES_STROKE_WEIGHT, 1f),
-            initialHeight = SettingsStore.getFloat(context, KEY_FIREFLIES_HEIGHT, 0.46f),
-        )
-    }
     val kaleidoscopeBloomSettings = remember {
         BarSpectrumSettings(
             initialScale = SettingsStore.getFloat(context, KEY_BLOOM_SCALE, 1f),
@@ -164,11 +166,46 @@ fun MainScreen() {
             initialHeight = SettingsStore.getFloat(context, KEY_WHITE_HEIGHT, 0.46f),
         )
     }
-    val echoWaveformSettings = remember {
+    val horizonSpectrumSettings = remember {
         BarSpectrumSettings(
-            initialScale = SettingsStore.getFloat(context, KEY_ECHO_SCALE, 1f),
-            initialStrokeWeight = SettingsStore.getFloat(context, KEY_ECHO_STROKE_WEIGHT, 1f),
-            initialHeight = SettingsStore.getFloat(context, KEY_ECHO_HEIGHT, 0.46f),
+            initialScale = SettingsStore.getFloat(context, KEY_HORIZON_SCALE, 1f),
+            initialStrokeWeight = SettingsStore.getFloat(context, KEY_HORIZON_STROKE_WEIGHT, 1f),
+            initialHeight = SettingsStore.getFloat(context, KEY_HORIZON_HEIGHT, 0.46f),
+        )
+    }
+    val horizonColorSettings = remember {
+        CustomColorSettings(
+            initialHue = SettingsStore.getFloat(context, KEY_HORIZON_HUE, 190f),
+            initialSaturation = SettingsStore.getFloat(context, KEY_HORIZON_SATURATION, 0.75f),
+            initialValue = SettingsStore.getFloat(context, KEY_HORIZON_VALUE, 0.85f),
+        )
+    }
+    val dotSpectrumSettings = remember {
+        BarSpectrumSettings(
+            initialScale = SettingsStore.getFloat(context, KEY_DOT_SCALE, 1f),
+            initialStrokeWeight = SettingsStore.getFloat(context, KEY_DOT_STROKE_WEIGHT, 1f),
+            initialHeight = SettingsStore.getFloat(context, KEY_DOT_HEIGHT, 0.46f),
+        )
+    }
+    val dotColorSettings = remember {
+        CustomColorSettings(
+            initialHue = SettingsStore.getFloat(context, KEY_DOT_HUE, 190f),
+            initialSaturation = SettingsStore.getFloat(context, KEY_DOT_SATURATION, 0.75f),
+            initialValue = SettingsStore.getFloat(context, KEY_DOT_VALUE, 0.85f),
+        )
+    }
+    val skylineSpectrumSettings = remember {
+        BarSpectrumSettings(
+            initialScale = SettingsStore.getFloat(context, KEY_SKYLINE_SCALE, 1f),
+            initialStrokeWeight = SettingsStore.getFloat(context, KEY_SKYLINE_STROKE_WEIGHT, 1f),
+            initialHeight = SettingsStore.getFloat(context, KEY_SKYLINE_HEIGHT, 0.46f),
+        )
+    }
+    val skylineColorSettings = remember {
+        CustomColorSettings(
+            initialHue = SettingsStore.getFloat(context, KEY_SKYLINE_HUE, 190f),
+            initialSaturation = SettingsStore.getFloat(context, KEY_SKYLINE_SATURATION, 0.75f),
+            initialValue = SettingsStore.getFloat(context, KEY_SKYLINE_VALUE, 0.85f),
         )
     }
 
@@ -314,11 +351,12 @@ fun MainScreen() {
                         VisualMode.SPECTRUM -> SpectrumScreen(spectrum, spectrumSettings)
                         VisualMode.RAINBOW_SPECTRUM -> RainbowSpectrumScreen(spectrum, rainbowSpectrumSettings)
                         VisualMode.NEON_CYAN_PULSE -> NeonCyanPulseScreen(spectrum, neonCyanPulseSettings)
-                        VisualMode.AUDIO_FIREFLIES -> AudioFirefliesScreen(spectrum, audioFirefliesSettings)
                         VisualMode.KALEIDOSCOPE_BLOOM -> KaleidoscopeBloomScreen(spectrum, kaleidoscopeBloomSettings)
                         VisualMode.LAVA_WAVEFORM -> LavaWaveformScreen(spectrum, lavaWaveformSettings)
                         VisualMode.WHITE_WAVEFORM -> WhiteWaveformScreen(spectrum, whiteWaveformSettings)
-                        VisualMode.ECHO_WAVEFORM -> EchoWaveformScreen(spectrum, echoWaveformSettings)
+                        VisualMode.HORIZON_SPECTRUM -> HorizonSpectrumScreen(spectrum, horizonSpectrumSettings, horizonColorSettings)
+                        VisualMode.DOT_SPECTRUM -> DotSpectrumScreen(spectrum, dotSpectrumSettings, dotColorSettings)
+                        VisualMode.SKYLINE_SPECTRUM -> SkylineSpectrumScreen(spectrum, skylineSpectrumSettings, skylineColorSettings)
                     }
                 }
 
@@ -372,6 +410,8 @@ fun MainScreen() {
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(VisualizerTheme.PANEL.copy(alpha = 0.92f))
                                 .border(1.dp, VisualizerTheme.HAIRLINE, RoundedCornerShape(12.dp))
+                                .heightIn(max = 420.dp)
+                                .verticalScroll(rememberScrollState())
                                 .padding(horizontal = 16.dp, vertical = 8.dp),
                         ) {
                             SettingsPanelContent(
@@ -381,11 +421,15 @@ fun MainScreen() {
                                 spectrumSettings = spectrumSettings,
                                 rainbowSpectrumSettings = rainbowSpectrumSettings,
                                 neonCyanPulseSettings = neonCyanPulseSettings,
-                                audioFirefliesSettings = audioFirefliesSettings,
                                 kaleidoscopeBloomSettings = kaleidoscopeBloomSettings,
                                 lavaWaveformSettings = lavaWaveformSettings,
                                 whiteWaveformSettings = whiteWaveformSettings,
-                                echoWaveformSettings = echoWaveformSettings,
+                                horizonSpectrumSettings = horizonSpectrumSettings,
+                                horizonColorSettings = horizonColorSettings,
+                                dotSpectrumSettings = dotSpectrumSettings,
+                                dotColorSettings = dotColorSettings,
+                                skylineSpectrumSettings = skylineSpectrumSettings,
+                                skylineColorSettings = skylineColorSettings,
                             )
                         }
                     }
@@ -457,11 +501,15 @@ private fun SettingsPanelContent(
     spectrumSettings: SpectrumSettings,
     rainbowSpectrumSettings: BarSpectrumSettings,
     neonCyanPulseSettings: BarSpectrumSettings,
-    audioFirefliesSettings: BarSpectrumSettings,
     kaleidoscopeBloomSettings: BarSpectrumSettings,
     lavaWaveformSettings: BarSpectrumSettings,
     whiteWaveformSettings: BarSpectrumSettings,
-    echoWaveformSettings: BarSpectrumSettings,
+    horizonSpectrumSettings: BarSpectrumSettings,
+    horizonColorSettings: CustomColorSettings,
+    dotSpectrumSettings: BarSpectrumSettings,
+    dotColorSettings: CustomColorSettings,
+    skylineSpectrumSettings: BarSpectrumSettings,
+    skylineColorSettings: CustomColorSettings,
 ) {
     when (mode) {
         VisualMode.VU_METER -> {
@@ -492,10 +540,6 @@ private fun SettingsPanelContent(
             neonCyanPulseSettings, context, KEY_NEON_SCALE, KEY_NEON_STROKE_WEIGHT, KEY_NEON_HEIGHT,
             scaleLabel = "Sensitivity", strokeWeightLabel = "Bar Thickness", heightLabel = "Bar Height",
         )
-        VisualMode.AUDIO_FIREFLIES -> BarSpectrumSettingsPanel(
-            audioFirefliesSettings, context, KEY_FIREFLIES_SCALE, KEY_FIREFLIES_STROKE_WEIGHT, KEY_FIREFLIES_HEIGHT,
-            scaleLabel = "Spawn Rate", strokeWeightLabel = "Particle Size", heightLabel = "Travel Speed",
-        )
         VisualMode.KALEIDOSCOPE_BLOOM -> BarSpectrumSettingsPanel(
             kaleidoscopeBloomSettings, context, KEY_BLOOM_SCALE, KEY_BLOOM_STROKE_WEIGHT, KEY_BLOOM_HEIGHT,
             scaleLabel = "Sensitivity", strokeWeightLabel = "Petal Thickness", heightLabel = "Bloom Size",
@@ -508,10 +552,51 @@ private fun SettingsPanelContent(
             whiteWaveformSettings, context, KEY_WHITE_SCALE, KEY_WHITE_STROKE_WEIGHT, KEY_WHITE_HEIGHT,
             scaleLabel = "Sensitivity", strokeWeightLabel = "Outline Thickness", heightLabel = "Max Amplitude",
         )
-        VisualMode.ECHO_WAVEFORM -> BarSpectrumSettingsPanel(
-            echoWaveformSettings, context, KEY_ECHO_SCALE, KEY_ECHO_STROKE_WEIGHT, KEY_ECHO_HEIGHT,
-            scaleLabel = "Sensitivity", strokeWeightLabel = "Line Thickness", heightLabel = "Max Amplitude",
-        )
+        VisualMode.HORIZON_SPECTRUM -> {
+            BarSpectrumSettingsPanel(
+                horizonSpectrumSettings, context, KEY_HORIZON_SCALE, KEY_HORIZON_STROKE_WEIGHT, KEY_HORIZON_HEIGHT,
+                scaleLabel = "Sensitivity", strokeWeightLabel = "Bar Thickness", heightLabel = "Bar Height",
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            ColorWheelSettingsPanel(horizonColorSettings, context, KEY_HORIZON_HUE, KEY_HORIZON_SATURATION, KEY_HORIZON_VALUE)
+        }
+        VisualMode.DOT_SPECTRUM -> {
+            BarSpectrumSettingsPanel(
+                dotSpectrumSettings, context, KEY_DOT_SCALE, KEY_DOT_STROKE_WEIGHT, KEY_DOT_HEIGHT,
+                scaleLabel = "Sensitivity", strokeWeightLabel = "Dot Size", heightLabel = "Bar Height",
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            ColorWheelSettingsPanel(dotColorSettings, context, KEY_DOT_HUE, KEY_DOT_SATURATION, KEY_DOT_VALUE)
+        }
+        VisualMode.SKYLINE_SPECTRUM -> {
+            BarSpectrumSettingsPanel(
+                skylineSpectrumSettings, context, KEY_SKYLINE_SCALE, KEY_SKYLINE_STROKE_WEIGHT, KEY_SKYLINE_HEIGHT,
+                scaleLabel = "Sensitivity", strokeWeightLabel = "Bar Thickness", heightLabel = "Bar Height",
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            ColorWheelSettingsPanel(skylineColorSettings, context, KEY_SKYLINE_HUE, KEY_SKYLINE_SATURATION, KEY_SKYLINE_VALUE)
+        }
+    }
+}
+
+/** Persists [ColorWheelPicker]'s selection through [SettingsStore] on every change, the same
+ * split [BarSpectrumSettingsPanel] uses -- the picker itself stays a "dumb" reusable widget with
+ * no storage concerns of its own. */
+@Composable
+private fun ColorWheelSettingsPanel(
+    settings: CustomColorSettings,
+    context: Context,
+    keyHue: String,
+    keySaturation: String,
+    keyValue: String,
+) {
+    ColorWheelPicker(settings.hue, settings.saturation, settings.value) { hue, saturation, value ->
+        settings.hue = hue
+        settings.saturation = saturation
+        settings.value = value
+        SettingsStore.putFloat(context, keyHue, hue)
+        SettingsStore.putFloat(context, keySaturation, saturation)
+        SettingsStore.putFloat(context, keyValue, value)
     }
 }
 
@@ -611,9 +696,6 @@ private const val KEY_RAINBOW_HEIGHT = "rainbow_spectrum_height"
 private const val KEY_NEON_SCALE = "neon_cyan_pulse_scale"
 private const val KEY_NEON_STROKE_WEIGHT = "neon_cyan_pulse_stroke_weight"
 private const val KEY_NEON_HEIGHT = "neon_cyan_pulse_height"
-private const val KEY_FIREFLIES_SCALE = "audio_fireflies_scale"
-private const val KEY_FIREFLIES_STROKE_WEIGHT = "audio_fireflies_stroke_weight"
-private const val KEY_FIREFLIES_HEIGHT = "audio_fireflies_height"
 private const val KEY_BLOOM_SCALE = "kaleidoscope_bloom_scale"
 private const val KEY_BLOOM_STROKE_WEIGHT = "kaleidoscope_bloom_stroke_weight"
 private const val KEY_BLOOM_HEIGHT = "kaleidoscope_bloom_height"
@@ -623,6 +705,21 @@ private const val KEY_LAVA_HEIGHT = "lava_waveform_height"
 private const val KEY_WHITE_SCALE = "white_waveform_scale"
 private const val KEY_WHITE_STROKE_WEIGHT = "white_waveform_stroke_weight"
 private const val KEY_WHITE_HEIGHT = "white_waveform_height"
-private const val KEY_ECHO_SCALE = "echo_waveform_scale"
-private const val KEY_ECHO_STROKE_WEIGHT = "echo_waveform_stroke_weight"
-private const val KEY_ECHO_HEIGHT = "echo_waveform_height"
+private const val KEY_HORIZON_SCALE = "horizon_spectrum_scale"
+private const val KEY_HORIZON_STROKE_WEIGHT = "horizon_spectrum_stroke_weight"
+private const val KEY_HORIZON_HEIGHT = "horizon_spectrum_height"
+private const val KEY_HORIZON_HUE = "horizon_spectrum_color_hue"
+private const val KEY_HORIZON_SATURATION = "horizon_spectrum_color_saturation"
+private const val KEY_HORIZON_VALUE = "horizon_spectrum_color_value"
+private const val KEY_DOT_SCALE = "dot_spectrum_scale"
+private const val KEY_DOT_STROKE_WEIGHT = "dot_spectrum_stroke_weight"
+private const val KEY_DOT_HEIGHT = "dot_spectrum_height"
+private const val KEY_DOT_HUE = "dot_spectrum_color_hue"
+private const val KEY_DOT_SATURATION = "dot_spectrum_color_saturation"
+private const val KEY_DOT_VALUE = "dot_spectrum_color_value"
+private const val KEY_SKYLINE_SCALE = "skyline_spectrum_scale"
+private const val KEY_SKYLINE_STROKE_WEIGHT = "skyline_spectrum_stroke_weight"
+private const val KEY_SKYLINE_HEIGHT = "skyline_spectrum_height"
+private const val KEY_SKYLINE_HUE = "skyline_spectrum_color_hue"
+private const val KEY_SKYLINE_SATURATION = "skyline_spectrum_color_saturation"
+private const val KEY_SKYLINE_VALUE = "skyline_spectrum_color_value"
