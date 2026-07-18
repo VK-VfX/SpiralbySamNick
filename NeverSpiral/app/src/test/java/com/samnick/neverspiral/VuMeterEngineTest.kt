@@ -48,9 +48,16 @@ class VuMeterEngineTest {
     fun `LED flashes on as soon as the needle reaches peak, not gradually`() {
         val engine = VuMeterEngine()
         var reachedPeak = false
-        repeat(20) {
+        // A real for-loop with a break, not `repeat` -- the assertion below needs to land on the
+        // exact step the needle first crosses into peak, not after however many further steps
+        // happened to run, which could land mid-blink in the *off* phase and fail for the wrong
+        // reason entirely.
+        for (i in 0 until 20) {
             engine.step(0.05f, rawRms = 1f)
-            if (engine.dbVu >= VuMeterEngine.SCALE_MAX_DB_VU - 0.15f) reachedPeak = true
+            if (engine.dbVu >= VuMeterEngine.SCALE_MAX_DB_VU - 0.15f) {
+                reachedPeak = true
+                break
+            }
         }
         assertTrue("expected the needle to actually reach peak within 20 steps", reachedPeak)
         assertTrue(
