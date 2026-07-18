@@ -273,9 +273,9 @@ the same target over the same wall-clock time, not faster-looking motion.
 Distinct from each visualizer mode's own gear-icon tuning panel, the hamburger icon opens an
 app-wide settings screen:
 
-Sections run in the order settings that change how the app behaves or looks (Display, Appearance,
-Modes), then launcher shortcuts to other apps that aren't really a Sam's Music Viz setting at all
-(Players), then update/diagnostic/about administrivia last.
+Sections run in the order settings that change how the app behaves or looks (Display, Media
+Controls, Appearance, Modes), then launcher shortcuts to other apps that aren't really a Sam's
+Music Viz setting at all (Players), then update/diagnostic/about administrivia last.
 
 - **Display**: a "Keep Screen On" toggle (`View.keepScreenOn` -- Android doesn't let third-party
   apps change the system screen-timeout duration directly, that needs the sensitive
@@ -284,6 +284,9 @@ Modes), then launcher shortcuts to other apps that aren't really a Sam's Music V
   `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE` so a swipe from an edge still reveals them temporarily).
   The app also isn't locked to portrait anymore -- it follows whatever the device's own
   rotation-lock setting allows, rather than forcing one orientation.
+- **Media Controls**: a "Now Playing Bar" toggle plus a live Notification Access status row -- see
+  [Media session controls](#media-session-controls-now-playing-bar) below for how the feature
+  itself works.
 - **Appearance**: a custom accent color and a custom canvas background color, both expressed as
   Hue/Saturation/Brightness sliders (via `android.graphics.Color.HSVToColor`) rather than RGB so
   three sliders cover the whole range, each with a live preview swatch. `VisualizerTheme.ACCENT`
@@ -339,6 +342,53 @@ Modes), then launcher shortcuts to other apps that aren't really a Sam's Music V
   it just leaves a note behind first. There's no crash-reporting backend, so during solo on-device
   testing this is the only way to see what actually broke after the app dies and relaunches.
 - **About**: version number and "vibe coded with love by Samuel Nicholas Salvador/Veera Krishnan."
+
+## Media session controls (Now Playing bar)
+
+A compact transport bar docked above the visualizer -- album art, title/artist, source player app,
+a draggable seek bar with elapsed/remaining time, and prev/play-pause/next -- so switching or
+scrubbing tracks never means leaving the app to hunt down whatever player is actually running.
+
+This needed no per-service SDK integration (no Spotify SDK, no YouTube Music API key, nothing to
+authenticate). Android's own `NotificationListenerService` + `MediaSessionManager` combo is the
+same "listen to whatever's active system-wide" philosophy `AudioCaptureService` already applies to
+the audio stream itself (via `AudioPlaybackCaptureConfiguration`), just aimed at transport control
+and metadata instead of PCM:
+
+- **`MediaNotificationListenerService`**: a `NotificationListenerService` subclass that never
+  actually reads a notification's content -- its only real purpose is the system permission it
+  unlocks. Once the user grants Notification Access (a one-time trip to
+  `Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS`, since Android has no runtime-dialog form of
+  this permission), `onListenerConnected()` calls `MediaSessionManager.getActiveSessions()` to
+  enumerate every app's currently published `MediaController` and registers an
+  `OnActiveSessionsChangedListener` to keep that list current as sessions come and go.
+- **`NowPlayingController`**: a process-wide publisher mirroring `AudioAnalyzer`'s
+  publish-once/observe-everywhere shape. It picks the "best" session (preferring one that's
+  actually `STATE_PLAYING` over one merely paused in the background), registers a
+  `MediaController.Callback` for metadata/state changes, and exposes a `StateFlow<NowPlayingSnapshot?>`
+  plus `playPause()`/`skipNext()`/`skipPrevious()`/`seekTo()` transport functions that call straight
+  through to that controller's `TransportControls` -- no service binding needed on the caller's
+  side.
+- **`NowPlayingBar`**: reads `NowPlayingController.nowPlaying` reactively via `collectAsState()`
+  and renders nothing at all when no session is active, so `MainScreen` can place it
+  unconditionally. The seek bar doesn't poll a live position -- `PlaybackState.position` is only a
+  snapshot as of `PlaybackState.lastPositionUpdateTime`, so the displayed position is extrapolated
+  forward each tick as `position + elapsedRealtime-since-that-anchor * playbackSpeed`, the same
+  delta-time-driven approach every visualizer engine already uses instead of a fixed-step
+  assumption. Dragging the slider pins the displayed value locally until release, then calls
+  `seekTo()`.
+- Notification Access can't be requested through a normal runtime permission dialog, and granting
+  it happens on a separate system settings screen entirely outside Compose's own recomposition
+  triggers. `MainActivity.resumeTick`, a plain `mutableIntStateOf` bumped in `onResume()` (the same
+  cross-component state pattern `AudioCaptureService.isRunning` already uses), gives both
+  `MainScreen` and the Settings screen's status row something to key a re-check off of every time
+  the app returns to the foreground -- paired with `NotificationListenerService.requestRebind()` to
+  nudge an immediate (re)connection on a fresh grant instead of waiting on the system's own delay.
+- While enabled but not yet granted, a slim dismissible prompt takes the bar's place explaining
+  what the permission is for and jumping straight to the settings screen; dismissing it is
+  persisted so it doesn't nag every launch. The master "Now Playing Bar" toggle in Settings only
+  controls whether the bar renders -- Notification Access, once granted, stays granted regardless,
+  since there's no clean way to have Android un-bind a listener service on demand.
 
 ## Sharing a frame
 

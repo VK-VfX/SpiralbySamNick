@@ -68,6 +68,19 @@
             </intent-filter>
         </service>
 
+        <!-- The permission this unlocks (Notification Access) is what lets NowPlayingController
+             enumerate every app's active MediaSession system-wide -- see MediaNotificationListenerService
+             for why this service otherwise does nothing with actual notifications. -->
+        <service
+            android:name=".MediaNotificationListenerService"
+            android:label="Now Playing Controls"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
         <!-- Grants the system package installer read access to the OTA APK downloaded into our
              private external-files storage; DownloadManager's own getUriForDownloadedFile() is
              built for the public Downloads collection and doesn't reliably work for that. -->

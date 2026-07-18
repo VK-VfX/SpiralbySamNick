@@ -7,6 +7,7 @@ import android.view.Display
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.mutableIntStateOf
 
 class MainActivity : ComponentActivity() {
     private val displayManager: DisplayManager by lazy { getSystemService(DisplayManager::class.java) }
@@ -50,6 +51,16 @@ class MainActivity : ComponentActivity() {
         super.onStop()
     }
 
+    // Granting Notification Access happens on a separate system settings screen, entirely outside
+    // Compose's own recomposition triggers -- there's no other signal that fires when the user
+    // comes back. Bumping this plain Compose state in onResume (the same cross-component
+    // mutableStateOf pattern AudioCaptureService.isRunning already uses) gives MainScreen
+    // something to key a re-check off of every time the app returns to the foreground.
+    override fun onResume() {
+        super.onResume()
+        resumeTick.value++
+    }
+
     /**
      * Android ties refresh rate to the window, not to individual views, so this is a best-effort
      * hint for the whole app rather than something scoped to just one visualizer mode. Rather than
@@ -72,4 +83,8 @@ class MainActivity : ComponentActivity() {
     @Suppress("DEPRECATION")
     private fun currentDisplay(): Display? =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) display else windowManager.defaultDisplay
+
+    companion object {
+        val resumeTick = mutableIntStateOf(0)
+    }
 }

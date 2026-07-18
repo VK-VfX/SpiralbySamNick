@@ -3,9 +3,11 @@ package com.samnick.neverspiral
 import android.Manifest
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.media.projection.MediaProjectionManager
 import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -42,6 +44,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -220,6 +223,22 @@ fun MainScreen() {
     var showAppSettings by remember { mutableStateOf(false) }
     var immersiveMode by remember { mutableStateOf(SettingsStore.getBoolean(context, KEY_IMMERSIVE_MODE, true)) }
     var keepScreenOn by remember { mutableStateOf(SettingsStore.getBoolean(context, KEY_KEEP_SCREEN_ON, false)) }
+    var mediaControlsEnabled by remember { mutableStateOf(SettingsStore.getBoolean(context, KEY_MEDIA_CONTROLS_ENABLED, true)) }
+    var notificationAccessGranted by remember { mutableStateOf(NowPlayingController.isNotificationAccessGranted(context)) }
+    var promptDismissed by remember { mutableStateOf(SettingsStore.getBoolean(context, KEY_MEDIA_PROMPT_DISMISSED, false)) }
+    val nowPlaying by NowPlayingController.nowPlaying.collectAsState()
+
+    // MainActivity.resumeTick bumps every time the app returns to the foreground -- the only
+    // reliable signal that the user might just have come back from the separate system settings
+    // screen where Notification Access is actually granted. requestRebind() nudges the system to
+    // (re)connect MediaNotificationListenerService immediately on a fresh grant instead of waiting
+    // on whatever delay it would otherwise take to notice on its own.
+    val resumeTick by MainActivity.resumeTick
+    LaunchedEffect(resumeTick) {
+        val granted = NowPlayingController.isNotificationAccessGranted(context)
+        notificationAccessGranted = granted
+        if (granted) NowPlayingController.requestRebind(context)
+    }
 
     // Applied here, at the top level, rather than only inside AppSettingsScreen's own toggle --
     // that screen only exists in composition while Settings is actually open, so an effect living
@@ -307,6 +326,26 @@ fun MainScreen() {
                     contentAlignment = Alignment.Center,
                 ) {
                     Text("☰", color = VisualizerTheme.ACCENT, fontSize = 15.sp)
+                }
+            }
+
+            if (mediaControlsEnabled) {
+                if (notificationAccessGranted) {
+                    if (nowPlaying != null) {
+                        NowPlayingBar()
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+                } else if (!promptDismissed) {
+                    NotificationAccessPrompt(
+                        onGrantAccess = {
+                            context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                        },
+                        onDismiss = {
+                            promptDismissed = true
+                            SettingsStore.putBoolean(context, KEY_MEDIA_PROMPT_DISMISSED, true)
+                        },
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
                 }
             }
 
@@ -487,6 +526,8 @@ fun MainScreen() {
                     }
                     immersiveMode = SettingsStore.getBoolean(context, KEY_IMMERSIVE_MODE, true)
                     keepScreenOn = SettingsStore.getBoolean(context, KEY_KEEP_SCREEN_ON, false)
+                    mediaControlsEnabled = SettingsStore.getBoolean(context, KEY_MEDIA_CONTROLS_ENABLED, true)
+                    notificationAccessGranted = NowPlayingController.isNotificationAccessGranted(context)
                 },
             )
         }
