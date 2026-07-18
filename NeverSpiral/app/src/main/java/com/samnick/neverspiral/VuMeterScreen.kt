@@ -55,11 +55,6 @@ private val REDLINE_COLOR = VisualizerTheme.CRITICAL
 private val LED_OFF_COLOR = Color(0xFF2A1214)
 private val LED_ON_COLOR = VisualizerTheme.CRITICAL
 
-/** What a lit LED's die looks like right at the center under full current -- near-white, not a
- * flat saturated red, the same "overexposed hot spot" look a photo of a lit LED shows. Only ever
- * blended in near full brightness (see [drawLed]), so a dim LED still reads as its own color. */
-private val LED_HOT_CORE_COLOR = Color(0xFFFFF4E8)
-
 /** A fixed, low-alpha highlight near the LED's upper-left -- a physical LED's domed plastic lens
  * always shows a small specular reflection of ambient light, on or off, since it's light bouncing
  * off the lens itself rather than the die's own emission. */
@@ -306,18 +301,16 @@ private fun DrawScope.drawVuMeter(
     )
 }
 
-/** One indicator LED: a soft two-ring glow beneath a solid core, plus two physical-LED details
- * that don't depend on brightness state changing -- a hot white core blended in only near full
- * brightness (see [LED_HOT_CORE_COLOR]) and a fixed specular highlight from the lens (see
- * [LED_HIGHLIGHT_COLOR]) drawn every frame regardless of on/off state. */
+/** One indicator LED: a soft two-ring glow beneath a solid red core, plus a fixed specular
+ * highlight from the lens (see [LED_HIGHLIGHT_COLOR]) drawn every frame regardless of on/off
+ * state -- the core stays unambiguously red at any brightness rather than blending toward white
+ * near full brightness, so a blinking LED always reads as red, not red-fading-to-white. */
 private fun DrawScope.drawLed(center: Offset, radius: Float, brightness: Float, offColor: Color, onColor: Color) {
     if (brightness > 0.02f) {
         drawCircle(color = onColor.copy(alpha = brightness * 0.4f), radius = radius * 2.6f, center = center)
         drawCircle(color = onColor.copy(alpha = brightness * 0.75f), radius = radius * 1.6f, center = center)
     }
-    val baseColor = lerpColor(offColor, onColor, brightness)
-    val hotCoreMix = ((brightness - 0.6f) / 0.4f).coerceIn(0f, 1f)
-    val coreColor = lerpColor(baseColor, LED_HOT_CORE_COLOR, hotCoreMix)
+    val coreColor = lerpColor(offColor, onColor, brightness)
     drawCircle(color = coreColor, radius = radius, center = center)
     drawCircle(color = VisualizerTheme.HAIRLINE, radius = radius, center = center, style = Stroke(width = 1.5f))
     drawCircle(

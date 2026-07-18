@@ -32,9 +32,10 @@ on the device: Spotify, YouTube Music, or anything else.
   recreates the Activity or interrupts capture, it just physically rotates the display.
 
 - **VU Meter**: an analog needle meter with correctly calibrated ballistics (not a fake wobble), a
-  digital dB readout alongside the needle, and a peak LED that hard-flashes to full brightness the
-  instant it hits the top of the scale, then decays -- like a real hardware peak indicator, not a
-  soft continuous pulse. *Settings: calibration reference (12-24 dBFS).*
+  digital dB readout alongside the needle, and a red peak LED that flashes on the instant the
+  needle hits the top of the scale, then keeps blinking on a steady 1-second cycle for as long as
+  it stays there -- a real "still clipping" strobe, not a light that just turns on and sits lit.
+  *Settings: calibration reference (12-24 dBFS).*
 - **Spectrum**: a real-time FFT bar spectrum, log-spaced across the audible range, with a dB
   reference grid and frequency labels for orientation across the range. *Settings: Cool (blue-to-
   white), Classic (green-yellow-red), or Frequency (Neon Cyan Pulse's frequency-reactive coloring,
@@ -104,9 +105,15 @@ on the device: Spotify, YouTube Music, or anything else.
   font size didn't shrink with it, so the widest labels ("-20", "-10") could crowd or overlap at
   smaller sizes. The scaling fraction is derived from the actual tick-label arc geometry (see
   `VuMeterScreen.kt`'s `TICK_FONT_HEIGHT_FRACTION` doc comment), not just eyeballed.
-- **Peak LED**: a hard flash, not a gradual pulse -- brightness snaps to full the instant the
-  needle hits the top of the scale, then decays smoothly on its own, independent of the needle's
-  own much slower ballistic fall, so a single loud hit still reads as a crisp flash.
+- **Peak LED**: blinks rather than staying solidly lit -- the instant the needle reaches the top of
+  the scale the LED flashes on immediately, then repeats a fixed on/off cycle every
+  `LED_BLINK_PERIOD_SECONDS` (1s) for as long as the needle keeps reading at peak, a brief
+  hysteresis window (`PEAK_GRACE_SECONDS`) preventing one sample dipping right at the boundary from
+  restarting the cycle. Only once the needle genuinely drops back below peak does the LED stop
+  blinking and decay smoothly to off, independent of the needle's own much slower ballistic fall.
+  The core stays a flat red (`VisualizerTheme.CRITICAL`) at any brightness -- an earlier version
+  blended toward a hot white core near full brightness, which read as a red-to-white flash rather
+  than an unambiguous red indicator.
 - **Glow**: the needle gets a soft blurred glow behind it, drawn as a single blurred copy of just
   the needle composited before the crisp native needle/panel/ticks/readout -- the same
   single-bitmap-blur technique described under Rainbow Spectrum and Neon Cyan Pulse below.
