@@ -20,10 +20,18 @@ import kotlin.math.log10
  * digitally), then calibrated so 0 dBVU corresponds to -18 dBFS: the professional reference level
  * that leaves headroom above 0 for transients to peak into before the signal clips digitally.
  *
- * A separate [ledBrightness] drives the peak LED like a real hardware peak indicator: it snaps
- * instantly to full brightness the moment the needle hits the top of the scale (a hard flash,
- * not a gradual pulse), then decays smoothly on its own -- so a single loud hit still reads as a
- * crisp flash instead of a soft glow ramping up.
+ * A single red peak LED, not a two-color ladder -- an earlier version added a second amber
+ * "approaching" LED, but a real analog VU meter's peak indicator is exactly this: one lamp for
+ * "you hit the top of the scale," full stop. [ledBrightness] *blinks* rather than staying lit
+ * solid while the needle sits at the top of the scale -- a plain hold-then-decay reads as a
+ * static "on" light the instant a loud passage settles at the ceiling, which looks like a stuck
+ * indicator rather than an active warning. Instead, the moment the needle first reaches peak the
+ * LED flashes on immediately, then repeats a fixed on/off cycle every [LED_BLINK_PERIOD_SECONDS]
+ * for as long as the needle keeps reading at peak -- exactly the "still clipping" strobe behavior
+ * real peak/clip indicators use, rather than one flash that then just sits there. Only once the
+ * needle genuinely drops back below peak (past a brief [PEAK_GRACE_SECONDS] hysteresis window, so
+ * a single sample right at the boundary doesn't restart the blink cycle) does the LED stop
+ * blinking and fade out smoothly over [LED_DECAY_TAU_SECONDS].
  */
 class VuMeterEngine {
     var dbVu by mutableFloatStateOf(SCALE_MIN_DB_VU)
@@ -31,6 +39,9 @@ class VuMeterEngine {
 
     private var smoothedDbFs = SILENCE_FLOOR_DBFS
     private var ledBrightness = 0f
+    private var isAtPeak = false
+    private var peakGraceRemainingSeconds = 0f
+    private var blinkPhaseSeconds = 0f
 
     /**
      * Advance the needle by [dtSeconds] toward the level implied by [rawRms] (linear, ~0..1).
@@ -47,14 +58,26 @@ class VuMeterEngine {
         dbVu = (smoothedDbFs + calibrationOffsetDb).coerceIn(SCALE_MIN_DB_VU, SCALE_MAX_DB_VU)
 
         if (dbVu >= SCALE_MAX_DB_VU - PEAK_TOLERANCE_DB) {
-            ledBrightness = 1f
+            if (!isAtPeak) blinkPhaseSeconds = 0f // fresh arrival at peak: flash on immediately
+            isAtPeak = true
+            peakGraceRemainingSeconds = PEAK_GRACE_SECONDS
+        } else if (peakGraceRemainingSeconds > 0f) {
+            peakGraceRemainingSeconds -= dt
+        } else {
+            isAtPeak = false
+        }
+
+        if (isAtPeak) {
+            blinkPhaseSeconds += dt
+            if (blinkPhaseSeconds >= LED_BLINK_PERIOD_SECONDS) blinkPhaseSeconds -= LED_BLINK_PERIOD_SECONDS
+            ledBrightness = if (blinkPhaseSeconds < LED_BLINK_PERIOD_SECONDS * LED_BLINK_ON_FRACTION) 1f else 0f
         } else {
             val decayAlpha = 1f - exp(-dt / LED_DECAY_TAU_SECONDS)
             ledBrightness -= ledBrightness * decayAlpha
         }
     }
 
-    /** 0..1 brightness for the peak LED: a hard flash that decays, not a continuous pulse. */
+    /** 0..1 brightness for the peak LED: blinks on/off while at peak, decays smoothly once it isn't. */
     fun peakLedBrightness(): Float = ledBrightness
 
     /** Drop the needle back to rest, e.g. when capture stops. */
@@ -62,11 +85,18 @@ class VuMeterEngine {
         smoothedDbFs = SILENCE_FLOOR_DBFS
         dbVu = SCALE_MIN_DB_VU
         ledBrightness = 0f
+        isAtPeak = false
+        peakGraceRemainingSeconds = 0f
+        blinkPhaseSeconds = 0f
     }
 
     companion object {
         const val SCALE_MIN_DB_VU = -20f
         const val SCALE_MAX_DB_VU = 3f
+
+        /** How often the peak LED repeats its on/off cycle while continuously at peak -- public so
+         * tests can assert period consistency without hardcoding a duplicate literal. */
+        const val LED_BLINK_PERIOD_SECONDS = 1f
 
         private const val SILENCE_FLOOR_DBFS = -80f
         private const val AMPLITUDE_FLOOR = 0.00007f // ~ -83 dBFS; keeps log10 away from zero
@@ -77,6 +107,16 @@ class VuMeterEngine {
 
         private const val PEAK_TOLERANCE_DB = 0.15f
         private const val LED_DECAY_TAU_SECONDS = 0.45f
+
+        /** Fraction of each blink cycle the LED spends lit -- lit for the first half, dark for the
+         * second, an even on/off strobe rather than a brief flash lost in a long dark gap. */
+        private const val LED_BLINK_ON_FRACTION = 0.5f
+
+        /** A brief hysteresis window so one sample dipping just under the peak threshold (which
+         * happens constantly with real program material bouncing right at the edge) doesn't read as
+         * "left peak" and restart the blink cycle from scratch -- only a genuine, sustained drop
+         * stops the blinking. */
+        private const val PEAK_GRACE_SECONDS = 0.05f
 
         private fun amplitudeToDbFs(rms: Float): Float {
             val clamped = rms.coerceAtLeast(AMPLITUDE_FLOOR)

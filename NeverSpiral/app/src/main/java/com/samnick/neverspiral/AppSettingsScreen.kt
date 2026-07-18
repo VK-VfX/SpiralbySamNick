@@ -4,6 +4,7 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -28,6 +29,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -38,7 +40,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -53,11 +54,17 @@ private val PLAYER_APPS = listOf(
     PlayerApp("Tidal", "com.aspiro.tidal"),
 )
 
-private const val KEY_KEEP_SCREEN_ON = "keep_screen_on"
+/** Not private: [MainScreen] reads this directly to actually apply the flag to the window. */
+internal const val KEY_KEEP_SCREEN_ON = "keep_screen_on"
 private const val KEY_AUTO_CHECK_UPDATES = "auto_check_updates"
 
 /** Not private: [MainScreen] reads this directly to decide whether to hide system bars. */
 internal const val KEY_IMMERSIVE_MODE = "immersive_mode"
+
+/** Not private: [MainScreen] reads these directly to decide whether/what to show for the
+ * Now Playing bar, the same split [KEY_KEEP_SCREEN_ON] and [KEY_IMMERSIVE_MODE] already use. */
+internal const val KEY_MEDIA_CONTROLS_ENABLED = "media_controls_enabled"
+internal const val KEY_MEDIA_PROMPT_DISMISSED = "media_prompt_dismissed"
 
 private sealed interface UpdateCheckState {
     object Idle : UpdateCheckState
@@ -65,8 +72,6 @@ private sealed interface UpdateCheckState {
     object UpToDateOrUnknown : UpdateCheckState
     data class UpToDate(val release: UpdateChecker.LatestRelease) : UpdateCheckState
     data class Available(val release: UpdateChecker.LatestRelease) : UpdateCheckState
-    data class Downloading(val release: UpdateChecker.LatestRelease) : UpdateCheckState
-    data class DownloadFailed(val release: UpdateChecker.LatestRelease) : UpdateCheckState
 }
 
 /** Classifies a just-fetched [release] against the installed app -- null covers "no release
@@ -79,17 +84,23 @@ private fun classifyRelease(context: Context, release: UpdateChecker.LatestRelea
 
 /**
  * A full-screen, app-wide settings surface -- distinct from each visualizer mode's own gear-icon
- * panel, which only tunes that mode's look. Covers player shortcuts, display behavior, GitHub-
- * based OTA updates, and an about section.
+ * panel, which only tunes that mode's look. Sections run Display, Media Controls, Appearance,
+ * Modes, Players, Updates, Diagnostics, About: settings that change how the app behaves or looks
+ * come first, launcher shortcuts to other apps (not really a setting at all) come after, and
+ * update/diagnostic/about administrivia comes last.
  */
 @Composable
 fun AppSettingsScreen(onDismiss: () -> Unit) {
     val context = LocalContext.current
-    val view = LocalView.current
     val scope = rememberCoroutineScope()
 
+    // Only the persisted value and the toggle's own UI live here -- actually applying it to the
+    // window is MainScreen's job (see its own keepScreenOn state, refreshed via onDismiss below),
+    // the same split already used for Immersive Mode. Applying it here too would only take effect
+    // while this screen itself happened to be on screen, not for the rest of the session.
     var keepScreenOn by remember { mutableStateOf(SettingsStore.getBoolean(context, KEY_KEEP_SCREEN_ON, false)) }
     var immersiveMode by remember { mutableStateOf(SettingsStore.getBoolean(context, KEY_IMMERSIVE_MODE, true)) }
+    var mediaControlsEnabled by remember { mutableStateOf(SettingsStore.getBoolean(context, KEY_MEDIA_CONTROLS_ENABLED, true)) }
     var autoCheckUpdates by remember { mutableStateOf(SettingsStore.getBoolean(context, KEY_AUTO_CHECK_UPDATES, false)) }
     var updateState by remember { mutableStateOf<UpdateCheckState>(UpdateCheckState.Idle) }
     val versionName = remember {
@@ -98,10 +109,6 @@ fun AppSettingsScreen(onDismiss: () -> Unit) {
         } catch (e: Exception) {
             "unknown"
         }
-    }
-
-    LaunchedEffect(keepScreenOn) {
-        view.keepScreenOn = keepScreenOn
     }
 
     LaunchedEffect(Unit) {
@@ -150,21 +157,6 @@ fun AppSettingsScreen(onDismiss: () -> Unit) {
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp),
             ) {
-                SettingsSectionTitle("Players")
-                Text(
-                    text = "Sam's Music Viz listens to whatever's playing system-wide, so it already " +
-                        "works with any of these -- no account or setup needed. These just jump " +
-                        "straight to the app.",
-                    color = VisualizerTheme.TEXT_SECONDARY,
-                    fontSize = 12.sp,
-                    fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.padding(bottom = 10.dp),
-                )
-                for (player in PLAYER_APPS) {
-                    PlayerRow(player, context)
-                }
-
-                Spacer(modifier = Modifier.height(20.dp))
                 SettingsSectionTitle("Display")
                 SettingsToggleRow(
                     label = "Keep Screen On",
@@ -188,6 +180,23 @@ fun AppSettingsScreen(onDismiss: () -> Unit) {
                 }
 
                 Spacer(modifier = Modifier.height(20.dp))
+                SettingsSectionTitle("Media Controls")
+                SettingsToggleRow(
+                    label = "Now Playing Bar",
+                    description = "Shows a transport bar above the visualizer for whatever's " +
+                        "playing -- any player, not just this app -- with play/pause, skip, and a " +
+                        "draggable seek bar.",
+                    checked = mediaControlsEnabled,
+                ) {
+                    mediaControlsEnabled = it
+                    SettingsStore.putBoolean(context, KEY_MEDIA_CONTROLS_ENABLED, it)
+                }
+                if (mediaControlsEnabled) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    MediaAccessStatusRow(context)
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
                 SettingsSectionTitle("Appearance")
                 AppearanceSection(context)
 
@@ -203,6 +212,25 @@ fun AppSettingsScreen(onDismiss: () -> Unit) {
                     modifier = Modifier.padding(bottom = 10.dp),
                 )
                 ModeCustomizationSection(context)
+
+                // Players moved below the settings that actually change app behavior/look --
+                // these are just launcher shortcuts to other apps, not a Sam's Music Viz setting,
+                // so they read better as a lower-priority convenience section than the first
+                // thing in the list.
+                Spacer(modifier = Modifier.height(20.dp))
+                SettingsSectionTitle("Players")
+                Text(
+                    text = "Sam's Music Viz listens to whatever's playing system-wide, so it already " +
+                        "works with any of these -- no account or setup needed. These just jump " +
+                        "straight to the app.",
+                    color = VisualizerTheme.TEXT_SECONDARY,
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.padding(bottom = 10.dp),
+                )
+                for (player in PLAYER_APPS) {
+                    PlayerRow(player, context)
+                }
 
                 Spacer(modifier = Modifier.height(20.dp))
                 SettingsSectionTitle("Updates")
@@ -224,21 +252,7 @@ fun AppSettingsScreen(onDismiss: () -> Unit) {
                             updateState = classifyRelease(context, UpdateChecker.checkLatest())
                         }
                     },
-                    onInstall = { release ->
-                        scope.launch {
-                            if (UpdateChecker.canInstallPackages(context)) {
-                                updateState = UpdateCheckState.Downloading(release)
-                                val success = UpdateChecker.downloadAndInstall(context, release)
-                                updateState = if (success) {
-                                    UpdateCheckState.Available(release)
-                                } else {
-                                    UpdateCheckState.DownloadFailed(release)
-                                }
-                            } else {
-                                UpdateChecker.requestInstallPermission(context)
-                            }
-                        }
-                    },
+                    onInstall = { release -> UpdateChecker.openReleasePage(context, release) },
                 )
 
                 Spacer(modifier = Modifier.height(20.dp))
@@ -269,6 +283,58 @@ fun AppSettingsScreen(onDismiss: () -> Unit) {
                     modifier = Modifier.padding(bottom = 24.dp),
                 )
             }
+        }
+    }
+}
+
+/**
+ * Reflects live Notification Access + connection state rather than just "granted at the moment
+ * this screen opened" -- [NowPlayingController.listenerConnected] tracks whether
+ * [MediaNotificationListenerService] is actually bound right now, which can briefly lag a fresh
+ * grant, so the three states (not granted / granted-but-connecting / connected) are all worth
+ * showing distinctly instead of collapsing into a single boolean.
+ */
+@Composable
+private fun MediaAccessStatusRow(context: Context) {
+    var granted by remember { mutableStateOf(NowPlayingController.isNotificationAccessGranted(context)) }
+    val connected by NowPlayingController.listenerConnected.collectAsState()
+
+    // Keyed on MainActivity.resumeTick, not Unit -- granting Notification Access happens on a
+    // separate system settings screen within the same task, so this composable never leaves
+    // composition, and only re-entering the foreground (not first composition) is what actually
+    // needs to trigger a re-check.
+    val resumeTick by MainActivity.resumeTick
+    LaunchedEffect(resumeTick) {
+        granted = NowPlayingController.isNotificationAccessGranted(context)
+        if (granted) NowPlayingController.requestRebind(context)
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(VisualizerTheme.PANEL_RAISED)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val (statusText, statusColor) = when {
+            !granted -> "Notification Access not granted" to VisualizerTheme.WARN
+            connected -> "Connected" to VisualizerTheme.ACCENT
+            else -> "Granted -- connecting…" to VisualizerTheme.TEXT_SECONDARY
+        }
+        Text(statusText, color = statusColor, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+        if (!granted) {
+            Text(
+                text = "GRANT",
+                color = VisualizerTheme.ACCENT,
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.clickable {
+                    context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                },
+            )
         }
     }
 }
@@ -476,6 +542,57 @@ private fun AppearanceSection(context: Context) {
             AppearanceSettings.saveCustomAccent(context, hue, saturation, brightness)
         }
     }
+
+    Spacer(modifier = Modifier.height(18.dp))
+    var useCustomBackground by remember { mutableStateOf(AppearanceSettings.isBackgroundCustomEnabled(context)) }
+    var bgHue by remember { mutableFloatStateOf(AppearanceSettings.loadBackgroundHue(context)) }
+    var bgSaturation by remember { mutableFloatStateOf(AppearanceSettings.loadBackgroundSaturation(context)) }
+    var bgBrightness by remember { mutableFloatStateOf(AppearanceSettings.loadBackgroundValue(context)) }
+
+    Text(
+        text = "Pick your own canvas background -- the backdrop every mode draws over, instead " +
+            "of the default black. Some modes (Kaleidoscope Bloom especially) read nicer on a " +
+            "deep, non-pure-black tone.",
+        color = VisualizerTheme.TEXT_SECONDARY,
+        fontSize = 12.sp,
+        fontFamily = FontFamily.Monospace,
+        modifier = Modifier.padding(bottom = 10.dp),
+    )
+    SettingsToggleRow(
+        label = "Custom Background Color",
+        description = "Overrides the default black canvas backdrop in every mode.",
+        checked = useCustomBackground,
+    ) { checked ->
+        useCustomBackground = checked
+        if (checked) {
+            AppearanceSettings.saveCustomBackground(context, bgHue, bgSaturation, bgBrightness)
+        } else {
+            AppearanceSettings.resetBackgroundToDefault(context)
+        }
+    }
+    if (useCustomBackground) {
+        Spacer(modifier = Modifier.height(10.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(28.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(AppearanceSettings.colorFromHsv(bgHue, bgSaturation, bgBrightness)),
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        SettingSliderRow("Hue", bgHue, 0f..360f) {
+            bgHue = it
+            AppearanceSettings.saveCustomBackground(context, bgHue, bgSaturation, bgBrightness)
+        }
+        SettingSliderRow("Saturation", bgSaturation, 0f..1f) {
+            bgSaturation = it
+            AppearanceSettings.saveCustomBackground(context, bgHue, bgSaturation, bgBrightness)
+        }
+        SettingSliderRow("Brightness", bgBrightness, 0f..0.4f) {
+            bgBrightness = it
+            AppearanceSettings.saveCustomBackground(context, bgHue, bgSaturation, bgBrightness)
+        }
+    }
 }
 
 /**
@@ -620,28 +737,10 @@ private fun UpdateSection(
                 modifier = Modifier.padding(bottom = 8.dp),
             )
             Row {
-                SettingsActionButton("Download & Install", onClick = { onInstall(state.release) })
+                SettingsActionButton("Get Update", onClick = { onInstall(state.release) })
                 Spacer(modifier = Modifier.width(8.dp))
                 SettingsActionButton("Recheck", onClick = onCheckNow)
             }
-        }
-        is UpdateCheckState.Downloading -> {
-            Text(
-                text = "Downloading ${state.release.name}…",
-                color = VisualizerTheme.TEXT_SECONDARY,
-                fontSize = 12.sp,
-                fontFamily = FontFamily.Monospace,
-            )
-        }
-        is UpdateCheckState.DownloadFailed -> {
-            Text(
-                text = "Download failed or timed out -- check your connection and try again.",
-                color = VisualizerTheme.CRITICAL,
-                fontSize = 11.sp,
-                fontFamily = FontFamily.Monospace,
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
-            SettingsActionButton("Try Again", onClick = { onInstall(state.release) })
         }
     }
 }

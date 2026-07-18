@@ -26,6 +26,15 @@ object SpectrumAnalyzer {
         (0.5 - 0.5 * cos(2.0 * PI * i / (FFT_SIZE - 1))).toFloat()
     }
 
+    /** Where along the log-spaced band axis [hz] falls (0 = [MIN_FREQ_HZ], 1 = [MAX_FREQ_HZ]) --
+     * shared by every mode that draws frequency labels along a band axis (currently just
+     * Spectrum), so the mapping can't drift out of sync between them. */
+    fun xFractionForFrequency(hz: Float): Float {
+        val logMin = ln(MIN_FREQ_HZ)
+        val logMax = ln(MAX_FREQ_HZ)
+        return ((ln(hz) - logMin) / (logMax - logMin)).coerceIn(0f, 1f)
+    }
+
     /** [buffer] must hold at least [FFT_SIZE] samples starting at index 0. */
     fun computeBands(buffer: ShortArray): FloatArray {
         val real = FloatArray(FFT_SIZE)

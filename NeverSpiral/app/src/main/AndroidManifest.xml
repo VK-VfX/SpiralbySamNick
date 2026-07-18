@@ -5,7 +5,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <!-- Package-visibility declarations (Android 11+): needed so PackageManager can tell us
          whether these player apps are installed, for the Settings quick-launch shortcuts. -->
@@ -65,6 +65,19 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <!-- The permission this unlocks (Notification Access) is what lets NowPlayingController
+             enumerate every app's active MediaSession system-wide: see MediaNotificationListenerService
+             for why this service otherwise does nothing with actual notifications. -->
+        <service
+            android:name=".MediaNotificationListenerService"
+            android:label="Now Playing Controls"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
 

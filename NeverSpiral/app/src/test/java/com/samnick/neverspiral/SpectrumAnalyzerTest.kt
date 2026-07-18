@@ -4,6 +4,7 @@ import kotlin.math.PI
 import kotlin.math.exp
 import kotlin.math.ln
 import kotlin.math.sin
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -57,5 +58,18 @@ class SpectrumAnalyzerTest {
             "peak band [$bandStartHz, $bandEndHz) doesn't bracket 1000Hz",
             1000f in (bandStartHz * 0.5f)..(bandEndHz * 2f),
         )
+    }
+
+    @Test
+    fun `xFractionForFrequency spans 0 to 1 across the band range and clamps outside it`() {
+        assertEquals(0f, SpectrumAnalyzer.xFractionForFrequency(SpectrumAnalyzer.MIN_FREQ_HZ), 0.001f)
+        assertEquals(1f, SpectrumAnalyzer.xFractionForFrequency(SpectrumAnalyzer.MAX_FREQ_HZ), 0.001f)
+        // Below MIN_FREQ_HZ/above MAX_FREQ_HZ must clamp, not extrapolate past the visible axis.
+        assertEquals(0f, SpectrumAnalyzer.xFractionForFrequency(1f), 0.001f)
+        assertEquals(1f, SpectrumAnalyzer.xFractionForFrequency(100_000f), 0.001f)
+
+        val low = SpectrumAnalyzer.xFractionForFrequency(1000f)
+        val high = SpectrumAnalyzer.xFractionForFrequency(4000f)
+        assertTrue("expected 0 < low < high < 1, got low=$low high=$high", low in 0f..1f && high in 0f..1f && low < high)
     }
 }

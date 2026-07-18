@@ -12,9 +12,9 @@ import androidx.compose.ui.graphics.Color
  *
  * [ACCENT] is mutable Compose state, not a fixed constant: [AppearanceSettings] lets a custom
  * color override it, and since every mode already reads [ACCENT] (chips, VU needle highlights,
- * Spectrum's Cool scheme, Graphic EQ's lit segments below the warning zone, and more), changing
- * this one value cascades a custom look across the whole app for free. [ACCENT_DIM] is derived
- * from it rather than an independent color, so it stays coherent with whatever [ACCENT] is set to.
+ * Spectrum's Cool scheme, and more), changing this one value cascades a custom look across the
+ * whole app for free. [ACCENT_DIM] is derived from it rather than an independent color, so it
+ * stays coherent with whatever [ACCENT] is set to.
  */
 object VisualizerTheme {
     val BACKGROUND = Color(0xFF0A0A0D)
@@ -30,4 +30,10 @@ object VisualizerTheme {
         get() = Color(red = ACCENT.red * 0.52f, green = ACCENT.green * 0.52f, blue = ACCENT.blue * 0.52f, alpha = 1f)
     val WARN = Color(0xFFE0B04A)
     val CRITICAL = Color(0xFFE0453F)
+
+    /** The full-screen backdrop every visualizer mode's Canvas draws first, before its own
+     * content -- mutable and user-customizable via [AppearanceSettings], the same "one value
+     * cascades everywhere" pattern as [ACCENT]. Defaults to pure black, matching what most modes
+     * already hardcoded before this became a setting. */
+    var CANVAS_BACKGROUND: Color by mutableStateOf(Color.Black)
 }

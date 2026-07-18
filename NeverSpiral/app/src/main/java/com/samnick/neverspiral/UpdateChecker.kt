@@ -1,27 +1,27 @@
 package com.samnick.neverspiral
 
-import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
-import android.os.Environment
-import android.provider.Settings
-import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
-import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * A GitHub-Releases-based OTA update path -- the same pattern F-Droid-style apps use when they
- * aren't distributed through the Play Store: check the repo's latest release for an attached
- * APK, download it via [DownloadManager], then hand it to the system installer. Requires the
- * repo to be public, since an unauthenticated request to a private repo's releases API returns
- * 404/403 -- [checkLatest] fails closed (returns null) rather than crashing when that happens.
+ * A GitHub-Releases-based update check -- the same pattern F-Droid-style apps use when they
+ * aren't distributed through the Play Store: check the repo's latest release, and if it's newer,
+ * send the user to the release page in their browser to download and install it manually.
+ * Requires the repo to be public, since an unauthenticated request to a private repo's releases
+ * API returns 404/403 -- [checkLatest] fails closed (returns null) rather than crashing when that
+ * happens.
+ *
+ * Deliberately does *not* download and self-install the APK: that path needed the
+ * REQUEST_INSTALL_PACKAGES permission, which combined with this app's audio-capture permissions
+ * reads to Play Protect's heuristics like a trojan dropper (listens to audio + can silently
+ * install more software), triggering an "app may be unsafe" warning on every sideloaded install.
+ * A manual browser download avoids that permission entirely, at the cost of one extra tap.
  */
 object UpdateChecker {
     private const val RELEASES_API_URL = "https://api.github.com/repos/VK-VfX/SpiralbySamNick/releases/latest"
@@ -98,86 +98,9 @@ object UpdateChecker {
         return if (parts.any { it == null }) null else parts.map { it!! }
     }
 
-    /** Whether this app is currently allowed to prompt an APK install (always true below Android 8). */
-    fun canInstallPackages(context: Context): Boolean =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.packageManager.canRequestPackageInstalls()
-        } else {
-            true
-        }
-
-    /** Sends the user to the system screen to grant "install unknown apps" for this app. */
-    fun requestInstallPermission(context: Context) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))
-            context.startActivity(intent)
-        }
-    }
-
-    private const val DOWNLOAD_POLL_INTERVAL_MS = 500L
-
-    // Bounds the wait for a download that stalls (no network, a paused/never-resumed transfer) --
-    // without this the caller's "Downloading..." state hung forever with no way to recover.
-    private const val DOWNLOAD_TIMEOUT_MS = 120_000L
-
-    /**
-     * Downloads [release]'s APK via DownloadManager, waits for completion, then launches the
-     * system installer. Returns whether the install intent was actually launched; false covers a
-     * failed/timed-out download or a missing destination file, so the caller can show a retry
-     * state instead of silently assuming success.
-     */
-    suspend fun downloadAndInstall(context: Context, release: LatestRelease): Boolean {
-        val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        val fileName = "sams-music-viz-${release.tagName}.apk"
-        val destinationFile = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), fileName)
-        // A leftover file from a previous attempt (a failed download, or retrying the same
-        // release) can make DownloadManager refuse to write to the same path again.
-        if (destinationFile.exists()) destinationFile.delete()
-
-        val request = DownloadManager.Request(Uri.parse(release.apkDownloadUrl))
-            .setTitle("Sam's Music Viz ${release.tagName}")
-            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, fileName)
-
-        val downloadId = downloadManager.enqueue(request)
-
-        val succeeded = withContext(Dispatchers.IO) {
-            var result = false
-            var elapsedMs = 0L
-            while (elapsedMs < DOWNLOAD_TIMEOUT_MS) {
-                var stillPending = true
-                downloadManager.query(DownloadManager.Query().setFilterById(downloadId)).use { cursor ->
-                    if (cursor.moveToFirst()) {
-                        when (cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))) {
-                            DownloadManager.STATUS_SUCCESSFUL -> {
-                                result = true
-                                stillPending = false
-                            }
-                            DownloadManager.STATUS_FAILED -> stillPending = false
-                        }
-                    } else {
-                        stillPending = false
-                    }
-                }
-                if (!stillPending) break
-                delay(DOWNLOAD_POLL_INTERVAL_MS)
-                elapsedMs += DOWNLOAD_POLL_INTERVAL_MS
-            }
-            result
-        }
-
-        if (!succeeded || !destinationFile.exists()) return false
-
-        // DownloadManager.getUriForDownloadedFile() is built for downloads in the public Downloads
-        // collection and is unreliable (often an unopenable URI) for a file saved under an
-        // app-private external directory like this one -- FileProvider is what actually grants the
-        // system installer read access to a file living in our private storage.
-        val apkUri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", destinationFile)
-        val installIntent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(apkUri, "application/vnd.android.package-archive")
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        context.startActivity(installIntent)
-        return true
+    /** Opens [release]'s GitHub release page in the browser so the user can download and install
+     * the APK manually -- see the class doc for why this doesn't self-install. */
+    fun openReleasePage(context: Context, release: LatestRelease) {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.htmlUrl)))
     }
 }

@@ -45,16 +45,82 @@ class VuMeterEngineTest {
     }
 
     @Test
-    fun `peak LED flashes to full brightness and decays, not an instant cutoff`() {
+    fun `LED flashes on as soon as the needle reaches peak, not gradually`() {
         val engine = VuMeterEngine()
-        repeat(40) { engine.step(0.05f, rawRms = 1f) }
-        assertEquals(1f, engine.peakLedBrightness(), 0.001f)
+        var reachedPeak = false
+        // A real for-loop with a break, not `repeat` -- the assertion below needs to land on the
+        // exact step the needle first crosses into peak, not after however many further steps
+        // happened to run, which could land mid-blink in the *off* phase and fail for the wrong
+        // reason entirely.
+        for (i in 0 until 20) {
+            engine.step(0.05f, rawRms = 1f)
+            if (engine.dbVu >= VuMeterEngine.SCALE_MAX_DB_VU - 0.15f) {
+                reachedPeak = true
+                break
+            }
+        }
+        assertTrue("expected the needle to actually reach peak within 20 steps", reachedPeak)
+        assertTrue(
+            "expected the LED to already be lit once the needle reaches peak, got ${engine.peakLedBrightness()}",
+            engine.peakLedBrightness() > 0.9f,
+        )
+    }
 
-        engine.step(0.01f, rawRms = 0f)
-        assertTrue("LED should still be mostly lit right after the hit ends", engine.peakLedBrightness() > 0.5f)
+    @Test
+    fun `peak LED blinks on and off while continuously at peak, rather than staying solid`() {
+        val engine = VuMeterEngine()
+        var sawOn = false
+        var sawOff = false
+        // 60 steps of 50ms = 3s: comfortably covers several blink cycles once the needle settles
+        // at peak (which happens within the first few steps).
+        repeat(60) {
+            engine.step(0.05f, rawRms = 1f)
+            val brightness = engine.peakLedBrightness()
+            if (brightness > 0.9f) sawOn = true
+            if (brightness < 0.1f) sawOff = true
+        }
+        assertTrue("expected the LED to be fully on at some point", sawOn)
+        assertTrue(
+            "expected the LED to be fully off at some point while still at peak -- a real blink, not a solid light",
+            sawOff,
+        )
+    }
 
-        repeat(60) { engine.step(0.05f, rawRms = 0f) }
-        assertTrue("LED should have decayed back down", engine.peakLedBrightness() < 0.01f)
+    @Test
+    fun `successive blink-off transitions repeat every LED_BLINK_PERIOD_SECONDS`() {
+        val engine = VuMeterEngine()
+        val dt = 0.02f
+        var elapsed = 0f
+        var wasOn = false
+        val offTimestamps = mutableListOf<Float>()
+        repeat(250) { // 5s, several full blink cycles
+            engine.step(dt, rawRms = 1f)
+            elapsed += dt
+            val on = engine.peakLedBrightness() > 0.5f
+            if (wasOn && !on) offTimestamps.add(elapsed)
+            wasOn = on
+        }
+        assertTrue("expected at least 2 blink-off transitions within 5s, got ${offTimestamps.size}", offTimestamps.size >= 2)
+        for (i in 1 until offTimestamps.size) {
+            val gap = offTimestamps[i] - offTimestamps[i - 1]
+            assertEquals(
+                "expected successive blinks to repeat every ${VuMeterEngine.LED_BLINK_PERIOD_SECONDS}s, got a ${gap}s gap",
+                VuMeterEngine.LED_BLINK_PERIOD_SECONDS, gap, 0.05f,
+            )
+        }
+    }
+
+    @Test
+    fun `LED decays smoothly once it truly leaves peak, rather than snapping off`() {
+        val engine = VuMeterEngine()
+        // 0.4s of driving at full scale -- past the crossing point and still within the first
+        // blink's on phase, so this is a real assertion, not a coincidence of timing.
+        repeat(20) { engine.step(0.02f, rawRms = 1f) }
+        assertTrue("expected the LED to be lit while still driving to peak", engine.peakLedBrightness() > 0.5f)
+
+        // 4s of silence: comfortably past the brief peak-grace hysteresis plus the full decay tail.
+        repeat(80) { engine.step(0.05f, rawRms = 0f) }
+        assertTrue("expected the LED to have decayed back down", engine.peakLedBrightness() < 0.01f)
     }
 
     @Test
