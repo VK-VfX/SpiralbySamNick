@@ -69,7 +69,7 @@
         </service>
 
         <!-- The permission this unlocks (Notification Access) is what lets NowPlayingController
-             enumerate every app's active MediaSession system-wide -- see MediaNotificationListenerService
+             enumerate every app's active MediaSession system-wide: see MediaNotificationListenerService
              for why this service otherwise does nothing with actual notifications. -->
         <service
             android:name=".MediaNotificationListenerService"
