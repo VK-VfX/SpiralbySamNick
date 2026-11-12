@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A soft center-to-edge radial gradient rather than flat white -- the subtle falloff is what
+<!-- A soft center-to-edge radial gradient rather than flat white: the subtle falloff is what
      reads as "materialistic" (a lit, slightly domed surface) instead of a flat paper cutout,
      while staying close enough to white/black that the spiral foreground still reads crisply on
      every launcher's icon mask. -->

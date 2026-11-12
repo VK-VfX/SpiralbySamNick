@@ -4,7 +4,7 @@
      storage. -->
 <paths>
     <!-- Where CaptureStore stages a just-captured photo/video/RAW file before (and briefly after)
-         it's copied into the shared MediaStore collection -- cache rather than files/, since once
+         it's copied into the shared MediaStore collection: cache rather than files/, since once
          the MediaStore copy exists this one is disposable. -->
     <cache-path name="captures" path="captures/" />
 </paths>

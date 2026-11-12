@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Adaptive icon foreground: a single Archimedean spiral stroke (the app's namesake shape),
-     generated as a dense point-sampled path rather than hand-authored arcs -- the simplest way
+     generated as a dense point-sampled path rather than hand-authored arcs: the simplest way
      to get a true smooth spiral out of VectorDrawable's path-data grammar. Kept within radius 30
      around the (54,54) center so it stays inside the 66dp adaptive-icon safe zone on every mask
      shape (circle, squircle, rounded square) launchers crop to. -->
@@ -18,8 +18,8 @@
         android:strokeLineJoin="round"
         android:fillColor="#00000000" />
 
-    <!-- A solid dot at the spiral's center -- reads as the needle pivot the app's original VU
-         meter spiral motif was built around, and keeps the inner turns from looking hollow. -->
+    <!-- A solid dot at the spiral's center: reads as the point the coil winds out from, like a
+         camera's own aperture iris, and keeps the inner turns from looking hollow. -->
     <path
         android:pathData="M54,54 m-3.4,0 a3.4,3.4 0 1,0 6.8,0 a3.4,3.4 0 1,0 -6.8,0"
         android:fillColor="#121212" />
