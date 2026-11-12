@@ -219,7 +219,32 @@ class CameraEngine(private val context: Context) {
             ?: capped.first()
     }
 
-    fun maxZoomRatio(): Float = characteristics?.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM) ?: 1f
+    private fun zoomRatioRange(): android.util.Range<Float>? =
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            characteristics?.get(CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE)
+        } else {
+            null
+        }
+
+    /** Below 1.0 on phones whose back camera is a logical multi-lens camera (0.5x ultra-wide). */
+    fun minZoomRatio(): Float = zoomRatioRange()?.lower?.coerceAtMost(1f) ?: 1f
+
+    fun maxZoomRatio(): Float =
+        zoomRatioRange()?.upper ?: (characteristics?.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM) ?: 1f)
+
+    /** Longer exposures and a brightened viewfinder while Night Sight is selected. */
+    var nightPreviewBoost: Boolean = false
+
+    private var videoFps = 30
+
+    /** AE/AF lock (long-press on the viewfinder). */
+    var controlsLocked: Boolean = false
+        private set
+
+    fun setControlsLocked(locked: Boolean) {
+        controlsLocked = locked
+        startRepeatingPreview()
+    }
 
     suspend fun startPreviewSession(
         texture: SurfaceTexture,
@@ -306,7 +331,7 @@ class CameraEngine(private val context: Context) {
         val builder = device.createCaptureRequest(template)
         builder.addTarget(surface)
         recorderSurface?.let { builder.addTarget(it) }
-        applyControls(builder)
+        applyControls(builder, preview = true)
         try {
             session.setRepeatingRequest(builder.build(), captureCallback, backgroundHandler)
         } catch (_: IllegalStateException) {
@@ -323,16 +348,30 @@ class CameraEngine(private val context: Context) {
      * manual color-correction math just to keep white balance working, which manual exposure or
      * manual focus alone has no reason to need.
      */
-    private fun applyControls(builder: CaptureRequest.Builder) {
+    private fun applyControls(builder: CaptureRequest.Builder, preview: Boolean = false) {
         val chars = characteristics ?: return
 
-        val activeArray = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
-        if (activeArray != null && zoomRatio > 1.001f) {
-            val cropWidth = (activeArray.width() / zoomRatio).toInt().coerceAtLeast(1)
-            val cropHeight = (activeArray.height() / zoomRatio).toInt().coerceAtLeast(1)
-            val left = (activeArray.width() - cropWidth) / 2
-            val top = (activeArray.height() - cropHeight) / 2
-            builder.set(CaptureRequest.SCALER_CROP_REGION, Rect(left, top, left + cropWidth, top + cropHeight))
+        val zoomRange = zoomRatioRange()
+        if (zoomRange != null) {
+            builder.set(CaptureRequest.CONTROL_ZOOM_RATIO, zoomRatio.coerceIn(zoomRange.lower, zoomRange.upper))
+        } else {
+            val activeArray = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
+            if (activeArray != null && zoomRatio > 1.001f) {
+                val cropWidth = (activeArray.width() / zoomRatio).toInt().coerceAtLeast(1)
+                val cropHeight = (activeArray.height() / zoomRatio).toInt().coerceAtLeast(1)
+                val left = (activeArray.width() - cropWidth) / 2
+                val top = (activeArray.height() - cropHeight) / 2
+                builder.set(CaptureRequest.SCALER_CROP_REGION, Rect(left, top, left + cropWidth, top + cropHeight))
+            }
+        }
+
+        // Stabilisation: electronic while filming, optical otherwise, wherever the camera has it.
+        val eis = chars.get(CameraCharacteristics.CONTROL_AVAILABLE_VIDEO_STABILIZATION_MODES)
+        val ois = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION)
+        if (mediaRecorder != null && eis?.contains(CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_ON) == true) {
+            builder.set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_ON)
+        } else if (ois?.contains(CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_ON) == true) {
+            builder.set(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_ON)
         }
 
         builder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO)
@@ -350,14 +389,27 @@ class CameraEngine(private val context: Context) {
                 else -> CameraMetadata.CONTROL_AE_MODE_ON
             }
             builder.set(CaptureRequest.CONTROL_AE_MODE, aeMode)
-            builder.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, proSettings.exposureCompensation)
+            var compensation = proSettings.exposureCompensation
+            if (preview && nightPreviewBoost) {
+                // Night Sight: show a brightened viewfinder and allow slower frame rates.
+                chars.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE)?.let { compensation = it.upper }
+                chars.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
+                    ?.filter { it.lower <= 12 }
+                    ?.maxByOrNull { it.upper }
+                    ?.let { builder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, it) }
+            }
+            builder.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, compensation)
+            if (controlsLocked) builder.set(CaptureRequest.CONTROL_AE_LOCK, true)
         }
 
         if (proSettings.manualFocusEnabled) {
             builder.set(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_OFF)
             builder.set(CaptureRequest.LENS_FOCUS_DISTANCE, proSettings.focusDistance)
         } else {
-            builder.set(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+            builder.set(
+                CaptureRequest.CONTROL_AF_MODE,
+                if (controlsLocked) CameraMetadata.CONTROL_AF_MODE_AUTO else CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_PICTURE,
+            )
         }
 
         builder.set(
@@ -420,7 +472,7 @@ class CameraEngine(private val context: Context) {
         val regionSize = (min(activeArray.width(), activeArray.height()) * 0.12f).toInt().coerceAtLeast(1)
         // The viewfinder shows only the centered zoom crop, so a tap at a normalized point maps
         // into that crop rectangle, not the whole active array.
-        val cropWidth = activeArray.width() / zoomRatio.coerceAtLeast(1f)
+        val cropWidth = activeArray.width() / zoomRatio.coerceAtLeast(1f)  // below 1x the view shows the whole array
         val cropHeight = activeArray.height() / zoomRatio.coerceAtLeast(1f)
         val cropLeft = (activeArray.width() - cropWidth) / 2f
         val cropTop = (activeArray.height() - cropHeight) / 2f
@@ -440,25 +492,36 @@ class CameraEngine(private val context: Context) {
         val maxAeRegions = chars.get(CameraCharacteristics.CONTROL_MAX_REGIONS_AE) ?: 0
         if (maxAfRegions > 0) builder.set(CaptureRequest.CONTROL_AF_REGIONS, arrayOf(region))
         if (maxAeRegions > 0) builder.set(CaptureRequest.CONTROL_AE_REGIONS, arrayOf(region))
-        if (!proSettings.manualFocusEnabled) {
-            builder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_START)
+        // Regions go on the repeating request; the AF trigger is fired once, not every frame.
+        val triggerBuilder = if (!proSettings.manualFocusEnabled) {
+            device.createCaptureRequest(template).also { b ->
+                b.addTarget(surface)
+                recorderSurface?.let { b.addTarget(it) }
+                applyControls(b)
+                if (maxAfRegions > 0) b.set(CaptureRequest.CONTROL_AF_REGIONS, arrayOf(region))
+                if (maxAeRegions > 0) b.set(CaptureRequest.CONTROL_AE_REGIONS, arrayOf(region))
+                b.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_START)
+            }
+        } else {
+            null
         }
 
         try {
             session.setRepeatingRequest(builder.build(), captureCallback, backgroundHandler)
+            triggerBuilder?.let { session.capture(it.build(), captureCallback, backgroundHandler) }
         } catch (_: IllegalStateException) {
             // Session torn down concurrently; nothing to apply the metering region to anymore.
         }
     }
 
+    /** [deviceRotationDegrees] is the raw reading of an OrientationEventListener (degrees the
+     * device is turned clockwise from upright), or negative if unknown. This is the pairing the
+     * Camera2 documentation gives for SENSOR_ORIENTATION: the front camera's sense is mirrored. */
     private fun sensorToJpegOrientation(deviceRotationDegrees: Int): Int {
         val sensorOrientation = characteristics?.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0
         val facingFront = lensFacing == CameraCharacteristics.LENS_FACING_FRONT
-        return if (facingFront) {
-            (sensorOrientation + deviceRotationDegrees) % 360
-        } else {
-            (sensorOrientation - deviceRotationDegrees + 360) % 360
-        }
+        val d = if (deviceRotationDegrees < 0) 0 else ((deviceRotationDegrees + 45) / 90 * 90) % 360
+        return if (facingFront) (sensorOrientation - d + 360) % 360 else (sensorOrientation + d) % 360
     }
 
     /** The frames of one burst, plus the RAW frame and its result when RAW was requested. */
@@ -655,7 +718,22 @@ class CameraEngine(private val context: Context) {
      * [MediaRecorder]'s input surface, matching the standard Camera2 pattern for still+video
      * capture from one camera: the recorder's surface has to exist before the capture session
      * that includes it is created, so [MediaRecorder.prepare] has to run first. */
-    suspend fun startVideoRecording(outputFile: File, deviceRotationDegrees: Int): Unit =
+    fun supportedVideoResolutions(): List<VideoRes> {
+        val id = currentCameraId.toIntOrNull() ?: return listOf(VideoRes.P1080)
+        return VideoRes.entries.filter { CamcorderProfile.hasProfile(id, it.quality) }.ifEmpty { listOf(VideoRes.P1080) }
+    }
+
+    fun supports60fps(): Boolean =
+        characteristics?.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)?.any { it.upper >= 60 } == true
+
+    fun supportsHevc(): Boolean = try {
+        android.media.MediaCodecList(android.media.MediaCodecList.REGULAR_CODECS).codecInfos
+            .any { it.isEncoder && it.supportedTypes.any { type -> type.equals("video/hevc", ignoreCase = true) } }
+    } catch (e: Exception) {
+        false
+    }
+
+    suspend fun startVideoRecording(outputFile: File, deviceRotationDegrees: Int, withAudio: Boolean, config: VideoConfig): Unit =
         suspendCancellableCoroutine { cont ->
             val device = cameraDevice
             val previewSurf = previewSurface
@@ -676,18 +754,29 @@ class CameraEngine(private val context: Context) {
 
             val recorder = MediaRecorder()
             val camIdInt = currentCameraId.toIntOrNull() ?: 0
-            val profile = when {
-                CamcorderProfile.hasProfile(camIdInt, CamcorderProfile.QUALITY_1080P) ->
-                    CamcorderProfile.get(camIdInt, CamcorderProfile.QUALITY_1080P)
-                CamcorderProfile.hasProfile(camIdInt, CamcorderProfile.QUALITY_720P) ->
-                    CamcorderProfile.get(camIdInt, CamcorderProfile.QUALITY_720P)
-                else -> CamcorderProfile.get(camIdInt, CamcorderProfile.QUALITY_HIGH)
-            }
+            val profile = listOf(config.res.quality, CamcorderProfile.QUALITY_1080P, CamcorderProfile.QUALITY_720P)
+                .firstOrNull { CamcorderProfile.hasProfile(camIdInt, it) }
+                ?.let { CamcorderProfile.get(camIdInt, it) }
+                ?: CamcorderProfile.get(camIdInt, CamcorderProfile.QUALITY_HIGH)
+            val fps = if (config.fps >= 60 && supports60fps()) 60 else 30
+            var bitrate = profile.videoBitRate
+            if (fps == 60) bitrate = (bitrate * 1.5).toInt()
+            if (config.hevc) bitrate = (bitrate * 0.7).toInt()
 
             try {
-                recorder.setAudioSource(MediaRecorder.AudioSource.MIC)
+                if (withAudio) recorder.setAudioSource(MediaRecorder.AudioSource.MIC)
                 recorder.setVideoSource(MediaRecorder.VideoSource.SURFACE)
-                recorder.setProfile(profile)
+                recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                recorder.setVideoEncoder(if (config.hevc) MediaRecorder.VideoEncoder.HEVC else MediaRecorder.VideoEncoder.H264)
+                recorder.setVideoSize(profile.videoFrameWidth, profile.videoFrameHeight)
+                recorder.setVideoFrameRate(fps)
+                recorder.setVideoEncodingBitRate(bitrate)
+                if (withAudio) {
+                    recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                    recorder.setAudioEncodingBitRate(profile.audioBitRate)
+                    recorder.setAudioSamplingRate(profile.audioSampleRate)
+                    recorder.setAudioChannels(profile.audioChannels)
+                }
                 recorder.setOrientationHint(sensorToJpegOrientation(deviceRotationDegrees))
                 recorder.setOutputFile(outputFile.absolutePath)
                 recorder.prepare()
@@ -696,6 +785,7 @@ class CameraEngine(private val context: Context) {
                 cont.resumeWithException(e)
                 return@suspendCancellableCoroutine
             }
+            videoFps = fps
 
             val recorderSurf = recorder.surface
             recorderSurface = recorderSurf
@@ -708,6 +798,12 @@ class CameraEngine(private val context: Context) {
                     builder.addTarget(previewSurf)
                     builder.addTarget(recorderSurf)
                     applyControls(builder)
+                    if (videoFps >= 60) {
+                        characteristics?.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
+                            ?.filter { it.upper >= 60 }
+                            ?.maxByOrNull { it.lower }
+                            ?.let { builder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, it) }
+                    }
                     session.setRepeatingRequest(builder.build(), captureCallback, backgroundHandler)
                     recorder.start()
                     if (cont.isActive) cont.resume(Unit)

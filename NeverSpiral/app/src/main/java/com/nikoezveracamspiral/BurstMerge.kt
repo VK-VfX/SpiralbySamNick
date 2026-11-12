@@ -29,16 +29,18 @@ object BurstMerge {
         val sumW = ShortArray(n)
         var meanAcc = 0L
         var meanCount = 0
-        for (i in 0 until n) {
-            val p = refPixels[i]
-            sumR[i] = (((p shr 16) and 0xFF) * 4).toShort()
-            sumG[i] = (((p shr 8) and 0xFF) * 4).toShort()
-            sumB[i] = ((p and 0xFF) * 4).toShort()
-            sumW[i] = 4
-            if (i % 7 == 0) {
-                meanAcc += luma(p)
-                meanCount++
+        parallelFor(h) { y ->
+            for (i in y * w until (y + 1) * w) {
+                val p = refPixels[i]
+                sumR[i] = (((p shr 16) and 0xFF) * 4).toShort()
+                sumG[i] = (((p shr 8) and 0xFF) * 4).toShort()
+                sumB[i] = ((p and 0xFF) * 4).toShort()
+                sumW[i] = 4
             }
+        }
+        for (i in 0 until n step 7) {
+            meanAcc += luma(refPixels[i])
+            meanCount++
         }
         val refMean = if (meanCount > 0) meanAcc.toFloat() / meanCount else 128f
 
@@ -60,7 +62,7 @@ object BurstMerge {
             val dx = fine.first * 2
             val dy = fine.second * 2
             val px = f.pixels
-            for (y in 0 until h) {
+            parallelFor(h) { y ->
                 val sy = (y + dy).coerceIn(0, h - 1)
                 val rowOut = y * w
                 val rowSrc = sy * w
@@ -86,12 +88,14 @@ object BurstMerge {
         }
 
         val lut = lutFor(refMean)
-        for (i in 0 until n) {
-            val wsum = sumW[i].toInt()
-            val r = lut[(sumR[i] * 4 / wsum).coerceIn(0, 1023)]
-            val g = lut[(sumG[i] * 4 / wsum).coerceIn(0, 1023)]
-            val b = lut[(sumB[i] * 4 / wsum).coerceIn(0, 1023)]
-            refPixels[i] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+        parallelFor(h) { y ->
+            for (i in y * w until (y + 1) * w) {
+                val wsum = sumW[i].toInt()
+                val r = lut[(sumR[i] * 4 / wsum).coerceIn(0, 1023)]
+                val g = lut[(sumG[i] * 4 / wsum).coerceIn(0, 1023)]
+                val b = lut[(sumB[i] * 4 / wsum).coerceIn(0, 1023)]
+                refPixels[i] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+            }
         }
         return ref
     }

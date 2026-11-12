@@ -93,6 +93,10 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
+import android.view.OrientationEventListener
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -160,20 +164,54 @@ private enum class StripItem { FILTER, ADJUST, HDR, BLUR, ZOOM, EV, SHUTTER, ISO
  * shutter flanked by the last-capture thumbnail and the camera flip, and a bottom row with
  * settings, the Photo/Video toggle, and manual controls.
  */
+internal val LocalIconRotation = androidx.compose.runtime.compositionLocalOf { 0f }
+
+/** Keeps an icon upright as the phone is turned (the layout itself stays portrait). */
+@Composable
+internal fun Modifier.keepUpright(): Modifier {
+    val rotation = LocalIconRotation.current
+    return this.graphicsLayer { rotationZ = rotation }
+}
+
 @Composable
 fun CameraScreen(controller: CameraController) {
+    val context = LocalContext.current
     var editorUri by remember { mutableStateOf<Uri?>(null) }
-    val uri = editorUri
-    if (uri != null) {
-        BackHandler { editorUri = null }
-        EditorScreen(uri = uri, controller = controller, onClose = { editorUri = null })
-    } else {
-        CameraContent(controller, onOpenEditor = { editorUri = it })
+
+    // The phone's roll, in quarter turns: used for the saved photo's orientation, and to keep the
+    // icons upright.
+    var deviceRotation by remember { mutableIntStateOf(0) }
+    DisposableEffect(Unit) {
+        val listener = object : OrientationEventListener(context) {
+            override fun onOrientationChanged(orientation: Int) {
+                if (orientation == ORIENTATION_UNKNOWN) return
+                val quantized = ((orientation + 45) / 90 * 90) % 360
+                if (quantized != deviceRotation) deviceRotation = quantized
+            }
+        }
+        listener.enable()
+        onDispose { listener.disable() }
+    }
+    var iconTarget by remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(deviceRotation) {
+        val desired = -deviceRotation.toFloat()
+        iconTarget += ((desired - iconTarget + 540f) % 360f) - 180f
+    }
+    val iconRotation by animateFloatAsState(iconTarget, tween(260), label = "icon-rotation")
+
+    CompositionLocalProvider(LocalIconRotation provides iconRotation) {
+        val uri = editorUri
+        if (uri != null) {
+            BackHandler { editorUri = null }
+            EditorScreen(uri = uri, controller = controller, onClose = { editorUri = null })
+        } else {
+            CameraContent(controller, deviceRotation, onOpenEditor = { editorUri = it })
+        }
     }
 }
 
 @Composable
-private fun CameraContent(controller: CameraController, onOpenEditor: (Uri) -> Unit) {
+private fun CameraContent(controller: CameraController, deviceRotation: Int, onOpenEditor: (Uri) -> Unit) {
     val cameraEpoch = controller.cameraEpoch
     var panel by remember { mutableStateOf(SidePanel.NONE) }
     var strip by remember { mutableStateOf(StripItem.FILTER) }
@@ -187,6 +225,23 @@ private fun CameraContent(controller: CameraController, onOpenEditor: (Uri) -> U
     var origin by remember { mutableStateOf(Offset.Zero) }
 
     BackHandler(enabled = panel != SidePanel.NONE) { panel = SidePanel.NONE }
+
+    val triggerShutter: () -> Unit = {
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        if (controller.mode.isVideo) {
+            scope.launch {
+                if (controller.isRecording) controller.stopVideo() else controller.startVideo(deviceRotation)
+            }
+        } else {
+            scope.launch { controller.capturePhoto(deviceRotation) }
+        }
+    }
+    val currentShutter by androidx.compose.runtime.rememberUpdatedState(triggerShutter)
+    // The volume keys work as a shutter button while the viewfinder is showing.
+    DisposableEffect(Unit) {
+        KeyEvents.onVolumeKey = { currentShutter() }
+        onDispose { KeyEvents.onVolumeKey = null }
+    }
 
     LaunchedEffect(controller.mode) {
         if (controller.mode == CaptureMode.PRO) panel = SidePanel.CONTROLS
@@ -254,16 +309,7 @@ private fun CameraContent(controller: CameraController, onOpenEditor: (Uri) -> U
                         isVideoMode = controller.mode.isVideo,
                         isRecording = controller.isRecording,
                         isBusy = controller.isCapturing,
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            if (controller.mode.isVideo) {
-                                scope.launch {
-                                    if (controller.isRecording) controller.stopVideo() else controller.startVideo(DEVICE_ROTATION_DEGREES)
-                                }
-                            } else {
-                                scope.launch { controller.capturePhoto(DEVICE_ROTATION_DEGREES) }
-                            }
-                        },
+                        onClick = triggerShutter,
                     )
                     CircleIconButton(
                         icon = Icons.Rounded.FlipCameraAndroid,
@@ -374,6 +420,10 @@ private fun Viewfinder(controller: CameraController, showControls: Boolean, stri
 
         GridOverlay(style = controller.gridStyle, modifier = Modifier.fillMaxSize())
 
+        if (controller.histogramEnabled) {
+            HistogramOverlay(textureRef, Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = 70.dp))
+        }
+
         if (!controller.isRecording) {
             LevelIndicator(modifier = Modifier.align(Alignment.Center))
         }
@@ -413,6 +463,12 @@ private fun Viewfinder(controller: CameraController, showControls: Boolean, stri
             if (controller.mode.isComingSoon) {
                 InfoPill(if (controller.mode.isVideo) "Slo-mo in progress: recording normal video" else "${controller.mode.label} in progress: taking a standard photo")
             }
+            if (controller.aeAfLocked) InfoPill("AE/AF locked: long-press to unlock")
+            if (controller.mode == CaptureMode.NIGHT && controller.tripod && controller.holdStillMs == 0L) {
+                InfoPill("Steady: using longer exposures")
+            }
+            QrPill(view = textureRef, enabled = controller.qrEnabled && !controller.isRecording && !showControls)
+            controller.videoProgress?.let { InfoPill("Applying filter to video: ${(it * 100).toInt()}%") }
             if (controller.holdStillMs > 0) {
                 HoldStillPill(controller.holdStillMs, controller.shutterTick)
             }
@@ -462,7 +518,10 @@ private fun CameraPreview(
         modifier = Modifier
             .fillMaxSize()
             .pointerInput(Unit) {
-                detectTapGestures(onTap = { offset -> onTap(offset, size) })
+                detectTapGestures(
+                    onTap = { offset -> onTap(offset, size) },
+                    onLongPress = { controller.toggleAeAfLock() },
+                )
             }
             .pointerInput(Unit) {
                 detectTransformGestures { _, _, zoom, _ ->
@@ -823,7 +882,7 @@ private fun HdrChip(controller: CameraController) {
             imageVector = if (on) Icons.Rounded.HdrOn else Icons.Rounded.HdrOff,
             contentDescription = "HDR",
             tint = if (on) Color.Black else Color.White,
-            modifier = Modifier.size(22.dp),
+            modifier = Modifier.size(22.dp).keepUpright(),
         )
     }
 }
@@ -854,7 +913,7 @@ private fun FlashButton(controller: CameraController) {
             },
             contentDescription = "Flash",
             tint = if (torch) Color.Black else Color.White,
-            modifier = Modifier.size(22.dp),
+            modifier = Modifier.size(22.dp).keepUpright(),
         )
         if (label != null) {
             Spacer(modifier = Modifier.width(6.dp))
@@ -865,8 +924,9 @@ private fun FlashButton(controller: CameraController) {
 
 @Composable
 private fun ZoomChips(controller: CameraController) {
+    val minZoom = controller.engine.minZoomRatio()
     val maxZoom = controller.engine.maxZoomRatio()
-    val presets = listOf(1f, 2f, 5f, 10f).filter { it == 1f || it <= maxZoom + 0.01f }
+    val presets = listOf(0.5f, 1f, 2f, 5f, 10f).filter { it == 1f || (it >= minZoom - 0.01f && it <= maxZoom + 0.01f) }
     if (presets.size < 2) return
     Row(
         modifier = Modifier
@@ -878,6 +938,7 @@ private fun ZoomChips(controller: CameraController) {
     ) {
         for (preset in presets) {
             val selected = abs(controller.zoomRatio - preset) < 0.15f
+            val label = if (preset < 1f) ".5" else preset.toInt().toString()
             Box(
                 modifier = Modifier
                     .size(width = if (selected) 54.dp else 44.dp, height = 40.dp)
@@ -887,7 +948,7 @@ private fun ZoomChips(controller: CameraController) {
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = if (selected) "${preset.toInt()}×" else preset.toInt().toString(),
+                    text = if (selected) "$label×" else label,
                     color = if (selected) Color.Black else Color.White,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Medium,
@@ -973,9 +1034,9 @@ private fun ErrorBanner(message: String, onDismiss: () -> Unit) {
 @Composable
 private fun ModeChips(controller: CameraController) {
     val modes = if (controller.mode.isVideo) {
-        listOf(CaptureMode.VIDEO, CaptureMode.SLOW_MOTION)
+        listOf(CaptureMode.VIDEO)
     } else {
-        listOf(CaptureMode.NIGHT, CaptureMode.PHOTO, CaptureMode.PORTRAIT, CaptureMode.PRO, CaptureMode.PANORAMA)
+        listOf(CaptureMode.NIGHT, CaptureMode.PHOTO, CaptureMode.PORTRAIT, CaptureMode.PRO)
     }
     LazyRow(
         modifier = Modifier.fillMaxWidth(),
@@ -1030,7 +1091,7 @@ private fun ToggleSegment(icon: ImageVector, description: String, selected: Bool
             imageVector = icon,
             contentDescription = description,
             tint = if (selected) Color.Black else Color.White,
-            modifier = Modifier.size(26.dp),
+            modifier = Modifier.size(26.dp).keepUpright(),
         )
     }
 }
@@ -1057,7 +1118,7 @@ private fun CircleIconButton(
             imageVector = icon,
             contentDescription = description,
             tint = if (highlighted) Color.Black else Color.White.copy(alpha = if (enabled) 1f else 0.4f),
-            modifier = Modifier.size(size * 0.46f),
+            modifier = Modifier.size(size * 0.46f).keepUpright(),
         )
     }
 }
@@ -1085,7 +1146,7 @@ private fun GalleryThumbnail(controller: CameraController, onOpenEditor: (Uri) -
     )
     val pulse = if (processing) breathe else 1f
 
-    LaunchedEffect(uri) {
+    LaunchedEffect(uri, controller.captureRevision) {
         bitmap = if (uri == null) null else withContext(Dispatchers.IO) { loadThumbnail(context, uri) }?.asImageBitmap()
     }
     LaunchedEffect(bitmap) {
@@ -1267,6 +1328,38 @@ private fun SettingsSheet(controller: CameraController) {
             selected = controller.jpegQuality,
         ) { controller.jpegQuality = it }
 
+        SheetSection("Video resolution", controller.videoConfig.res.label)
+        SegmentRow(
+            options = controller.engine.supportedVideoResolutions().map { Triple(it, it.label, null as ImageVector?) },
+            selected = controller.videoConfig.res,
+        ) { controller.videoConfig = controller.videoConfig.copy(res = it) }
+        if (controller.engine.supports60fps()) {
+            SheetSection("Video frame rate", "${controller.videoConfig.fps} fps")
+            SegmentRow(
+                options = listOf(30, 60).map { Triple(it, "$it fps", null as ImageVector?) },
+                selected = controller.videoConfig.fps,
+            ) { controller.videoConfig = controller.videoConfig.copy(fps = it) }
+        }
+        if (controller.engine.supportsHevc()) {
+            SheetSection("Video codec", if (controller.videoConfig.hevc) "HEVC" else "H.264")
+            SegmentRow(
+                options = listOf(false to "H.264 (compatible)", true to "HEVC (smaller)").map { Triple(it.first, it.second, null as ImageVector?) },
+                selected = controller.videoConfig.hevc,
+            ) { controller.videoConfig = controller.videoConfig.copy(hevc = it) }
+        }
+
+        SheetSection("Histogram", if (controller.histogramEnabled) "On" else "Off")
+        SegmentRow(
+            options = listOf(true to "On", false to "Off").map { Triple(it.first, it.second, null as ImageVector?) },
+            selected = controller.histogramEnabled,
+        ) { controller.histogramEnabled = it }
+
+        SheetSection("Scan QR codes", if (controller.qrEnabled) "On" else "Off")
+        SegmentRow(
+            options = listOf(true to "On", false to "Off").map { Triple(it.first, it.second, null as ImageVector?) },
+            selected = controller.qrEnabled,
+        ) { controller.qrEnabled = it }
+
         SheetSection("Selfie", if (controller.mirrorSelfies) "Mirrored" else "As seen by lens")
         SegmentRow(
             options = listOf(
@@ -1409,7 +1502,7 @@ private fun ControlStrip(controller: CameraController, selected: StripItem, onSe
                     .width(58.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Icon(icon, contentDescription = null, tint = if (isSelected) Color.Black else Color.White, modifier = Modifier.size(26.dp))
+                Icon(icon, contentDescription = null, tint = if (isSelected) Color.Black else Color.White, modifier = Modifier.size(26.dp).keepUpright())
                 Text(value, color = if (isSelected) Color.Black else Color.White, fontSize = 11.sp, maxLines = 1)
             }
         }
@@ -1472,12 +1565,13 @@ private fun ControlsContent(controller: CameraController, strip: StripItem, snap
             }
             StripItem.ZOOM -> {
                 val maxZoom = controller.engine.maxZoomRatio().coerceAtLeast(1f)
+                val minZoom = controller.engine.minZoomRatio()
                 FloatWheelRow(
                     label = "Zoom",
-                    value = controller.zoomRatio.coerceIn(1f, maxZoom),
-                    min = 1f,
-                    max = maxZoom.coerceAtLeast(1.1f),
-                    steps = ((maxZoom - 1f) * 10f).roundToInt().coerceIn(1, 190),
+                    value = controller.zoomRatio.coerceIn(minZoom, maxZoom),
+                    min = minZoom,
+                    max = maxZoom.coerceAtLeast(minZoom + 0.1f),
+                    steps = ((maxZoom - minZoom) * 10f).roundToInt().coerceIn(1, 190),
                     format = { String.format(Locale.US, "%.1f×", it) },
                 ) { controller.setZoom(it) }
             }

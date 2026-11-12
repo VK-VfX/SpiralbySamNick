@@ -3,6 +3,7 @@ package com.nikoezveracamspiral
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraMetadata
 import android.hardware.camera2.TotalCaptureResult
+import android.media.CamcorderProfile
 import android.media.Image
 
 /** The modes the bottom mode carousel switches between, mirroring the ones Google Camera and
@@ -78,3 +79,13 @@ data class CapturedPhoto(
     val captureResult: TotalCaptureResult,
     val characteristics: CameraCharacteristics,
 )
+
+enum class VideoRes(val label: String, val quality: Int) {
+    P720("720p", CamcorderProfile.QUALITY_720P),
+    P1080("1080p", CamcorderProfile.QUALITY_1080P),
+    P2160("4K", CamcorderProfile.QUALITY_2160P),
+}
+
+/** Video capture settings. [fps] of 60 is only offered when the camera advertises it; [hevc]
+ * trades compatibility for roughly 30% smaller files at the same quality. */
+data class VideoConfig(val res: VideoRes = VideoRes.P1080, val fps: Int = 30, val hevc: Boolean = false)

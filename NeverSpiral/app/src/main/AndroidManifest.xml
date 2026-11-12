@@ -7,6 +7,10 @@
     <!-- Over-the-air updates: reading the version file, downloading the APK, and handing it to
          the system package installer. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Background processing of photos and videos after the shutter. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Only needed below API 29: from Android 10 on, inserting app-created media into
          MediaStore via ContentResolver needs no storage permission at all (scoped storage). -->
@@ -38,6 +42,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".ProcessingService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <!-- Grants the system share sheet and gallery-preview intents read access to captured
              photos/videos sitting in our private cache before a final MediaStore write completes. -->

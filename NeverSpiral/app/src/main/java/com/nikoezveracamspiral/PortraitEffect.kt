@@ -52,6 +52,17 @@ object PortraitEffect {
         val smallPixels = IntArray(bw * bh)
         small.getPixels(smallPixels, 0, bw, 0, 0, bw, bh)
         small.recycle()
+        // Bokeh: let bright points bloom a little before the blur so they melt into soft discs.
+        for (i in smallPixels.indices) {
+            val p = smallPixels[i]
+            val lum = (77 * ((p shr 16) and 0xFF) + 150 * ((p shr 8) and 0xFF) + 29 * (p and 0xFF)) shr 8
+            if (lum > 225) {
+                val r = (((p shr 16) and 0xFF) * 1.6f).toInt().coerceAtMost(255)
+                val g = (((p shr 8) and 0xFF) * 1.6f).toInt().coerceAtMost(255)
+                val b = ((p and 0xFF) * 1.6f).toInt().coerceAtMost(255)
+                smallPixels[i] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+            }
+        }
         val radius = (2 + (8 * strength).toInt())
         repeat(3) { boxBlur(smallPixels, bw, bh, radius) }
         val blurredSmall = Bitmap.createBitmap(smallPixels, bw, bh, Bitmap.Config.ARGB_8888)
@@ -61,7 +72,7 @@ object PortraitEffect {
         blurredFull.getPixels(blurred, 0, w, 0, 0, w, h)
         blurredFull.recycle()
 
-        for (y in 0 until h) {
+        parallelFor(h) { y ->
             val fy = y * (mh - 1f) / (h - 1).coerceAtLeast(1)
             val y0 = fy.toInt()
             val y1 = minOf(y0 + 1, mh - 1)

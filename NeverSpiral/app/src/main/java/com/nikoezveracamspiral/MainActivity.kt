@@ -46,7 +46,25 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 
+/** Lets the viewfinder claim the volume keys as a shutter button while it is on screen. */
+object KeyEvents {
+    var onVolumeKey: (() -> Unit)? = null
+}
+
 class MainActivity : ComponentActivity() {
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean {
+        if ((keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP || keyCode == android.view.KeyEvent.KEYCODE_VOLUME_DOWN) &&
+            event.repeatCount == 0
+        ) {
+            val handler = KeyEvents.onVolumeKey
+            if (handler != null) {
+                handler()
+                return true
+            }
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         val splash = installSplashScreen()
         super.onCreate(savedInstanceState)
@@ -67,7 +85,14 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private val REQUIRED_PERMISSIONS = arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)
+/** Only the camera is needed to take photos. The microphone (video sound) and notifications
+ * (the "finishing your photos" notice) are asked for at the same time but never block the app. */
+private val REQUIRED_PERMISSIONS = arrayOf(Manifest.permission.CAMERA)
+private val OPTIONAL_PERMISSIONS: Array<String> = buildList {
+    add(Manifest.permission.RECORD_AUDIO)
+    if (android.os.Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
+}.toTypedArray()
+private val ALL_PERMISSIONS = REQUIRED_PERMISSIONS + OPTIONAL_PERMISSIONS
 
 /** Hosts either the permission gate or the live [CameraScreen] -- [CameraController] (and the
  * [CameraEngine] it owns) is only ever created once permissions are already granted, since
@@ -80,11 +105,12 @@ private fun NeverSpiralApp() {
     }
 
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
-        hasPermissions = results.values.all { it }
+        hasPermissions = REQUIRED_PERMISSIONS.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
     }
 
     LaunchedEffect(Unit) {
-        if (!hasPermissions) launcher.launch(REQUIRED_PERMISSIONS)
+        val missing = ALL_PERMISSIONS.filter { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
+        if (missing.isNotEmpty()) launcher.launch(missing.toTypedArray())
     }
 
     // Opening: the camera fades and scales up into place. Closing (back from the viewfinder):
@@ -111,7 +137,7 @@ private fun NeverSpiralApp() {
                 CameraScreen(controller)
             }
         } else {
-            PermissionRequestScreen(onRequest = { launcher.launch(REQUIRED_PERMISSIONS) })
+            PermissionRequestScreen(onRequest = { launcher.launch(ALL_PERMISSIONS) })
         }
     }
 }

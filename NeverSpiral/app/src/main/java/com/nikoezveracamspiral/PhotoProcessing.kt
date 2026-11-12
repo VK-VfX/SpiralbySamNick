@@ -228,7 +228,6 @@ object LookProcessor {
         val lut = look.lut
         val f = if (lut != null) PhotoFilter.NATURAL else look.filter
         val s = look.strength
-        val lutOut = FloatArray(3)
         val shR = f.shadowR * s; val shG = f.shadowG * s; val shB = f.shadowB * s
         val hiR = f.highR * s; val hiG = f.highG * s; val hiB = f.highB * s
         val grain = (f.grain * s + look.grain).coerceAtMost(1.2f) * 30f
@@ -238,8 +237,9 @@ object LookProcessor {
         val cx = (w - 1) / 2f
         val cy = (h - 1) / 2f
         val maxD2 = (cx * cx + cy * cy).coerceAtLeast(1f)
-        var seed = 0x2545F491
-        for (y in 0 until h) {
+        parallelFor(h) { y ->
+            val lutOut = FloatArray(3)
+            var seed = 0x2545F491 xor ((y + 1) * -1640531535)
             val dy = y - cy
             val row = y * w
             for (x in 0 until w) {
@@ -291,7 +291,8 @@ object LookProcessor {
     fun sharpen(pixels: IntArray, w: Int, h: Int, k: Float) {
         if (k <= 0.01f || w < 3 || h < 3) return
         val src = pixels.copyOf()
-        for (y in 1 until h - 1) {
+        parallelFor(h - 2) { yy ->
+            val y = yy + 1
             val row = y * w
             for (x in 1 until w - 1) {
                 val i = row + x

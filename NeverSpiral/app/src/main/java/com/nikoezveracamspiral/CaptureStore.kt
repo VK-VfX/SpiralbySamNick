@@ -59,6 +59,16 @@ object CaptureStore {
         return uri
     }
 
+    /** Replaces the contents of an already-saved photo with its processed version. */
+    fun overwriteJpeg(context: Context, uri: Uri, bytes: ByteArray, meta: PhotoMeta): Boolean = try {
+        context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) } ?: return false
+        writeExif(context, uri, meta)
+        true
+    } catch (e: Exception) {
+        android.util.Log.w("CaptureStore", "Couldn't overwrite photo", e)
+        false
+    }
+
     /** Stamps camera, exposure and processing details into the saved JPEG so the Details tab (and
      * any other app) can read them back. A failure here never loses the photo itself. */
     private fun writeExif(context: Context, uri: Uri, meta: PhotoMeta) {
