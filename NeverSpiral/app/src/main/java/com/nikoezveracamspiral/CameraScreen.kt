@@ -3,7 +3,6 @@ package com.nikoezveracamspiral
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.graphics.Matrix
-import android.graphics.RectF
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.CameraCharacteristics
 import android.util.Size
@@ -22,8 +21,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -89,10 +90,21 @@ fun CameraScreen(controller: CameraController) {
             FocusIndicator(position = position, onFinished = { focusIndicator = null })
         }
 
-        TopBar(controller = controller, modifier = Modifier.align(Alignment.TopCenter))
+        TopBar(controller = controller, modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding())
 
         if (controller.isRecording) {
-            RecordingPill(elapsedMs = controller.recordingElapsedMs, modifier = Modifier.align(Alignment.TopCenter).padding(top = 56.dp))
+            RecordingPill(
+                elapsedMs = controller.recordingElapsedMs,
+                modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 48.dp),
+            )
+        }
+
+        controller.lastError?.let { message ->
+            ErrorBanner(
+                message = message,
+                onDismiss = { controller.clearError() },
+                modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 48.dp),
+            )
         }
 
         if (controller.countdownRemaining > 0) {
@@ -123,7 +135,7 @@ fun CameraScreen(controller: CameraController) {
         }
 
         Column(
-            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
+            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             if (controller.mode == CaptureMode.PRO) {
@@ -207,35 +219,54 @@ private suspend fun openForPreview(controller: CameraController, textureView: Te
     val cameraId = controller.engine.findCameraId(CameraCharacteristics.LENS_FACING_BACK)
         ?: controller.engine.findCameraId(CameraCharacteristics.LENS_FACING_FRONT)
         ?: return
-    controller.engine.openCamera(cameraId)
-    val targetAspect = viewHeight.toFloat() / viewWidth.toFloat()
-    val previewSize = controller.engine.choosePreviewSize(targetAspect)
-    applyPreviewTransform(textureView, viewWidth, viewHeight, previewSize, controller.engine)
-    controller.start(cameraId, texture, previewSize)
+    // CameraController.start() opens the camera itself; applyTransform is invoked from inside
+    // it once that's done, so engine.lensFacing/sensorOrientation are already valid by the time
+    // this reads them. (An earlier version of this function opened the camera here too, *and*
+    // start() opened it again -- Android rejects opening a camera ID that's already open from the
+    // same process, which crashed the app immediately on launch.)
+    controller.start(cameraId, texture, viewWidth, viewHeight) { previewSize ->
+        applyPreviewTransform(textureView, viewWidth, viewHeight, previewSize, controller.engine.sensorOrientation, controller.engine.lensFacing == CameraCharacteristics.LENS_FACING_FRONT)
+    }
 }
 
 /**
- * Scales and rotates the TextureView's displayed buffer to center-crop-fill the view. The sensor
- * always delivers preview frames in its own landscape-native orientation; with this Activity
- * locked to portrait, the two sensor orientations every phone camera actually ships (90 for the
- * typical back camera, 270 for the typical front camera) are the only cases handled here, rather
- * than the fully general device-rotation-aware formula a rotatable Activity would need.
+ * Scales and rotates the TextureView's displayed buffer to center-crop-fill the view, built as
+ * three separately-verifiable steps rather than one combined matrix (an earlier version combined
+ * an axis-swapped RectToRect scale -- which cannot itself rotate anything, only stretch X and Y
+ * independently -- with an *additional* explicit rotation on top, compounding into neither a
+ * clean rotation nor a clean stretch; that's what the previous build's "sensors mostly inverted"
+ * and "selfie cam is horizontal" bugs actually were).
+ *
+ * Without any transform, TextureView stretches the buffer's native `previewSize.width x height`
+ * pixels to non-uniformly fill the view's `viewWidth x viewHeight` bounds -- so step 1 undoes
+ * that distortion (restoring the buffer's true aspect ratio), step 2 rotates by the sensor's
+ * actual mounting angle (read from CameraCharacteristics, not assumed from front/back) so the
+ * image reads upright with the device held normally -- mirroring the front camera horizontally
+ * afterward, the same "look in a mirror while framing a selfie" convention every camera app
+ * uses for the *preview* only, not the saved photo -- and step 3 scales up to cover the view
+ * (crop-to-fill), accounting for the axes having swapped if the rotation was 90 or 270 degrees.
  */
-private fun applyPreviewTransform(textureView: TextureView, viewWidth: Int, viewHeight: Int, previewSize: Size, engine: CameraEngine) {
+private fun applyPreviewTransform(textureView: TextureView, viewWidth: Int, viewHeight: Int, previewSize: Size, sensorOrientation: Int, isFrontFacing: Boolean) {
     if (viewWidth == 0 || viewHeight == 0) return
+    val bufW = previewSize.width.toFloat()
+    val bufH = previewSize.height.toFloat()
+    val centerX = viewWidth / 2f
+    val centerY = viewHeight / 2f
+
     val matrix = Matrix()
-    val viewRect = RectF(0f, 0f, viewWidth.toFloat(), viewHeight.toFloat())
-    // previewSize.width/height are swapped here because they describe the sensor's own
-    // landscape-oriented buffer, which is then rotated ~90 degrees onto this portrait view.
-    val bufferRect = RectF(0f, 0f, previewSize.height.toFloat(), previewSize.width.toFloat())
-    val centerX = viewRect.centerX()
-    val centerY = viewRect.centerY()
-    bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY())
-    matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL)
-    val scale = max(viewHeight.toFloat() / previewSize.width, viewWidth.toFloat() / previewSize.height)
+    matrix.postScale(bufW / viewWidth, bufH / viewHeight, centerX, centerY)
+    matrix.postRotate(sensorOrientation.toFloat(), centerX, centerY)
+    if (isFrontFacing) {
+        matrix.postScale(-1f, 1f, centerX, centerY)
+    }
+    val axesSwapped = sensorOrientation % 180 != 0
+    val scale = if (axesSwapped) {
+        max(viewWidth / bufH, viewHeight / bufW)
+    } else {
+        max(viewWidth / bufW, viewHeight / bufH)
+    }
     matrix.postScale(scale, scale, centerX, centerY)
-    val rotationDegrees = if (engine.lensFacing == CameraCharacteristics.LENS_FACING_FRONT) -90f else 90f
-    matrix.postRotate(rotationDegrees, centerX, centerY)
+
     textureView.setTransform(matrix)
 }
 
@@ -330,6 +361,33 @@ private fun RecordingPill(elapsedMs: Long, modifier: Modifier = Modifier) {
         Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(CameraTheme.CRITICAL))
         Spacer(modifier = Modifier.width(6.dp))
         Text(label, color = CameraTheme.TEXT_PRIMARY, fontSize = 13.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+/** A dismissible banner for a failed camera action -- [CameraController] catches every failure
+ * in its own suspend functions rather than letting them crash the app, so this is where the
+ * user actually learns something went wrong (e.g. the camera was busy, a session reconfiguration
+ * failed) instead of the shutter button just silently doing nothing. */
+@Composable
+private fun ErrorBanner(message: String, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .padding(horizontal = 16.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(CameraTheme.CRITICAL.copy(alpha = 0.92f))
+            .clickable { onDismiss() }
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = message,
+            color = Color.White,
+            fontSize = 11.sp,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text("✕", color = Color.White, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
     }
 }
 

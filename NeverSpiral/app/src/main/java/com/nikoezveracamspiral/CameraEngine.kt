@@ -63,6 +63,14 @@ class CameraEngine(private val context: Context) {
     var lensFacing: Int = CameraCharacteristics.LENS_FACING_BACK
         private set
 
+    /** The angle (always a multiple of 90 on real devices -- 90 for the typical back camera, 270
+     * for the typical front one) the sensor's raw buffer must be rotated clockwise to appear
+     * upright when the device is held in its natural orientation. Read directly from
+     * characteristics rather than assumed from [lensFacing], since a handful of devices deviate
+     * from the 90/270 convention. */
+    val sensorOrientation: Int
+        get() = characteristics?.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
+
     var proSettings: ProSettings = ProSettings()
         private set
     var zoomRatio: Float = 1f
