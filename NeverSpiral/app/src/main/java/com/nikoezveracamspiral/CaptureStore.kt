@@ -31,10 +31,10 @@ object CaptureStore {
     private fun timestampName(extension: String, stamp: String = newStamp()): String =
         "bynikezvera_$stamp.$extension"
 
-    fun saveJpeg(context: Context, bytes: ByteArray, stamp: String = newStamp()): Uri? {
+    fun saveJpeg(context: Context, bytes: ByteArray, stamp: String = newStamp(), suffix: String = ""): Uri? {
         val resolver = context.contentResolver
         val values = ContentValues().apply {
-            put(MediaStore.Images.Media.DISPLAY_NAME, timestampName("jpeg", stamp))
+            put(MediaStore.Images.Media.DISPLAY_NAME, timestampName("jpeg", stamp).let { if (suffix.isEmpty()) it else it.replace(".jpeg", "$suffix.jpeg") })
             put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/$ALBUM_NAME")

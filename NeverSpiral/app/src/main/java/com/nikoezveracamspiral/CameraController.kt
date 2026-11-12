@@ -44,8 +44,16 @@ class CameraController(private val context: Context) {
     var isRawEnabled by mutableStateOf(false)
         private set
     var gridStyle by mutableStateOf(GridStyle.OFF)
-    var photoStyle by mutableStateOf(PhotoStyle.NATURAL)
-    var hdrLevel by mutableIntStateOf(3)
+    var look by mutableStateOf(Look())
+    var hdrEnabled by mutableStateOf(true)
+    var hdrStrength by mutableIntStateOf(4)
+    var jpegQuality by mutableIntStateOf(95)
+    var lastCaptureIsVideo by mutableStateOf(false)
+        private set
+    var update by mutableStateOf<UpdateStatus>(UpdateStatus.Idle)
+        private set
+    var autoCheckUpdates by mutableStateOf(prefs().getBoolean("autoCheckUpdates", true))
+        private set
     var aspectRatio by mutableStateOf(AspectOption.R4_3)
     var mirrorSelfies by mutableStateOf(true)
     var timerSeconds by mutableStateOf(0)
@@ -95,6 +103,60 @@ class CameraController(private val context: Context) {
      * mirror (the saved photo follows the same setting). */
     fun mirrorPreview(): Boolean =
         mirrorSelfies && engine.lensFacing == CameraCharacteristics.LENS_FACING_FRONT
+
+    private fun prefs() = context.getSharedPreferences("never_spiral", Context.MODE_PRIVATE)
+
+    fun setAutoCheckUpdates(enabled: Boolean) {
+        autoCheckUpdates = enabled
+        prefs().edit().putBoolean("autoCheckUpdates", enabled).apply()
+    }
+
+    /** [silent] checks (at launch) only surface a result when an update exists. */
+    suspend fun checkForUpdates(silent: Boolean = false) {
+        if (update is UpdateStatus.Checking || update is UpdateStatus.Downloading) return
+        if (!silent) update = UpdateStatus.Checking
+        try {
+            val info = UpdateManager.check(context)
+            update = if (info != null) UpdateStatus.Available(info) else if (silent) UpdateStatus.Idle else UpdateStatus.UpToDate
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            update = if (silent) UpdateStatus.Idle else UpdateStatus.Failed("Couldn't check for updates: ${e.message ?: e::class.simpleName}")
+        }
+    }
+
+    suspend fun downloadUpdate() {
+        val info = (update as? UpdateStatus.Available)?.info ?: return
+        update = UpdateStatus.Downloading(info, 0f)
+        try {
+            val file = UpdateManager.download(context, info) { progress -> update = UpdateStatus.Downloading(info, progress) }
+            update = UpdateStatus.Ready(info, file)
+            UpdateManager.install(context, file)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            update = UpdateStatus.Failed("Update download failed: ${e.message ?: e::class.simpleName}")
+        }
+    }
+
+    fun installUpdate() {
+        val ready = update as? UpdateStatus.Ready ?: return
+        try {
+            UpdateManager.install(context, ready.file)
+        } catch (e: Exception) {
+            update = UpdateStatus.Failed("Couldn't open the installer: ${e.message ?: e::class.simpleName}")
+        }
+    }
+
+    fun dismissUpdateStatus() {
+        update = UpdateStatus.Idle
+    }
+
+    /** Called by the editor after it writes a new photo, so the thumbnail follows. */
+    fun publishCapture(uri: Uri) {
+        lastCaptureUri = uri
+        lastCaptureIsVideo = false
+    }
 
     fun clearError() {
         lastError = null
@@ -184,7 +246,8 @@ class CameraController(private val context: Context) {
 
     fun cycleFlash() {
         flashMode = when (flashMode) {
-            FlashMode.OFF -> FlashMode.ON
+            FlashMode.OFF -> FlashMode.AUTO
+            FlashMode.AUTO -> FlashMode.ON
             FlashMode.ON -> FlashMode.TORCH
             FlashMode.TORCH -> FlashMode.OFF
         }
@@ -224,26 +287,41 @@ class CameraController(private val context: Context) {
         isCapturing = true
         shutterTick += 1
         try {
-            val captured = engine.capturePhoto(rotationDegrees, isRawEnabled)
+            val manualExposure = mode == CaptureMode.PRO && proSettings.manualExposureEnabled
+            val bracketBase = if (hdrEnabled && !manualExposure && flashMode == FlashMode.OFF) engine.currentAutoExposure() else null
+            val shots = mutableListOf<CapturedPhoto>()
+            if (bracketBase != null) {
+                // HDR: a dark, a normal and a bright frame, fused afterwards. RAW (if on) is
+                // taken from the normal frame.
+                for (ev in listOf(-2f, 0f, 2f)) {
+                    shots += engine.capturePhoto(rotationDegrees, isRawEnabled && ev == 0f, engine.bracketExposure(bracketBase, ev))
+                }
+            } else {
+                shots += engine.capturePhoto(rotationDegrees, isRawEnabled)
+            }
             val stamp = CaptureStore.newStamp()
-            val style = photoStyle
-            val hdr = hdrLevel
+            val currentLook = look
+            val hdrAmount = hdrStrength / 5f
             val ratio = aspectRatio
+            val quality = jpegQuality
             val mirror = mirrorSelfies && engine.lensFacing == CameraCharacteristics.LENS_FACING_FRONT
+            val frames = shots.map { it.jpegBytes }
             val jpeg = withContext(Dispatchers.Default) {
                 try {
-                    PhotoProcessor.process(captured.jpegBytes, style, hdr, ratio, mirror)
+                    PhotoProcessor.process(frames, currentLook, hdrAmount, ratio, mirror, quality)
                 } catch (e: Exception) {
                     Log.e(TAG, "Post-processing failed; saving the camera's original JPEG", e)
-                    captured.jpegBytes
+                    frames[frames.size / 2]
                 } catch (e: OutOfMemoryError) {
                     Log.e(TAG, "Post-processing ran out of memory; saving the camera's original JPEG", e)
-                    captured.jpegBytes
+                    frames[frames.size / 2]
                 }
             }
             lastCaptureUri = withContext(Dispatchers.IO) { CaptureStore.saveJpeg(context, jpeg, stamp) }
-            captured.rawImage?.let { raw ->
-                withContext(Dispatchers.IO) { CaptureStore.saveDng(context, raw, captured.characteristics, captured.captureResult, stamp) }
+            lastCaptureIsVideo = false
+            val main = shots[shots.size / 2]
+            main.rawImage?.let { raw ->
+                withContext(Dispatchers.IO) { CaptureStore.saveDng(context, raw, main.characteristics, main.captureResult, stamp) }
             }
         } catch (e: CancellationException) {
             throw e
@@ -290,6 +368,7 @@ class CameraController(private val context: Context) {
             videoFile = null
             if (file != null) {
                 lastCaptureUri = CaptureStore.publishVideo(context, file)
+                lastCaptureIsVideo = true
             }
 
             val texture = currentTexture

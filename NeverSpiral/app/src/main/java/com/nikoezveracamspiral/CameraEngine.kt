@@ -264,9 +264,38 @@ class CameraEngine(private val context: Context) {
         }, backgroundHandler)
     }
 
+    @Volatile
+    private var lastPreviewResult: TotalCaptureResult? = null
+
     private val captureCallback = object : CameraCaptureSession.CaptureCallback() {
-        // Hook for live AF/AE state (e.g. a focus-locked indicator) in a later iteration -- the
-        // repeating request's result stream isn't needed for anything in this first build.
+        override fun onCaptureCompleted(session: CameraCaptureSession, request: CaptureRequest, result: TotalCaptureResult) {
+            lastPreviewResult = result
+        }
+    }
+
+    /** The exposure (nanoseconds, ISO) auto-exposure has currently settled on, read from the
+     * latest preview frame: the starting point an HDR bracket is built around. */
+    fun currentAutoExposure(): Pair<Long, Int>? {
+        val result = lastPreviewResult ?: return null
+        val time = result.get(android.hardware.camera2.CaptureResult.SENSOR_EXPOSURE_TIME) ?: return null
+        val iso = result.get(android.hardware.camera2.CaptureResult.SENSOR_SENSITIVITY) ?: return null
+        return time to iso
+    }
+
+    /** One bracket step: [evStops] away from [auto], shifting the shutter first (up to 1/10 s,
+     * to keep handheld frames sharp) and making up the rest with ISO, all clamped to what the
+     * sensor supports. */
+    fun bracketExposure(auto: Pair<Long, Int>, evStops: Float): Pair<Long, Int> {
+        val timeRange = exposureTimeRange
+        val isoRange = isoRange
+        val factor = Math.pow(2.0, evStops.toDouble())
+        val wantedTime = (auto.first * factor).toLong()
+        val maxHandheld = 100_000_000L
+        var time = wantedTime.coerceAtMost(maxOf(auto.first, maxHandheld))
+        if (timeRange != null) time = time.coerceIn(timeRange.lower, timeRange.upper)
+        var iso = (auto.second * (wantedTime.toDouble() / time.toDouble())).toInt()
+        if (isoRange != null) iso = iso.coerceIn(isoRange.lower, isoRange.upper)
+        return time to iso
     }
 
     fun startRepeatingPreview() {
@@ -298,7 +327,7 @@ class CameraEngine(private val context: Context) {
         val chars = characteristics ?: return
 
         val activeArray = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
-        if (activeArray != null && zoomRatio > 1f) {
+        if (activeArray != null && zoomRatio > 1.001f) {
             val cropWidth = (activeArray.width() / zoomRatio).toInt().coerceAtLeast(1)
             val cropHeight = (activeArray.height() / zoomRatio).toInt().coerceAtLeast(1)
             val left = (activeArray.width() - cropWidth) / 2
@@ -315,10 +344,10 @@ class CameraEngine(private val context: Context) {
             builder.set(CaptureRequest.SENSOR_EXPOSURE_TIME, proSettings.exposureTimeNanos)
             builder.set(CaptureRequest.SENSOR_FRAME_DURATION, proSettings.exposureTimeNanos)
         } else {
-            val aeMode = if (flashMode == FlashMode.ON) {
-                CameraMetadata.CONTROL_AE_MODE_ON_ALWAYS_FLASH
-            } else {
-                CameraMetadata.CONTROL_AE_MODE_ON
+            val aeMode = when (flashMode) {
+                FlashMode.ON -> CameraMetadata.CONTROL_AE_MODE_ON_ALWAYS_FLASH
+                FlashMode.AUTO -> CameraMetadata.CONTROL_AE_MODE_ON_AUTO_FLASH
+                else -> CameraMetadata.CONTROL_AE_MODE_ON
             }
             builder.set(CaptureRequest.CONTROL_AE_MODE, aeMode)
             builder.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, proSettings.exposureCompensation)
@@ -448,7 +477,11 @@ class CameraEngine(private val context: Context) {
         builder.set(CaptureRequest.JPEG_QUALITY, 98.toByte())
     }
 
-    suspend fun capturePhoto(deviceRotationDegrees: Int, includeRaw: Boolean): CapturedPhoto =
+    suspend fun capturePhoto(
+        deviceRotationDegrees: Int,
+        includeRaw: Boolean,
+        exposureOverride: Pair<Long, Int>? = null,
+    ): CapturedPhoto =
         suspendCancellableCoroutine { cont ->
             val device = cameraDevice
             val session = captureSession
@@ -467,6 +500,11 @@ class CameraEngine(private val context: Context) {
             applyControls(builder)
             builder.set(CaptureRequest.JPEG_ORIENTATION, sensorToJpegOrientation(deviceRotationDegrees))
             applyStillQuality(builder, chars)
+            if (exposureOverride != null) {
+                builder.set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_OFF)
+                builder.set(CaptureRequest.SENSOR_EXPOSURE_TIME, exposureOverride.first)
+                builder.set(CaptureRequest.SENSOR_SENSITIVITY, exposureOverride.second)
+            }
 
             var jpegBytes: ByteArray? = null
             var rawImage: Image? = null

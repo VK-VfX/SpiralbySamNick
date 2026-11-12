@@ -87,11 +87,16 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: |
           cp NeverSpiral/app/build/outputs/apk/debug/app-debug.apk /tmp/never-spiral-debug.apk
+          # version.json is what the app's over-the-air updater reads.
+          VERSION_CODE=$(grep -oP 'versionCode\s*=\s*\K[0-9]+' NeverSpiral/app/build.gradle.kts)
+          VERSION_NAME="${{ steps.appversion.outputs.versionName }}"
+          printf '{"versionCode": %s, "versionName": "%s", "apkUrl": "https://raw.githubusercontent.com/${{ github.repository }}/never-spiral-apk-builds/never-spiral-debug.apk", "notes": ""}\n' "$VERSION_CODE" "$VERSION_NAME" > /tmp/version.json
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout --orphan never-spiral-apk-builds
           git rm -rf . > /dev/null 2>&1 || true
           cp /tmp/never-spiral-debug.apk ./never-spiral-debug.apk
-          git add never-spiral-debug.apk
+          cp /tmp/version.json ./version.json
+          git add never-spiral-debug.apk version.json
           git commit -m "Publish built APK from ${{ github.sha }}"
           git push --force origin HEAD:never-spiral-apk-builds

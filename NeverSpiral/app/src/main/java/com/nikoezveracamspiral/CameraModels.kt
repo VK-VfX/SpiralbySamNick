@@ -29,6 +29,7 @@ enum class CaptureMode(val label: String) {
 
 enum class FlashMode(val glyph: String) {
     OFF("⚡🚫"),
+    AUTO("A"),
     ON("⚡"),
     TORCH("🔦"),
 }
@@ -41,8 +42,11 @@ enum class WhiteBalanceMode(val label: String, val awbMode: Int) {
     AUTO("AUTO", CameraMetadata.CONTROL_AWB_MODE_AUTO),
     DAYLIGHT("DAYLIGHT", CameraMetadata.CONTROL_AWB_MODE_DAYLIGHT),
     CLOUDY("CLOUDY", CameraMetadata.CONTROL_AWB_MODE_CLOUDY_DAYLIGHT),
+    SHADE("SHADE", CameraMetadata.CONTROL_AWB_MODE_SHADE),
+    TWILIGHT("TWILIGHT", CameraMetadata.CONTROL_AWB_MODE_TWILIGHT),
     TUNGSTEN("TUNGSTEN", CameraMetadata.CONTROL_AWB_MODE_INCANDESCENT),
     FLUORESCENT("FLUORESCENT", CameraMetadata.CONTROL_AWB_MODE_FLUORESCENT),
+    WARM_FLUORESCENT("WARM FLUOR.", CameraMetadata.CONTROL_AWB_MODE_WARM_FLUORESCENT),
 }
 
 /**

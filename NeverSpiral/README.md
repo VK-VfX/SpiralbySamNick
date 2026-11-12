@@ -141,3 +141,13 @@ installing this one never collides with or gets confused for anything else alrea
 - Styles (Natural, Vivid, Portrait, Landscape, Moody, Mono) shown live on the preview and applied to the saved photo.
 - Settings sheet (flash, timer, ratio 4:3/16:9/1:1/2:1, grid off/thirds/golden/square, format, selfie mirroring), format popup, control strip (style, EV, shutter, ISO, WB, focus), level indicator.
 - Files are saved as `bynikezvera_<date>.jpeg` and `bynikezvera_<date>.dng` (DNG is the RAW container).
+
+## v1.3.0
+
+- Filters are independent of HDR: 30+ looks in six categories (Basic, Film, Cinema, Retro, Mono, Creative), each with its own strength slider, shown live on the preview and applied to the saved photo.
+- Develop sliders (exposure, contrast, saturation, warmth, tint, highlights, shadows, vignette, grain, sharpness) apply before capture and in the editor.
+- HDR is a real three-frame bracket (dark, normal, bright) fused with exposure fusion; strength 1-5. Skipped with flash or manual exposure.
+- Post-capture editor: tap the thumbnail to edit the last photo (filters, adjust, crop/rotate/flip, hold to compare) and save a new copy.
+- Deeper controls: flash Auto, timer up to 15 s, zoom slider, extra white-balance presets, JPEG quality.
+- New minimalist icon.
+- OTA updates: CI publishes `version.json` and the APK to the `never-spiral-apk-builds` branch; Settings has Check for updates, Download and install, and an automatic check at launch.

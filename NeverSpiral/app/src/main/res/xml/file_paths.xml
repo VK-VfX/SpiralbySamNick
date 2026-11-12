@@ -7,4 +7,6 @@
          it's copied into the shared MediaStore collection: cache rather than files/, since once
          the MediaStore copy exists this one is disposable. -->
     <cache-path name="captures" path="captures/" />
+    <!-- Downloaded update APKs, handed to the package installer. -->
+    <cache-path name="updates" path="updates/" />
 </paths>

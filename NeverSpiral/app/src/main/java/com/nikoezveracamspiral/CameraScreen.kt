@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.SurfaceTexture
@@ -44,6 +45,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -55,7 +58,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.material.icons.rounded.CenterFocusStrong
+import androidx.compose.material.icons.rounded.FlashAuto
+import androidx.compose.material.icons.rounded.HdrOff
+import androidx.compose.material.icons.rounded.HdrOn
+import androidx.compose.material.icons.rounded.ZoomIn
 import androidx.compose.material.icons.rounded.CropPortrait
 import androidx.compose.material.icons.rounded.CropSquare
 import androidx.compose.material.icons.rounded.Exposure
@@ -80,6 +88,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -133,7 +142,7 @@ private val OVERLAY_BUTTON_COLOR = Color(0x66000000)
 
 private enum class SidePanel { NONE, SETTINGS, CONTROLS }
 
-private enum class StripItem { STYLE, EV, SHUTTER, ISO, WB, FOCUS }
+private enum class StripItem { FILTER, ADJUST, HDR, ZOOM, EV, SHUTTER, ISO, WB, FOCUS }
 
 /**
  * The whole camera surface, laid out after Google's Pixel camera: a rounded viewfinder shaped 3:4
@@ -144,15 +153,30 @@ private enum class StripItem { STYLE, EV, SHUTTER, ISO, WB, FOCUS }
  */
 @Composable
 fun CameraScreen(controller: CameraController) {
+    var editorUri by remember { mutableStateOf<Uri?>(null) }
+    val uri = editorUri
+    if (uri != null) {
+        BackHandler { editorUri = null }
+        EditorScreen(uri = uri, controller = controller, onClose = { editorUri = null })
+    } else {
+        CameraContent(controller, onOpenEditor = { editorUri = it })
+    }
+}
+
+@Composable
+private fun CameraContent(controller: CameraController, onOpenEditor: (Uri) -> Unit) {
     val cameraEpoch = controller.cameraEpoch
     var panel by remember { mutableStateOf(SidePanel.NONE) }
-    var strip by remember { mutableStateOf(StripItem.STYLE) }
+    var strip by remember { mutableStateOf(StripItem.FILTER) }
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
     val hasFrontCamera = remember(cameraEpoch) { controller.engine.hasFrontCamera() }
 
     LaunchedEffect(controller.mode) {
         if (controller.mode == CaptureMode.PRO) panel = SidePanel.CONTROLS
+    }
+    LaunchedEffect(Unit) {
+        if (controller.autoCheckUpdates) controller.checkForUpdates(silent = true)
     }
 
     BoxWithConstraints(
@@ -180,6 +204,7 @@ fun CameraScreen(controller: CameraController) {
                 strip = strip,
                 width = viewfinderWidth,
                 height = viewfinderHeight,
+                onOpenSettings = { panel = SidePanel.SETTINGS },
             )
 
             Column(
@@ -198,7 +223,7 @@ fun CameraScreen(controller: CameraController) {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    GalleryThumbnail(controller)
+                    GalleryThumbnail(controller, onOpenEditor)
                     ShutterButton(
                         isVideoMode = controller.mode.isVideo,
                         isRecording = controller.isRecording,
@@ -273,7 +298,7 @@ fun CameraScreen(controller: CameraController) {
 }
 
 @Composable
-private fun Viewfinder(controller: CameraController, showControls: Boolean, strip: StripItem, width: Dp, height: Dp) {
+private fun Viewfinder(controller: CameraController, showControls: Boolean, strip: StripItem, width: Dp, height: Dp, onOpenSettings: () -> Unit) {
     var focusIndicator by remember { mutableStateOf<Offset?>(null) }
     var formatOpen by remember { mutableStateOf(false) }
     var textureRef by remember { mutableStateOf<TextureView?>(null) }
@@ -331,7 +356,10 @@ private fun Viewfinder(controller: CameraController, showControls: Boolean, stri
             verticalAlignment = Alignment.CenterVertically,
         ) {
             FormatPill(controller, onClick = { formatOpen = !formatOpen })
-            FlashButton(controller)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                HdrChip(controller)
+                FlashButton(controller)
+            }
         }
 
         if (formatOpen) {
@@ -348,6 +376,9 @@ private fun Viewfinder(controller: CameraController, showControls: Boolean, stri
             }
             if (controller.mode.isComingSoon) {
                 InfoPill(if (controller.mode.isVideo) "Slo-mo in progress: recording normal video" else "${controller.mode.label} in progress: taking a standard photo")
+            }
+            (controller.update as? UpdateStatus.Available)?.let { available ->
+                InfoPill("Update ${available.info.versionName} available: tap to open", onClick = onOpenSettings)
             }
             controller.lastError?.let { message ->
                 ErrorBanner(message = message, onDismiss = { controller.clearError() })
@@ -418,8 +449,11 @@ private fun CameraPreview(
         },
         update = { view ->
             // The chosen style shows live: a color filter on the preview layer, using the same
-            // matrix the saved photo gets. Reading photoStyle here re-runs this on change.
-            val filter = controller.photoStyle.filter()
+            // matrix the saved photo gets. Reading look here re-runs this on change.
+            val look = controller.look
+            val filter = if (look.filter == PhotoFilter.NATURAL && look.exposure == 0f && look.contrast == 0f &&
+                look.saturation == 0f && look.warmth == 0f && look.tint == 0f) null
+            else ColorMatrixColorFilter(look.toColorMatrix())
             view.setLayerType(View.LAYER_TYPE_HARDWARE, filter?.let { Paint().apply { colorFilter = it } })
             // Selfie mirroring is a setting; re-apply the transform whenever it flips.
             controller.previewSize?.let { applyPreviewTransform(view, it, controller.engine.sensorOrientation, controller.mirrorPreview()) }
@@ -651,10 +685,33 @@ private fun FormatOption(label: String, selected: Boolean, enabled: Boolean, onC
 }
 
 @Composable
+private fun HdrChip(controller: CameraController) {
+    if (controller.mode.isVideo) return
+    val on = controller.hdrEnabled
+    Row(
+        modifier = Modifier
+            .height(44.dp)
+            .clip(RoundedCornerShape(22.dp))
+            .background(if (on) Color.White else OVERLAY_BUTTON_COLOR)
+            .clickable { controller.hdrEnabled = !controller.hdrEnabled }
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = if (on) Icons.Rounded.HdrOn else Icons.Rounded.HdrOff,
+            contentDescription = "HDR",
+            tint = if (on) Color.Black else Color.White,
+            modifier = Modifier.size(22.dp),
+        )
+    }
+}
+
+@Composable
 private fun FlashButton(controller: CameraController) {
     val torch = controller.flashMode == FlashMode.TORCH
     val label = when (controller.flashMode) {
         FlashMode.OFF -> null
+        FlashMode.AUTO -> "Auto"
         FlashMode.ON -> "On"
         FlashMode.TORCH -> "Torch"
     }
@@ -668,7 +725,11 @@ private fun FlashButton(controller: CameraController) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            imageVector = if (controller.flashMode == FlashMode.OFF) Icons.Rounded.FlashOff else Icons.Rounded.FlashOn,
+            imageVector = when (controller.flashMode) {
+                FlashMode.OFF -> Icons.Rounded.FlashOff
+                FlashMode.AUTO -> Icons.Rounded.FlashAuto
+                else -> Icons.Rounded.FlashOn
+            },
             contentDescription = "Flash",
             tint = if (torch) Color.Black else Color.White,
             modifier = Modifier.size(22.dp),
@@ -732,7 +793,7 @@ private fun RecordingPill(elapsedMs: Long) {
 }
 
 @Composable
-private fun InfoPill(text: String) {
+private fun InfoPill(text: String, onClick: (() -> Unit)? = null) {
     Text(
         text = text,
         color = Color.White,
@@ -740,6 +801,7 @@ private fun InfoPill(text: String) {
         modifier = Modifier
             .clip(RoundedCornerShape(14.dp))
             .background(OVERLAY_BUTTON_COLOR)
+            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
             .padding(horizontal = 12.dp, vertical = 6.dp),
     )
 }
@@ -861,7 +923,7 @@ private fun CircleIconButton(
 
 /** The last capture's thumbnail, popping in with a small bounce each time a new one lands. */
 @Composable
-private fun GalleryThumbnail(controller: CameraController) {
+private fun GalleryThumbnail(controller: CameraController, onOpenEditor: (Uri) -> Unit) {
     val context = LocalContext.current
     val uri = controller.lastCaptureUri
     var bitmap by remember { mutableStateOf<ImageBitmap?>(null) }
@@ -885,6 +947,10 @@ private fun GalleryThumbnail(controller: CameraController) {
             .background(CameraTheme.SURFACE)
             .clickable(enabled = uri != null) {
                 val target = uri ?: return@clickable
+                if (!controller.lastCaptureIsVideo) {
+                    onOpenEditor(target)
+                    return@clickable
+                }
                 val intent = Intent(Intent.ACTION_VIEW, target)
                 intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 try {
@@ -952,8 +1018,8 @@ private fun ShutterButton(isVideoMode: Boolean, isRecording: Boolean, isBusy: Bo
     }
 }
 
-/** The settings bottom sheet, after the reference: Flash, Timer, Ratio and Grid as icon-segment
- * rows, then the photo format and selfie options. */
+/** The settings bottom sheet: capture options as icon-segment rows, then output quality and
+ * over-the-air updates. Scrolls when taller than the screen allows. */
 @Composable
 private fun SettingsSheet(controller: CameraController) {
     val scope = rememberCoroutineScope()
@@ -961,8 +1027,10 @@ private fun SettingsSheet(controller: CameraController) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(max = 620.dp)
             .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
             .background(Color(0xFF242424))
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -976,6 +1044,7 @@ private fun SettingsSheet(controller: CameraController) {
         SegmentRow(
             options = listOf(
                 Triple(FlashMode.OFF, "Off", Icons.Rounded.FlashOff),
+                Triple(FlashMode.AUTO, "Auto", Icons.Rounded.FlashAuto),
                 Triple(FlashMode.ON, "On", Icons.Rounded.FlashOn),
                 Triple(FlashMode.TORCH, "Torch", Icons.Rounded.FlashlightOn),
             ),
@@ -984,21 +1053,17 @@ private fun SettingsSheet(controller: CameraController) {
 
         SheetSection("Timer", if (controller.timerSeconds == 0) "Off" else "${controller.timerSeconds} s")
         SegmentRow(
-            options = listOf(
-                Triple(0, "Off", Icons.Rounded.TimerOff),
-                Triple(3, "3 s", Icons.Rounded.Timer),
-                Triple(10, "10 s", Icons.Rounded.Timer),
-            ),
+            options = listOf(0, 2, 3, 5, 10, 15).map { Triple(it, if (it == 0) "Off" else "${it}s", null as ImageVector?) },
             selected = controller.timerSeconds,
         ) { controller.timerSeconds = it }
 
-        SheetSection("Ratio", "")
+        SheetSection("Ratio", controller.aspectRatio.label)
         SegmentRow(
-            options = AspectOption.entries.map { Triple(it, it.label, if (it == AspectOption.R1_1) Icons.Rounded.CropSquare else Icons.Rounded.CropPortrait) },
+            options = AspectOption.entries.map { Triple(it, it.label, (if (it == AspectOption.R1_1) Icons.Rounded.CropSquare else Icons.Rounded.CropPortrait) as ImageVector?) },
             selected = controller.aspectRatio,
         ) { controller.aspectRatio = it }
 
-        SheetSection("Grid", "")
+        SheetSection("Grid", controller.gridStyle.label)
         SegmentRow(
             options = listOf(
                 Triple(GridStyle.OFF, "Off", Icons.Rounded.GridOff),
@@ -1021,6 +1086,12 @@ private fun SettingsSheet(controller: CameraController) {
             if (wantRaw != controller.isRawEnabled) scope.launch { controller.toggleRaw() }
         }
 
+        SheetSection("JPEG quality", "${controller.jpegQuality}")
+        SegmentRow(
+            options = listOf(85 to "Standard", 95 to "High", 100 to "Maximum").map { Triple(it.first, it.second, null as ImageVector?) },
+            selected = controller.jpegQuality,
+        ) { controller.jpegQuality = it }
+
         SheetSection("Selfie", if (controller.mirrorSelfies) "Mirrored" else "As seen by lens")
         SegmentRow(
             options = listOf(
@@ -1029,7 +1100,55 @@ private fun SettingsSheet(controller: CameraController) {
             ),
             selected = controller.mirrorSelfies,
         ) { controller.mirrorSelfies = it }
+
+        UpdateSection(controller)
         Spacer(modifier = Modifier.height(8.dp))
+    }
+}
+
+/** Over-the-air updates: check, download and install a newer build from inside the app. */
+@Composable
+private fun UpdateSection(controller: CameraController) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val status = controller.update
+    SheetSection("Updates", "v${UpdateManager.installedVersionName(context)}")
+    val message = when (status) {
+        UpdateStatus.Idle -> "Check for a newer build of Never Spiral."
+        UpdateStatus.Checking -> "Checking..."
+        UpdateStatus.UpToDate -> "You're on the latest version."
+        is UpdateStatus.Available -> "Version ${status.info.versionName} is available." + if (status.info.notes.isNotBlank()) " ${status.info.notes}" else ""
+        is UpdateStatus.Downloading -> "Downloading ${status.info.versionName}: ${(status.progress * 100).toInt()}%"
+        is UpdateStatus.Ready -> "Version ${status.info.versionName} downloaded. Tap Install."
+        is UpdateStatus.Failed -> status.message
+    }
+    Text(message, color = CameraTheme.TEXT_SECONDARY, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 4.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        when (status) {
+            is UpdateStatus.Available -> UpdateButton("Download & install", Modifier.weight(1f)) { scope.launch { controller.downloadUpdate() } }
+            is UpdateStatus.Ready -> UpdateButton("Install", Modifier.weight(1f)) { controller.installUpdate() }
+            is UpdateStatus.Downloading, UpdateStatus.Checking -> Unit
+            else -> UpdateButton("Check for updates", Modifier.weight(1f)) { scope.launch { controller.checkForUpdates() } }
+        }
+    }
+    SheetSection("Check automatically at launch", if (controller.autoCheckUpdates) "On" else "Off")
+    SegmentRow(
+        options = listOf(true to "On", false to "Off").map { Triple(it.first, it.second, null as ImageVector?) },
+        selected = controller.autoCheckUpdates,
+    ) { controller.setAutoCheckUpdates(it) }
+}
+
+@Composable
+private fun UpdateButton(label: String, modifier: Modifier, onClick: () -> Unit) {
+    Box(
+        modifier = modifier
+            .height(46.dp)
+            .clip(RoundedCornerShape(23.dp))
+            .background(Color.White)
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Medium)
     }
 }
 
@@ -1042,7 +1161,7 @@ private fun SheetSection(title: String, value: String) {
 }
 
 @Composable
-private fun <T> SegmentRow(options: List<Triple<T, String, ImageVector>>, selected: T, onSelect: (T) -> Unit) {
+private fun <T> SegmentRow(options: List<Triple<T, String, ImageVector?>>, selected: T, onSelect: (T) -> Unit) {
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
         for ((value, label, icon) in options) {
             val isSelected = value == selected
@@ -1056,8 +1175,10 @@ private fun <T> SegmentRow(options: List<Triple<T, String, ImageVector>>, select
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(icon, contentDescription = null, tint = if (isSelected) Color.Black else Color.White, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(5.dp))
+                if (icon != null) {
+                    Icon(icon, contentDescription = null, tint = if (isSelected) Color.Black else Color.White, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(5.dp))
+                }
                 Text(
                     label,
                     color = if (isSelected) Color.Black else Color.White,
@@ -1070,15 +1191,19 @@ private fun <T> SegmentRow(options: List<Triple<T, String, ImageVector>>, select
     }
 }
 
-/** The strip that replaces the mode pills while controls are open (as in the reference): each
- * item shows its current value and selects which control the viewfinder panel presents. */
+/** The strip that replaces the mode pills while controls are open: each item shows its current
+ * value and selects which control the viewfinder panel presents. */
 @Composable
 private fun ControlStrip(controller: CameraController, selected: StripItem, onSelect: (StripItem) -> Unit) {
     val s = controller.proSettings
     val manualExposure = controller.mode == CaptureMode.PRO && s.manualExposureEnabled
     val manualFocus = controller.mode == CaptureMode.PRO && s.manualFocusEnabled
+    val edited = !controller.look.copy(filter = PhotoFilter.NATURAL, strength = 1f).isNeutral
     val items = buildList {
-        add(Triple(StripItem.STYLE, Icons.Rounded.Palette, controller.photoStyle.label))
+        add(Triple(StripItem.FILTER, Icons.Rounded.Palette, controller.look.filter.label))
+        add(Triple(StripItem.ADJUST, Icons.Rounded.AutoFixHigh, if (edited) "Edited" else "Adjust"))
+        add(Triple(StripItem.HDR, if (controller.hdrEnabled) Icons.Rounded.HdrOn else Icons.Rounded.HdrOff, if (controller.hdrEnabled) "HDR ${controller.hdrStrength}" else "HDR off"))
+        add(Triple(StripItem.ZOOM, Icons.Rounded.ZoomIn, String.format(Locale.US, "%.1f×", controller.zoomRatio)))
         add(Triple(StripItem.EV, Icons.Rounded.Exposure, if (s.exposureCompensation == 0) "±0" else String.format(Locale.US, "%+d", s.exposureCompensation)))
         if (controller.engine.supportsManualExposure) {
             add(Triple(StripItem.SHUTTER, Icons.Rounded.ShutterSpeed, if (manualExposure) shutterSpeedLabel(s.exposureTimeNanos) else "Auto"))
@@ -1091,7 +1216,7 @@ private fun ControlStrip(controller: CameraController, selected: StripItem, onSe
     }
     Row(
         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterHorizontally),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         for ((item, icon, value) in items) {
             val isSelected = item == selected
@@ -1100,8 +1225,8 @@ private fun ControlStrip(controller: CameraController, selected: StripItem, onSe
                     .clip(RoundedCornerShape(22.dp))
                     .background(if (isSelected) Color.White else Color.Transparent)
                     .clickable { onSelect(item) }
-                    .padding(horizontal = 14.dp, vertical = 8.dp)
-                    .width(44.dp),
+                    .padding(horizontal = 10.dp, vertical = 8.dp)
+                    .width(58.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Icon(icon, contentDescription = null, tint = if (isSelected) Color.Black else Color.White, modifier = Modifier.size(26.dp))
@@ -1127,7 +1252,51 @@ private fun ControlsContent(controller: CameraController, strip: StripItem, snap
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         when (strip) {
-            StripItem.STYLE -> StylePanel(controller, snapshot)
+            StripItem.FILTER -> {
+                val frame by produceState<ImageBitmap?>(initialValue = null) {
+                    value = try { snapshot()?.asImageBitmap() } catch (e: Exception) { null }
+                }
+                FilterPanel(controller.look, { controller.look = it }, frame)
+            }
+            StripItem.ADJUST -> AdjustPanel(controller.look) { controller.look = it }
+            StripItem.HDR -> {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ProToggleChip("Off", !controller.hdrEnabled) { controller.hdrEnabled = false }
+                    ProToggleChip("On", controller.hdrEnabled) { controller.hdrEnabled = true }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Strength", color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp, modifier = Modifier.width(64.dp))
+                    Slider(
+                        value = controller.hdrStrength.toFloat(),
+                        valueRange = 1f..5f,
+                        steps = 3,
+                        enabled = controller.hdrEnabled,
+                        onValueChange = { controller.hdrStrength = it.toInt().coerceIn(1, 5) },
+                        colors = lookSliderColors(),
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text("${controller.hdrStrength}", color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp, modifier = Modifier.width(20.dp))
+                }
+                Text(
+                    "Takes three frames (dark, normal, bright) and blends the best-exposed parts. Hold steady. Not used with flash or manual exposure.",
+                    color = CameraTheme.TEXT_SECONDARY,
+                    fontSize = 11.sp,
+                )
+            }
+            StripItem.ZOOM -> {
+                val maxZoom = controller.engine.maxZoomRatio().coerceAtLeast(1f)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Zoom", color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp, modifier = Modifier.width(64.dp))
+                    Slider(
+                        value = controller.zoomRatio.coerceIn(1f, maxZoom),
+                        valueRange = 1f..maxZoom.coerceAtLeast(1.01f),
+                        onValueChange = { controller.setZoom(it) },
+                        colors = lookSliderColors(),
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(String.format(Locale.US, "%.1f×", controller.zoomRatio), color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp, modifier = Modifier.width(40.dp))
+                }
+            }
             StripItem.EV -> {
                 val evRange = controller.engine.exposureCompensationRange
                 if (evRange == null || evRange.lower == evRange.upper) {
@@ -1140,7 +1309,7 @@ private fun ControlsContent(controller: CameraController, strip: StripItem, snap
                             valueRange = evRange.lower.toFloat()..evRange.upper.toFloat(),
                             steps = (evRange.upper - evRange.lower - 1).coerceAtLeast(0),
                             onValueChange = { controller.updateProSettings { s -> s.copy(exposureCompensation = it.toInt()) } },
-                            colors = sliderColors(),
+                            colors = lookSliderColors(),
                             modifier = Modifier.weight(1f),
                         )
                         Text("${settings.exposureCompensation}", color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp, modifier = Modifier.width(28.dp))
@@ -1179,18 +1348,9 @@ private fun ControlsContent(controller: CameraController, strip: StripItem, snap
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     for (wb in WhiteBalanceMode.entries) {
-                        val selected = settings.whiteBalanceMode == wb
-                        Text(
-                            text = wb.label,
-                            color = if (selected) Color.Black else Color.White,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(50))
-                                .background(if (selected) Color.White else CameraTheme.SURFACE_RAISED)
-                                .clickable { controller.updateProSettings { it.copy(whiteBalanceMode = wb) } }
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                        )
+                        ChipText(wb.label, settings.whiteBalanceMode == wb) {
+                            controller.updateProSettings { it.copy(whiteBalanceMode = wb) }
+                        }
                     }
                 }
             }
@@ -1206,7 +1366,7 @@ private fun ControlsContent(controller: CameraController, strip: StripItem, snap
                             value = settings.focusDistance,
                             valueRange = 0f..controller.engine.minFocusDistance.coerceAtLeast(0.01f),
                             onValueChange = { controller.updateProSettings { s -> s.copy(focusDistance = it) } },
-                            colors = sliderColors(),
+                            colors = lookSliderColors(),
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -1217,72 +1377,10 @@ private fun ControlsContent(controller: CameraController, strip: StripItem, snap
 }
 
 @Composable
-private fun sliderColors() = SliderDefaults.colors(
-    thumbColor = CameraTheme.ACCENT,
-    activeTrackColor = CameraTheme.ACCENT,
-    inactiveTrackColor = CameraTheme.HAIRLINE,
-)
-
-@Composable
 private fun AutoManualRow(manual: Boolean, onChange: (Boolean) -> Unit) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         ProToggleChip("Auto", !manual) { onChange(false) }
         ProToggleChip("Manual", manual) { onChange(true) }
-    }
-}
-
-/** Style thumbnails (a snapshot of the live view with each look applied) and the HDR strength
- * slider, as in the reference. */
-@Composable
-private fun StylePanel(controller: CameraController, snapshot: () -> Bitmap?) {
-    val frame by produceState<ImageBitmap?>(initialValue = null) {
-        value = try { snapshot()?.asImageBitmap() } catch (e: Exception) { null }
-    }
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-        items(PhotoStyle.entries.toList()) { style ->
-            val selected = style == controller.photoStyle
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.clickable { controller.photoStyle = style },
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(width = 60.dp, height = 80.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(Color(0xFF303030))
-                        .border(if (selected) 2.dp else 0.dp, if (selected) Color.White else Color.Transparent, RoundedCornerShape(14.dp)),
-                ) {
-                    frame?.let { bitmap ->
-                        Image(
-                            bitmap = bitmap,
-                            contentDescription = style.label,
-                            contentScale = ContentScale.Crop,
-                            colorFilter = ColorFilter.colorMatrix(ColorMatrix(style.colorMatrix().array)),
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
-                }
-                Text(
-                    style.label,
-                    color = if (selected) Color.White else CameraTheme.TEXT_SECONDARY,
-                    fontSize = 11.sp,
-                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-            }
-        }
-    }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("HDR", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.width(44.dp))
-        Slider(
-            value = controller.hdrLevel.toFloat(),
-            valueRange = 0f..5f,
-            steps = 4,
-            onValueChange = { controller.hdrLevel = it.toInt().coerceIn(0, 5) },
-            colors = sliderColors(),
-            modifier = Modifier.weight(1f),
-        )
-        Text(controller.hdrLevel.toString(), color = CameraTheme.TEXT_SECONDARY, fontSize = 13.sp, modifier = Modifier.width(20.dp))
     }
 }
 
@@ -1310,7 +1408,7 @@ private fun ProDiscreteRow(label: String, valueLabel: String, index: Int, stepCo
             valueRange = 0f..(stepCount - 1).coerceAtLeast(1).toFloat(),
             steps = (stepCount - 2).coerceAtLeast(0),
             onValueChange = { onIndexChange(it.toInt().coerceIn(0, stepCount - 1)) },
-            colors = SliderDefaults.colors(thumbColor = CameraTheme.ACCENT, activeTrackColor = CameraTheme.ACCENT, inactiveTrackColor = CameraTheme.HAIRLINE),
+            colors = lookSliderColors(),
             modifier = Modifier.weight(1f),
         )
         Text(valueLabel, color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp, modifier = Modifier.width(52.dp))
