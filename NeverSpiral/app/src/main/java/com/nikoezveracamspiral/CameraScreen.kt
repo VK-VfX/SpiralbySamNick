@@ -59,6 +59,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoFixHigh
+import androidx.compose.material.icons.rounded.BlurOn
 import androidx.compose.material.icons.rounded.CenterFocusStrong
 import androidx.compose.material.icons.rounded.FlashAuto
 import androidx.compose.material.icons.rounded.HdrOff
@@ -142,7 +143,7 @@ private val OVERLAY_BUTTON_COLOR = Color(0x66000000)
 
 private enum class SidePanel { NONE, SETTINGS, CONTROLS }
 
-private enum class StripItem { FILTER, ADJUST, HDR, ZOOM, EV, SHUTTER, ISO, WB, FOCUS }
+private enum class StripItem { FILTER, ADJUST, HDR, BLUR, ZOOM, EV, SHUTTER, ISO, WB, FOCUS }
 
 /**
  * The whole camera surface, laid out after Google's Pixel camera: a rounded viewfinder shaped 3:4
@@ -376,6 +377,12 @@ private fun Viewfinder(controller: CameraController, showControls: Boolean, stri
             }
             if (controller.mode.isComingSoon) {
                 InfoPill(if (controller.mode.isVideo) "Slo-mo in progress: recording normal video" else "${controller.mode.label} in progress: taking a standard photo")
+            }
+            if (controller.holdStillMs > 0) {
+                HoldStillPill(controller.holdStillMs, controller.shutterTick)
+            }
+            if (controller.pendingProcessing > 0) {
+                InfoPill("Processing ${controller.pendingProcessing}...")
             }
             (controller.update as? UpdateStatus.Available)?.let { available ->
                 InfoPill("Update ${available.info.versionName} available: tap to open", onClick = onOpenSettings)
@@ -686,7 +693,7 @@ private fun FormatOption(label: String, selected: Boolean, enabled: Boolean, onC
 
 @Composable
 private fun HdrChip(controller: CameraController) {
-    if (controller.mode.isVideo) return
+    if (controller.mode.isVideo || controller.mode == CaptureMode.NIGHT) return
     val on = controller.hdrEnabled
     Row(
         modifier = Modifier
@@ -793,6 +800,25 @@ private fun RecordingPill(elapsedMs: Long) {
 }
 
 @Composable
+private fun HoldStillPill(durationMs: Long, tick: Int) {
+    val progress = remember(tick) { Animatable(0f) }
+    LaunchedEffect(tick) { progress.animateTo(1f, tween(durationMs.toInt().coerceAtLeast(300), easing = androidx.compose.animation.core.LinearEasing)) }
+    Column(
+        modifier = Modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(OVERLAY_BUTTON_COLOR)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("Hold still", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        Spacer(modifier = Modifier.height(6.dp))
+        Box(modifier = Modifier.width(120.dp).height(3.dp).clip(RoundedCornerShape(2.dp)).background(Color(0x44FFFFFF))) {
+            Box(modifier = Modifier.fillMaxWidth(progress.value).height(3.dp).background(Color.White))
+        }
+    }
+}
+
+@Composable
 private fun InfoPill(text: String, onClick: (() -> Unit)? = null) {
     Text(
         text = text,
@@ -834,7 +860,7 @@ private fun ModeChips(controller: CameraController) {
     val modes = if (controller.mode.isVideo) {
         listOf(CaptureMode.VIDEO, CaptureMode.SLOW_MOTION)
     } else {
-        listOf(CaptureMode.PHOTO, CaptureMode.PRO, CaptureMode.PORTRAIT, CaptureMode.PANORAMA)
+        listOf(CaptureMode.NIGHT, CaptureMode.PHOTO, CaptureMode.PORTRAIT, CaptureMode.PRO, CaptureMode.PANORAMA)
     }
     LazyRow(
         modifier = Modifier.fillMaxWidth(),
@@ -966,6 +992,13 @@ private fun GalleryThumbnail(controller: CameraController, onOpenEditor: (Uri) -
                 contentDescription = "Last capture",
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
+            )
+        }
+        if (controller.pendingProcessing > 0) {
+            androidx.compose.material3.CircularProgressIndicator(
+                color = Color.White,
+                strokeWidth = 3.dp,
+                modifier = Modifier.fillMaxSize().padding(2.dp),
             )
         }
     }
@@ -1202,7 +1235,12 @@ private fun ControlStrip(controller: CameraController, selected: StripItem, onSe
     val items = buildList {
         add(Triple(StripItem.FILTER, Icons.Rounded.Palette, controller.look.filter.label))
         add(Triple(StripItem.ADJUST, Icons.Rounded.AutoFixHigh, if (edited) "Edited" else "Adjust"))
-        add(Triple(StripItem.HDR, if (controller.hdrEnabled) Icons.Rounded.HdrOn else Icons.Rounded.HdrOff, if (controller.hdrEnabled) "HDR ${controller.hdrStrength}" else "HDR off"))
+        if (controller.mode != CaptureMode.NIGHT && !controller.mode.isVideo) {
+            add(Triple(StripItem.HDR, if (controller.hdrEnabled) Icons.Rounded.HdrOn else Icons.Rounded.HdrOff, if (controller.hdrEnabled) "HDR+ ${controller.hdrStrength}" else "HDR off"))
+        }
+        if (controller.mode == CaptureMode.PORTRAIT) {
+            add(Triple(StripItem.BLUR, Icons.Rounded.BlurOn, "Blur ${(controller.portraitBlurStrength * 100).toInt()}"))
+        }
         add(Triple(StripItem.ZOOM, Icons.Rounded.ZoomIn, String.format(Locale.US, "%.1f×", controller.zoomRatio)))
         add(Triple(StripItem.EV, Icons.Rounded.Exposure, if (s.exposureCompensation == 0) "±0" else String.format(Locale.US, "%+d", s.exposureCompensation)))
         if (controller.engine.supportsManualExposure) {
@@ -1278,10 +1316,24 @@ private fun ControlsContent(controller: CameraController, strip: StripItem, snap
                     Text("${controller.hdrStrength}", color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp, modifier = Modifier.width(20.dp))
                 }
                 Text(
-                    "Takes three frames (dark, normal, bright) and blends the best-exposed parts. Hold steady. Not used with flash or manual exposure.",
+                    "Like Pixel's HDR+: the shutter grabs a quick burst and returns at once; the burst is aligned, merged and tone-mapped in the background. Strength sets how hard shadows are lifted. Not used with flash or manual exposure.",
                     color = CameraTheme.TEXT_SECONDARY,
                     fontSize = 11.sp,
                 )
+            }
+            StripItem.BLUR -> {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Blur", color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp, modifier = Modifier.width(64.dp))
+                    Slider(
+                        value = controller.portraitBlurStrength,
+                        valueRange = 0.1f..1f,
+                        onValueChange = { controller.portraitBlurStrength = it },
+                        colors = lookSliderColors(),
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text("${(controller.portraitBlurStrength * 100).toInt()}", color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp, modifier = Modifier.width(28.dp))
+                }
+                Text("Blurs the background behind people. If nobody is found, the photo is left as is.", color = CameraTheme.TEXT_SECONDARY, fontSize = 11.sp)
             }
             StripItem.ZOOM -> {
                 val maxZoom = controller.engine.maxZoomRatio().coerceAtLeast(1f)

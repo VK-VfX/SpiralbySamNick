@@ -18,7 +18,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import java.util.concurrent.Executors
 import java.io.File
 
 private const val TAG = "CameraController"
@@ -50,6 +53,13 @@ class CameraController(private val context: Context) {
     var jpegQuality by mutableIntStateOf(95)
     var lastCaptureIsVideo by mutableStateOf(false)
         private set
+    /** Photos and videos still being processed in the background. */
+    var pendingProcessing by mutableIntStateOf(0)
+        private set
+    /** While Night Sight is exposing: how long the user should hold still, in ms. */
+    var holdStillMs by mutableLongStateOf(0L)
+        private set
+    var portraitBlurStrength by mutableStateOf(0.7f)
     var update by mutableStateOf<UpdateStatus>(UpdateStatus.Idle)
         private set
     var autoCheckUpdates by mutableStateOf(prefs().getBoolean("autoCheckUpdates", true))
@@ -97,6 +107,10 @@ class CameraController(private val context: Context) {
     val previewSize: Size? get() = currentPreviewSize
 
     private val controllerScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /** Post-capture work runs one job at a time on its own thread: bounded memory, and the
+     * shutter never waits for it. */
+    private val processingScope = CoroutineScope(SupervisorJob() + Executors.newSingleThreadExecutor().asCoroutineDispatcher())
     private var recordingTimerJob: Job? = null
 
     /** Whether the on-screen preview should be flipped: the front camera, when selfies are set to
@@ -275,6 +289,12 @@ class CameraController(private val context: Context) {
         }
     }
 
+    /**
+     * The shutter. Like Pixel's camera, this only does the quick half: it fires the burst the
+     * chosen mode needs (one frame; four underexposed frames for HDR+; nine long exposures for
+     * Night) and returns, so the next shot can start at once. Aligning, merging, tone mapping,
+     * portrait blur, the look and the save all happen afterwards on a background queue.
+     */
     suspend fun capturePhoto(rotationDegrees: Int) {
         if (isCapturing || isRecording) return
         if (timerSeconds > 0) {
@@ -287,42 +307,63 @@ class CameraController(private val context: Context) {
         isCapturing = true
         shutterTick += 1
         try {
+            val night = mode == CaptureMode.NIGHT
             val manualExposure = mode == CaptureMode.PRO && proSettings.manualExposureEnabled
-            val bracketBase = if (hdrEnabled && !manualExposure && flashMode == FlashMode.OFF) engine.currentAutoExposure() else null
-            val shots = mutableListOf<CapturedPhoto>()
-            if (bracketBase != null) {
-                // HDR: a dark, a normal and a bright frame, fused afterwards. RAW (if on) is
-                // taken from the normal frame.
-                for (ev in listOf(-2f, 0f, 2f)) {
-                    shots += engine.capturePhoto(rotationDegrees, isRawEnabled && ev == 0f, engine.bracketExposure(bracketBase, ev))
+            val flashActive = flashMode != FlashMode.OFF && !night
+            val base = engine.currentAutoExposure()
+            val strength = hdrStrength / 5f
+            val underEv = -(0.5f + 0.15f * hdrStrength)
+            val exposures: List<Pair<Long, Int>?>
+            val tone: PhotoProcessor.ToneMode
+            when {
+                night && base != null -> {
+                    val range = engine.exposureTimeRange
+                    var time = minOf(base.first * 4, 160_000_000L)
+                    if (range != null) time = time.coerceIn(range.lower, range.upper)
+                    exposures = List(9) { time to base.second }
+                    tone = PhotoProcessor.ToneMode.Night
+                    holdStillMs = exposures.size * (time / 1_000_000L + 40L)
                 }
-            } else {
-                shots += engine.capturePhoto(rotationDegrees, isRawEnabled)
+                hdrEnabled && !manualExposure && !flashActive && !mode.isVideo && base != null -> {
+                    exposures = List(4) { engine.bracketExposure(base, underEv) }
+                    tone = PhotoProcessor.ToneMode.HdrPlus(strength, underEv)
+                }
+                else -> {
+                    exposures = listOf(null)
+                    tone = PhotoProcessor.ToneMode.None
+                }
+            }
+
+            val burst = withTimeout(15_000) {
+                engine.captureBurst(rotationDegrees, exposures, if (isRawEnabled) exposures.size / 2 else null)
             }
             val stamp = CaptureStore.newStamp()
-            val currentLook = look
-            val hdrAmount = hdrStrength / 5f
-            val ratio = aspectRatio
-            val quality = jpegQuality
-            val mirror = mirrorSelfies && engine.lensFacing == CameraCharacteristics.LENS_FACING_FRONT
-            val frames = shots.map { it.jpegBytes }
-            val jpeg = withContext(Dispatchers.Default) {
-                try {
-                    PhotoProcessor.process(frames, currentLook, hdrAmount, ratio, mirror, quality)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Post-processing failed; saving the camera's original JPEG", e)
-                    frames[frames.size / 2]
-                } catch (e: OutOfMemoryError) {
-                    Log.e(TAG, "Post-processing ran out of memory; saving the camera's original JPEG", e)
-                    frames[frames.size / 2]
+
+            // RAW (if on) has to be written while its buffer is still ours, so that part isn't
+            // deferred.
+            burst.rawImage?.let { raw ->
+                val result = burst.rawResult
+                if (result != null) {
+                    withContext(Dispatchers.IO) { CaptureStore.saveDng(context, raw, burst.characteristics, result, stamp) }
+                } else {
+                    raw.close()
                 }
             }
-            lastCaptureUri = withContext(Dispatchers.IO) { CaptureStore.saveJpeg(context, jpeg, stamp) }
-            lastCaptureIsVideo = false
-            val main = shots[shots.size / 2]
-            main.rawImage?.let { raw ->
-                withContext(Dispatchers.IO) { CaptureStore.saveDng(context, raw, main.characteristics, main.captureResult, stamp) }
-            }
+
+            val job = PhotoJob(
+                frames = burst.jpegs,
+                tone = tone,
+                look = look,
+                ratio = aspectRatio,
+                mirror = mirrorSelfies && engine.lensFacing == CameraCharacteristics.LENS_FACING_FRONT,
+                quality = jpegQuality,
+                portraitBlur = if (mode == CaptureMode.PORTRAIT) portraitBlurStrength else 0f,
+                stamp = stamp,
+            )
+            adjustPending(1)
+            processingScope.launch { runPhotoJob(job) }
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            fail("Taking photo", RuntimeException("the camera didn't deliver its frames in time"))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -330,7 +371,47 @@ class CameraController(private val context: Context) {
         } finally {
             isCapturing = false
             countdownRemaining = 0
+            holdStillMs = 0L
         }
+    }
+
+    private class PhotoJob(
+        val frames: List<ByteArray>,
+        val tone: PhotoProcessor.ToneMode,
+        val look: Look,
+        val ratio: AspectOption,
+        val mirror: Boolean,
+        val quality: Int,
+        val portraitBlur: Float,
+        val stamp: String,
+    )
+
+    private suspend fun runPhotoJob(job: PhotoJob) {
+        try {
+            val fallback = job.frames[job.frames.size / 2]
+            val jpeg = try {
+                PhotoProcessor.processShots(job.frames, job.tone, job.look, job.ratio, job.mirror, job.quality, job.portraitBlur)
+            } catch (e: Exception) {
+                Log.e(TAG, "Processing failed; saving the camera's own JPEG", e)
+                fallback
+            } catch (e: OutOfMemoryError) {
+                Log.e(TAG, "Processing ran out of memory; saving the camera's own JPEG", e)
+                fallback
+            }
+            val uri = CaptureStore.saveJpeg(context, jpeg, job.stamp)
+            if (uri != null) {
+                lastCaptureUri = uri
+                lastCaptureIsVideo = false
+            }
+        } catch (e: Exception) {
+            fail("Saving photo", e)
+        } finally {
+            adjustPending(-1)
+        }
+    }
+
+    private fun adjustPending(delta: Int) {
+        synchronized(this) { pendingProcessing += delta }
     }
 
     suspend fun startVideo(rotationDegrees: Int) {
@@ -367,8 +448,36 @@ class CameraController(private val context: Context) {
             val file = videoFile
             videoFile = null
             if (file != null) {
-                lastCaptureUri = CaptureStore.publishVideo(context, file)
-                lastCaptureIsVideo = true
+                val videoLook = look
+                if (VideoFilter.needed(videoLook)) {
+                    // Rendered after recording, in the background; the unfiltered file is
+                    // published instead if that fails.
+                    adjustPending(1)
+                    processingScope.launch {
+                        try {
+                            val displayName = file.name
+                            val filtered = try {
+                                VideoFilter.apply(context, file, videoLook)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Video filter failed; keeping the unfiltered recording", e)
+                                lastError = "Couldn't apply the filter to the video: ${e.message ?: e::class.simpleName}"
+                                null
+                            }
+                            val source = filtered ?: file
+                            val uri = CaptureStore.publishVideo(context, source, displayName)
+                            if (filtered != null) file.delete()
+                            if (uri != null) {
+                                lastCaptureUri = uri
+                                lastCaptureIsVideo = true
+                            }
+                        } finally {
+                            adjustPending(-1)
+                        }
+                    }
+                } else {
+                    lastCaptureUri = CaptureStore.publishVideo(context, file)
+                    lastCaptureIsVideo = true
+                }
             }
 
             val texture = currentTexture

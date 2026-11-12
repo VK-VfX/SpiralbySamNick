@@ -151,3 +151,11 @@ installing this one never collides with or gets confused for anything else alrea
 - Deeper controls: flash Auto, timer up to 15 s, zoom slider, extra white-balance presets, JPEG quality.
 - New minimalist icon.
 - OTA updates: CI publishes `version.json` and the APK to the `never-spiral-apk-builds` branch; Settings has Check for updates, Download and install, and an automatic check at launch.
+
+## v1.4.0
+
+- Pixel-style capture: the shutter fires a quick burst and returns at once (no waiting); a background queue aligns, merges, tone-maps, applies the look and saves. The thumbnail shows a spinner while a photo is processing and several photos can queue.
+- HDR+: four deliberately underexposed frames, aligned (coarse-to-fine global shift search), merged with per-pixel rejection of anything that moved, then tone-mapped (exposure restored, shadows lifted, highlights rolled off).
+- Night Sight: nine long exposures (up to 1/6 s each) merged the same way with an automatic brightness target. Hold still while the bar fills.
+- Portrait: on-device person segmentation (ML Kit selfie segmenter) and a feathered background blur; strength slider.
+- Filters, develop sliders, zoom, white balance and the rest work in every mode. In video the colour part of the look (filter, exposure, contrast, saturation, warmth, tint) is rendered after recording by Media3 Transformer in the background.

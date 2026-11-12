@@ -238,7 +238,7 @@ class CameraEngine(private val context: Context) {
         previewSurface = surface
 
         val jpegSize = chooseJpegSize()
-        val reader = ImageReader.newInstance(jpegSize.width, jpegSize.height, ImageFormat.JPEG, 2)
+        val reader = ImageReader.newInstance(jpegSize.width, jpegSize.height, ImageFormat.JPEG, 4)
         jpegReader = reader
 
         val targets = mutableListOf(surface, reader.surface)
@@ -460,6 +460,102 @@ class CameraEngine(private val context: Context) {
             (sensorOrientation - deviceRotationDegrees + 360) % 360
         }
     }
+
+    /** The frames of one burst, plus the RAW frame and its result when RAW was requested. */
+    class BurstResult(
+        val jpegs: List<ByteArray>,
+        val rawImage: Image?,
+        val rawResult: TotalCaptureResult?,
+        val characteristics: CameraCharacteristics,
+    )
+
+    /**
+     * Fires [exposures].size still captures back to back, as fast as the camera allows, and
+     * returns their JPEGs: the shutter-side half of the Pixel-style pipeline (the merge happens
+     * afterwards, in the background). A null exposure means automatic. RAW (if on) rides along on
+     * the request at [rawIndex].
+     */
+    suspend fun captureBurst(deviceRotationDegrees: Int, exposures: List<Pair<Long, Int>?>, rawIndex: Int?): BurstResult =
+        suspendCancellableCoroutine { cont ->
+            val device = cameraDevice
+            val session = captureSession
+            val jpeg = jpegReader
+            val chars = characteristics
+            if (device == null || session == null || jpeg == null || chars == null) {
+                cont.resumeWithException(IllegalStateException("Camera not ready"))
+                return@suspendCancellableCoroutine
+            }
+            val raw = rawReader
+            val wantsRaw = rawIndex != null && raw != null
+            val total = exposures.size
+            val requests = exposures.mapIndexed { i, exposure ->
+                val builder = device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)
+                builder.addTarget(jpeg.surface)
+                if (wantsRaw && i == rawIndex) builder.addTarget(raw!!.surface)
+                applyControls(builder)
+                builder.set(CaptureRequest.JPEG_ORIENTATION, sensorToJpegOrientation(deviceRotationDegrees))
+                applyStillQuality(builder, chars)
+                if (exposure != null) {
+                    builder.set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_OFF)
+                    builder.set(CaptureRequest.SENSOR_EXPOSURE_TIME, exposure.first)
+                    builder.set(CaptureRequest.SENSOR_SENSITIVITY, exposure.second)
+                }
+                builder.setTag(i)
+                builder.build()
+            }
+
+            val jpegs = mutableListOf<ByteArray>()
+            var completed = 0
+            var failed = 0
+            var rawImage: Image? = null
+            var rawResult: TotalCaptureResult? = null
+            var finished = false
+
+            fun maybeFinish() {
+                if (finished) return
+                if (completed + failed < total) return
+                if (jpegs.size < completed) return
+                if (wantsRaw && rawResult != null && rawImage == null) return
+                finished = true
+                if (jpegs.isEmpty()) {
+                    cont.resumeWithException(RuntimeException("Capture failed: no frames received"))
+                } else {
+                    cont.resume(BurstResult(jpegs.toList(), rawImage, rawResult, chars))
+                }
+            }
+
+            jpeg.setOnImageAvailableListener({ reader ->
+                while (true) {
+                    val image = reader.acquireNextImage() ?: break
+                    val buffer = image.planes[0].buffer
+                    val bytes = ByteArray(buffer.remaining())
+                    buffer.get(bytes)
+                    image.close()
+                    jpegs.add(bytes)
+                }
+                maybeFinish()
+            }, backgroundHandler)
+
+            if (wantsRaw) {
+                raw!!.setOnImageAvailableListener({ reader ->
+                    reader.acquireLatestImage()?.let { rawImage = it }
+                    maybeFinish()
+                }, backgroundHandler)
+            }
+
+            session.captureBurst(requests, object : CameraCaptureSession.CaptureCallback() {
+                override fun onCaptureCompleted(session: CameraCaptureSession, request: CaptureRequest, result: TotalCaptureResult) {
+                    completed += 1
+                    if (wantsRaw && request.tag == rawIndex) rawResult = result
+                    maybeFinish()
+                }
+
+                override fun onCaptureFailed(session: CameraCaptureSession, request: CaptureRequest, failure: CaptureFailure) {
+                    failed += 1
+                    maybeFinish()
+                }
+            }, backgroundHandler)
+        }
 
     /** Asks the camera's own ISP for its best still-capture processing wherever the device
      * advertises support, plus near-lossless JPEG encoding. */

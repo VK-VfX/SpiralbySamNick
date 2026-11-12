@@ -11,8 +11,8 @@ android {
         applicationId = "com.nikoezveracamspiral"
         minSdk = 26
         targetSdk = 34
-        versionCode = 5
-        versionName = "1.3.0"
+        versionCode = 6
+        versionName = "1.4.0"
     }
 
     // Without this, Gradle falls back to its own default debug config, which auto-generates
@@ -84,6 +84,14 @@ dependencies {
     // write correct orientation/metadata into saved JPEGs.
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("androidx.exifinterface:exifinterface:1.3.7")
+
+    // Portrait mode: bundled on-device person segmentation (no Play services, no network).
+    implementation("com.google.mlkit:segmentation-selfie:16.0.0-beta6")
+
+    // Filters on recorded video are rendered after recording by the Media3 transformer.
+    implementation("androidx.media3:media3-transformer:1.3.1")
+    implementation("androidx.media3:media3-effect:1.3.1")
+    implementation("androidx.media3:media3-common:1.3.1")
 
     testImplementation("junit:junit:4.13.2")
 }

@@ -11,6 +11,7 @@ import android.media.Image
  * background blur, multi-frame stitching, and constrained-high-speed capture all need more room
  * than the core Photo/Pro/Video pipeline). */
 enum class CaptureMode(val label: String) {
+    NIGHT("Night"),
     PHOTO("Photo"),
     PRO("Pro"),
     VIDEO("Video"),
@@ -24,7 +25,7 @@ enum class CaptureMode(val label: String) {
 
     /** Modes whose dedicated capture pipeline isn't built yet; they fall back to a standard photo
      * (or standard video, for slow-motion) and the viewfinder says so. */
-    val isComingSoon: Boolean get() = this == PORTRAIT || this == PANORAMA || this == SLOW_MOTION
+    val isComingSoon: Boolean get() = this == PANORAMA || this == SLOW_MOTION
 }
 
 enum class FlashMode(val glyph: String) {

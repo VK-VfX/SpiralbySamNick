@@ -86,10 +86,10 @@ object CaptureStore {
         return File(dir, timestampName("mp4"))
     }
 
-    fun publishVideo(context: Context, file: File): Uri? {
+    fun publishVideo(context: Context, file: File, displayName: String = file.name): Uri? {
         val resolver = context.contentResolver
         val values = ContentValues().apply {
-            put(MediaStore.Video.Media.DISPLAY_NAME, file.name)
+            put(MediaStore.Video.Media.DISPLAY_NAME, displayName)
             put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 put(MediaStore.Video.Media.RELATIVE_PATH, "${Environment.DIRECTORY_MOVIES}/$ALBUM_NAME")

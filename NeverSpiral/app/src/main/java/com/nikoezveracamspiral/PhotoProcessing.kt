@@ -7,7 +7,6 @@ import android.graphics.Matrix
 import androidx.exifinterface.media.ExifInterface
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
-import kotlin.math.exp
 import kotlin.math.pow
 
 enum class FilterCategory(val label: String) {
@@ -310,99 +309,11 @@ object LookProcessor {
     }
 }
 
-/** Exposure fusion of a bracket (under/normal/over): each pixel takes mostly from whichever frame
- * exposed it best, with the per-frame weights computed on a coarse grid and smoothed so the
- * blend has no visible seams. Shadows come from the bright frame, highlights from the dark one. */
-object HdrFusion {
-    private const val CELL = 8
-
-    fun fuse(frames: List<IntArray>, w: Int, h: Int): IntArray {
-        val n = frames.size
-        val gw = (w + CELL - 1) / CELL
-        val gh = (h + CELL - 1) / CELL
-        val grids = Array(n) { FloatArray(gw * gh) }
-        for (i in 0 until n) {
-            val px = frames[i]
-            for (gy in 0 until gh) {
-                for (gx in 0 until gw) {
-                    var sum = 0f
-                    var count = 0
-                    val y0 = gy * CELL
-                    val x0 = gx * CELL
-                    for (yy in 0 until CELL step 2) {
-                        val y = y0 + yy
-                        if (y >= h) break
-                        for (xx in 0 until CELL step 2) {
-                            val x = x0 + xx
-                            if (x >= w) break
-                            val p = px[y * w + x]
-                            sum += (0.299f * ((p shr 16) and 0xFF) + 0.587f * ((p shr 8) and 0xFF) + 0.114f * (p and 0xFF)) / 255f
-                            count++
-                        }
-                    }
-                    val l = if (count > 0) sum / count else 0.5f
-                    grids[i][gy * gw + gx] = exp(-((l - 0.5f) * (l - 0.5f)) / (2f * 0.2f * 0.2f)) + 1e-3f
-                }
-            }
-        }
-        repeat(3) { for (i in 0 until n) grids[i] = blur(grids[i], gw, gh) }
-        for (c in 0 until gw * gh) {
-            var total = 0f
-            for (i in 0 until n) total += grids[i][c]
-            for (i in 0 until n) grids[i][c] /= total
-        }
-
-        val out = IntArray(w * h)
-        for (y in 0 until h) {
-            val fy = ((y + 0.5f) / CELL - 0.5f).coerceIn(0f, gh - 1f)
-            val y0 = fy.toInt()
-            val y1 = minOf(y0 + 1, gh - 1)
-            val ty = fy - y0
-            for (x in 0 until w) {
-                val fx = ((x + 0.5f) / CELL - 0.5f).coerceIn(0f, gw - 1f)
-                val x0 = fx.toInt()
-                val x1 = minOf(x0 + 1, gw - 1)
-                val tx = fx - x0
-                var r = 0f
-                var g = 0f
-                var b = 0f
-                for (i in 0 until n) {
-                    val gr = grids[i]
-                    val wgt = (gr[y0 * gw + x0] * (1 - tx) + gr[y0 * gw + x1] * tx) * (1 - ty) +
-                        (gr[y1 * gw + x0] * (1 - tx) + gr[y1 * gw + x1] * tx) * ty
-                    val p = frames[i][y * w + x]
-                    r += wgt * ((p shr 16) and 0xFF)
-                    g += wgt * ((p shr 8) and 0xFF)
-                    b += wgt * (p and 0xFF)
-                }
-                out[y * w + x] = (0xFF shl 24) or (r.toInt().coerceIn(0, 255) shl 16) or
-                    (g.toInt().coerceIn(0, 255) shl 8) or b.toInt().coerceIn(0, 255)
-            }
-        }
-        return out
-    }
-
-    private fun blur(src: FloatArray, w: Int, h: Int): FloatArray {
-        val dst = FloatArray(src.size)
-        for (y in 0 until h) for (x in 0 until w) {
-            var sum = 0f
-            var count = 0
-            for (dy in -1..1) for (dx in -1..1) {
-                val yy = y + dy
-                val xx = x + dx
-                if (yy in 0 until h && xx in 0 until w) { sum += src[yy * w + xx]; count++ }
-            }
-            dst[y * w + x] = sum / count
-        }
-        return dst
-    }
-}
-
 /** The after-capture pipeline: decode, rotate upright from EXIF, mirror (selfies), crop to the
  * chosen ratio, fuse an HDR bracket when there is one, then run the [Look] and re-encode. */
 object PhotoProcessor {
     private const val SINGLE_MAX_PIXELS = 16_800_000
-    private const val BRACKET_MAX_PIXELS = 8_000_000
+    private const val BURST_MAX_PIXELS = 13_000_000
 
     /** Decodes [bytes] upright (EXIF rotation applied), subsampled so it stays under [maxPixels]. */
     fun decodeUpright(bytes: ByteArray, maxPixels: Int): Bitmap? {
@@ -462,38 +373,66 @@ object PhotoProcessor {
         return stream.toByteArray()
     }
 
-    /** [frames] is one JPEG, or an HDR bracket (dark, normal, bright) fused with [hdrStrength]
-     * 0..1 (0 = just the normal frame, 1 = fully fused). */
-    fun process(frames: List<ByteArray>, look: Look, hdrStrength: Float, ratio: AspectOption, mirror: Boolean, quality: Int): ByteArray {
-        val maxPixels = if (frames.size > 1) BRACKET_MAX_PIXELS else SINGLE_MAX_PIXELS
-        val bitmaps = frames.map { bytes ->
-            val upright = decodeUpright(bytes, maxPixels) ?: return frames[frames.size / 2]
-            cropAndMirror(upright, ratio, mirror)
-        }
-        val w = bitmaps[0].width
-        val h = bitmaps[0].height
-        val pixelFrames = bitmaps.map { pixelsOf(it) }
-        bitmaps.forEach { it.recycle() }
+    /** How a burst is turned into one frame. */
+    sealed interface ToneMode {
+        data object None : ToneMode
+        /** Underexposed burst (by [underEv] stops) merged and tone-mapped; [strength] is 0..1. */
+        data class HdrPlus(val strength: Float, val underEv: Float) : ToneMode
+        data object Night : ToneMode
+    }
 
-        var pixels = pixelFrames[pixelFrames.size / 2]
-        if (pixelFrames.size > 1 && pixelFrames.all { it.size == pixels.size } && hdrStrength > 0f) {
-            val fused = HdrFusion.fuse(pixelFrames, w, h)
-            if (hdrStrength >= 0.999f) {
-                pixels = fused
-            } else {
-                for (i in pixels.indices) {
-                    val a = pixels[i]
-                    val b = fused[i]
-                    fun mix(shift: Int): Int {
-                        val av = (a shr shift) and 0xFF
-                        val bv = (b shr shift) and 0xFF
-                        return (av + (bv - av) * hdrStrength).toInt().coerceIn(0, 255)
+    private fun loadFrame(bytes: ByteArray, ratio: AspectOption, mirror: Boolean, maxPixels: Int): DecodedFrame? {
+        val upright = decodeUpright(bytes, maxPixels) ?: return null
+        val cropped = cropAndMirror(upright, ratio, mirror)
+        val pixels = pixelsOf(cropped)
+        val frame = DecodedFrame(pixels, cropped.width, cropped.height)
+        cropped.recycle()
+        return frame
+    }
+
+    /**
+     * The whole after-capture pipeline, run off the main thread after the shutter has already
+     * returned: [frames] is one JPEG or a burst. A burst is aligned and merged and tone-mapped
+     * per [tone]; Portrait then blurs the background behind the subject ([portraitBlur] 0..1, 0 =
+     * off); finally the [Look] is applied and the result encoded.
+     */
+    fun processShots(
+        frames: List<ByteArray>,
+        tone: ToneMode,
+        look: Look,
+        ratio: AspectOption,
+        mirror: Boolean,
+        quality: Int,
+        portraitBlur: Float,
+    ): ByteArray {
+        val refIndex = frames.size / 2
+        val maxPixels = if (frames.size > 1) BURST_MAX_PIXELS else SINGLE_MAX_PIXELS
+        val merged: DecodedFrame = if (frames.size > 1 && tone != ToneMode.None) {
+            BurstMerge.merge(
+                frames, refIndex,
+                load = { loadFrame(it, ratio, mirror, maxPixels) },
+                lutFor = { refMean ->
+                    when (tone) {
+                        is ToneMode.HdrPlus -> ToneMap.hdrPlus(tone.strength, tone.underEv)
+                        ToneMode.Night -> ToneMap.night(refMean)
+                        ToneMode.None -> IntArray(1024) { (it / 4).coerceIn(0, 255) }
                     }
-                    pixels[i] = (0xFF shl 24) or (mix(16) shl 16) or (mix(8) shl 8) or mix(0)
-                }
+                },
+            ) ?: return frames[refIndex]
+        } else {
+            loadFrame(frames[refIndex], ratio, mirror, maxPixels) ?: return frames[refIndex]
+        }
+        val w = merged.w
+        val h = merged.h
+        val pixels = merged.pixels
+
+        if (portraitBlur > 0f) {
+            try {
+                PortraitEffect.apply(pixels, w, h, portraitBlur)
+            } catch (e: Exception) {
+                android.util.Log.w("PhotoProcessor", "Portrait blur failed; keeping the unblurred photo", e)
             }
         }
-
         LookProcessor.apply(pixels, w, h, look)
         LookProcessor.sharpen(pixels, w, h, 0.2f + look.sharpness * 0.8f)
         return encode(pixels, w, h, quality)
