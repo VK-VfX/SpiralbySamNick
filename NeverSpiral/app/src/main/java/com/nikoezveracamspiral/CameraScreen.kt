@@ -1,19 +1,36 @@
 package com.nikoezveracamspiral
 
 import android.content.ActivityNotFoundException
+import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.CameraCharacteristics
+import android.net.Uri
+import android.os.Build
 import android.util.Size
 import android.view.TextureView
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -28,9 +45,18 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.FlashOff
+import androidx.compose.material.icons.rounded.FlashOn
+import androidx.compose.material.icons.rounded.FlipCameraAndroid
+import androidx.compose.material.icons.rounded.PhotoCamera
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.Videocam
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
@@ -45,33 +71,167 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Locale
-import kotlin.math.max
+import kotlin.math.abs
+
+/** This app locks its single Activity to portrait (see AndroidManifest), so the display's
+ * rotation relative to the device's natural orientation is always 0 -- the formula CameraEngine
+ * uses to derive JPEG/video orientation only needs that one fixed value, never a live
+ * OrientationEventListener reading. */
+private const val DEVICE_ROTATION_DEGREES = 0
+
+private val PANEL_COLOR = Color(0xEB161616)
+private val OVERLAY_BUTTON_COLOR = Color(0x66000000)
+
+private enum class SidePanel { NONE, SETTINGS, CONTROLS }
 
 /**
- * The entire camera surface: full-bleed live preview with the mode carousel, shutter, and Pro
- * mode's manual dials overlaid on top -- the same "controls float over the live image" layout
- * every modern flagship camera app uses, rather than letterboxing the preview behind a separate
- * control bar.
+ * The whole camera surface, laid out after Google's Pixel camera: a rounded viewfinder shaped 3:4
+ * so it matches the saved photo exactly (what you see is what you get, no hidden crop), with the
+ * format and flash pills and zoom chips floating inside it, then the mode pill, a ringed
+ * shutter flanked by the last-capture thumbnail and the camera flip, and a bottom row with
+ * settings, the Photo/Video toggle, and manual controls.
  */
 @Composable
 fun CameraScreen(controller: CameraController) {
-    var focusIndicator by remember { mutableStateOf<Offset?>(null) }
+    val cameraEpoch = controller.cameraEpoch
+    var panel by remember { mutableStateOf(SidePanel.NONE) }
     val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
+    val hasFrontCamera = remember(cameraEpoch) { controller.engine.hasFrontCamera() }
 
-    Box(modifier = Modifier.fillMaxSize().background(CameraTheme.BACKGROUND)) {
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(CameraTheme.BACKGROUND)
+            .statusBarsPadding()
+            .navigationBarsPadding(),
+    ) {
+        // The viewfinder keeps its 3:4 shape; on a short screen it shrinks (staying centered)
+        // rather than squeezing the controls below it.
+        val controlsHeight = 290.dp
+        val naturalHeight = maxWidth * 4f / 3f
+        val availableHeight = (maxHeight - controlsHeight - 14.dp).coerceAtLeast(240.dp)
+        val viewfinderHeight = if (naturalHeight < availableHeight) naturalHeight else availableHeight
+        val viewfinderWidth = viewfinderHeight * 3f / 4f
+
+        Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Spacer(modifier = Modifier.height(10.dp))
+            Viewfinder(controller = controller, panel = panel, width = viewfinderWidth, height = viewfinderHeight)
+
+            Column(
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                verticalArrangement = Arrangement.SpaceEvenly,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                ModeChips(controller)
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    GalleryThumbnail(controller)
+                    ShutterButton(
+                        isVideoMode = controller.mode.isVideo,
+                        isRecording = controller.isRecording,
+                        isBusy = controller.isCapturing,
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            if (controller.mode.isVideo) {
+                                scope.launch {
+                                    if (controller.isRecording) controller.stopVideo() else controller.startVideo(DEVICE_ROTATION_DEGREES)
+                                }
+                            } else {
+                                scope.launch { controller.capturePhoto(DEVICE_ROTATION_DEGREES) }
+                            }
+                        },
+                    )
+                    CircleIconButton(
+                        icon = Icons.Rounded.FlipCameraAndroid,
+                        description = "Switch camera",
+                        size = 56.dp,
+                        background = CameraTheme.SURFACE,
+                        enabled = !controller.isRecording && hasFrontCamera,
+                    ) {
+                        scope.launch { controller.switchCamera() }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircleIconButton(
+                        icon = Icons.Rounded.Settings,
+                        description = "Settings",
+                        size = 56.dp,
+                        background = CameraTheme.SURFACE,
+                        highlighted = panel == SidePanel.SETTINGS,
+                    ) {
+                        panel = if (panel == SidePanel.SETTINGS) SidePanel.NONE else SidePanel.SETTINGS
+                    }
+                    PhotoVideoToggle(controller)
+                    CircleIconButton(
+                        icon = Icons.Rounded.Tune,
+                        description = "Camera controls",
+                        size = 56.dp,
+                        background = CameraTheme.SURFACE,
+                        highlighted = panel == SidePanel.CONTROLS,
+                    ) {
+                        panel = if (panel == SidePanel.CONTROLS) SidePanel.NONE else SidePanel.CONTROLS
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun Viewfinder(controller: CameraController, panel: SidePanel, width: Dp, height: Dp) {
+    var focusIndicator by remember { mutableStateOf<Offset?>(null) }
+
+    // The shutter blink: the viewfinder drops to near-black the instant a still is triggered and
+    // fades back, the same cue every camera app gives that a frame was actually taken.
+    val blink = remember { Animatable(0f) }
+    LaunchedEffect(controller.shutterTick) {
+        if (controller.shutterTick > 0) {
+            blink.snapTo(0.85f)
+            blink.animateTo(0f, tween(durationMillis = 300))
+        }
+    }
+
+    val effectivePanel = if (panel == SidePanel.NONE && controller.mode == CaptureMode.PRO) SidePanel.CONTROLS else panel
+
+    Box(
+        modifier = Modifier
+            .size(width, height)
+            .clip(RoundedCornerShape(28.dp))
+            .background(Color(0xFF101010)),
+    ) {
         CameraPreview(
             controller = controller,
             onTap = { offset, size ->
@@ -90,21 +250,33 @@ fun CameraScreen(controller: CameraController) {
             FocusIndicator(position = position, onFinished = { focusIndicator = null })
         }
 
-        TopBar(controller = controller, modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding())
-
-        if (controller.isRecording) {
-            RecordingPill(
-                elapsedMs = controller.recordingElapsedMs,
-                modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 48.dp),
-            )
+        if (blink.value > 0.001f) {
+            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = blink.value)))
         }
 
-        controller.lastError?.let { message ->
-            ErrorBanner(
-                message = message,
-                onDismiss = { controller.clearError() },
-                modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 48.dp),
-            )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            FormatPill(controller)
+            FlashButton(controller)
+        }
+
+        Column(
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 64.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            if (controller.isRecording) {
+                RecordingPill(elapsedMs = controller.recordingElapsedMs)
+            }
+            if (controller.mode.isComingSoon) {
+                InfoPill(if (controller.mode.isVideo) "Slo-mo coming soon: recording normal video" else "${controller.mode.label} coming soon: taking a standard photo")
+            }
+            controller.lastError?.let { message ->
+                ErrorBanner(message = message, onDismiss = { controller.clearError() })
+            }
         }
 
         if (controller.countdownRemaining > 0) {
@@ -112,61 +284,20 @@ fun CameraScreen(controller: CameraController) {
                 text = controller.countdownRemaining.toString(),
                 color = Color.White,
                 fontSize = 96.sp,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.Light,
                 modifier = Modifier.align(Alignment.Center),
             )
         }
 
-        if (controller.zoomRatio > 1.01f) {
-            Text(
-                text = String.format(Locale.US, "%.1fx", controller.zoomRatio),
-                color = CameraTheme.TEXT_PRIMARY,
-                fontSize = 12.sp,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(bottom = 180.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(CameraTheme.SURFACE_RAISED.copy(alpha = 0.8f))
-                    .padding(horizontal = 10.dp, vertical = 4.dp),
-            )
-        }
-
-        Column(
-            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            if (controller.mode == CaptureMode.PRO) {
-                ProControlsPanel(controller)
+        Box(modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp)) {
+            when (effectivePanel) {
+                SidePanel.SETTINGS -> SettingsPanel(controller)
+                SidePanel.CONTROLS -> ControlsPanel(controller, manual = controller.mode == CaptureMode.PRO)
+                SidePanel.NONE -> ZoomChips(controller)
             }
-            ModeCarousel(controller)
-            Spacer(modifier = Modifier.height(10.dp))
-            CaptureControlsRow(
-                controller = controller,
-                onCapture = {
-                    scope.launch { controller.capturePhoto(DEVICE_ROTATION_DEGREES) }
-                },
-                onStartVideo = {
-                    scope.launch { controller.startVideo(DEVICE_ROTATION_DEGREES) }
-                },
-                onStopVideo = {
-                    scope.launch { controller.stopVideo() }
-                },
-            )
-            Spacer(modifier = Modifier.height(18.dp))
         }
     }
 }
-
-/** This app locks its single Activity to portrait (see AndroidManifest), so the display's
- * rotation relative to the device's natural orientation is always 0 -- the formula CameraEngine
- * uses to derive JPEG/video orientation only needs that one fixed value, never a live
- * OrientationEventListener reading. */
-private const val DEVICE_ROTATION_DEGREES = 0
-
-private data class IntSize(val width: Int, val height: Int)
 
 @Composable
 private fun CameraPreview(
@@ -174,13 +305,12 @@ private fun CameraPreview(
     onTap: (Offset, IntSize) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    var viewSize by remember { mutableStateOf(IntSize(0, 0)) }
 
     AndroidView(
         modifier = Modifier
             .fillMaxSize()
             .pointerInput(Unit) {
-                detectTapGestures(onTap = { offset -> onTap(offset, viewSize) })
+                detectTapGestures(onTap = { offset -> onTap(offset, size) })
             }
             .pointerInput(Unit) {
                 detectTransformGestures { _, _, zoom, _ ->
@@ -191,12 +321,13 @@ private fun CameraPreview(
             TextureView(ctx).apply {
                 surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                     override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) {
-                        viewSize = IntSize(width, height)
-                        scope.launch { openForPreview(controller, this@apply, texture, width, height) }
+                        scope.launch { openForPreview(controller, this@apply, texture) }
                     }
 
                     override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) {
-                        viewSize = IntSize(width, height)
+                        controller.previewSize?.let { previewSize ->
+                            applyPreviewTransform(this@apply, previewSize, controller.engine.sensorOrientation, controller.engine.lensFacing == CameraCharacteristics.LENS_FACING_FRONT)
+                        }
                     }
 
                     override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean {
@@ -215,58 +346,59 @@ private fun CameraPreview(
     }
 }
 
-private suspend fun openForPreview(controller: CameraController, textureView: TextureView, texture: SurfaceTexture, viewWidth: Int, viewHeight: Int) {
+private suspend fun openForPreview(controller: CameraController, textureView: TextureView, texture: SurfaceTexture) {
     val cameraId = controller.engine.findCameraId(CameraCharacteristics.LENS_FACING_BACK)
         ?: controller.engine.findCameraId(CameraCharacteristics.LENS_FACING_FRONT)
         ?: return
-    // CameraController.start() opens the camera itself; applyTransform is invoked from inside
-    // it once that's done, so engine.lensFacing/sensorOrientation are already valid by the time
-    // this reads them. (An earlier version of this function opened the camera here too, *and*
-    // start() opened it again -- Android rejects opening a camera ID that's already open from the
-    // same process, which crashed the app immediately on launch.)
-    controller.start(cameraId, texture, viewWidth, viewHeight) { previewSize ->
-        applyPreviewTransform(textureView, viewWidth, viewHeight, previewSize, controller.engine.sensorOrientation, controller.engine.lensFacing == CameraCharacteristics.LENS_FACING_FRONT)
+    // CameraController.start() opens the camera itself and invokes this once it's open, so
+    // sensorOrientation/lensFacing are valid by the time they're read here.
+    controller.start(cameraId, texture) { previewSize ->
+        applyPreviewTransform(textureView, previewSize, controller.engine.sensorOrientation, controller.engine.lensFacing == CameraCharacteristics.LENS_FACING_FRONT)
     }
 }
 
 /**
- * Scales and rotates the TextureView's displayed buffer to center-crop-fill the view, built as
- * three separately-verifiable steps rather than one combined matrix (an earlier version combined
- * an axis-swapped RectToRect scale -- which cannot itself rotate anything, only stretch X and Y
- * independently -- with an *additional* explicit rotation on top, compounding into neither a
- * clean rotation nor a clean stretch; that's what the previous build's "sensors mostly inverted"
- * and "selfie cam is horizontal" bugs actually were).
+ * Fits the preview into the view with a center-crop and, for the front camera, a horizontal
+ * mirror -- and deliberately applies NO rotation.
  *
- * Without any transform, TextureView stretches the buffer's native `previewSize.width x height`
- * pixels to non-uniformly fill the view's `viewWidth x viewHeight` bounds -- so step 1 undoes
- * that distortion (restoring the buffer's true aspect ratio), step 2 rotates by the sensor's
- * actual mounting angle (read from CameraCharacteristics, not assumed from front/back) so the
- * image reads upright with the device held normally -- mirroring the front camera horizontally
- * afterward, the same "look in a mirror while framing a selfie" convention every camera app
- * uses for the *preview* only, not the saved photo -- and step 3 scales up to cover the view
- * (crop-to-fill), accounting for the axes having swapped if the rotation was 90 or 270 degrees.
+ * The camera framework already rotates preview buffers upright for a device held in its natural
+ * (portrait) orientation, using the sensor orientation, before TextureView samples them; this
+ * is the same reason Google's own Camera2Basic sample applies an identity transform at rotation
+ * 0. An earlier build rotated by the sensor orientation again on top of that, which is exactly
+ * the 90-degree-off viewfinder seen on a real device (while the saved photo, whose orientation
+ * comes from JPEG_ORIENTATION instead, was fine).
+ *
+ * Without any transform, TextureView stretches the (already upright) content non-uniformly to
+ * the view's bounds. The viewfinder is shaped to the still-capture aspect and the preview size
+ * is chosen to match, so the two normally agree and this is an identity; the scale only matters
+ * when they differ slightly, where it restores the true aspect and crops the overflow. The front
+ * camera's preview is mirrored (as if looking in a mirror) but its saved photo is not, the
+ * standard selfie convention.
  */
-private fun applyPreviewTransform(textureView: TextureView, viewWidth: Int, viewHeight: Int, previewSize: Size, sensorOrientation: Int, isFrontFacing: Boolean) {
-    if (viewWidth == 0 || viewHeight == 0) return
+private fun applyPreviewTransform(textureView: TextureView, previewSize: Size, sensorOrientation: Int, isFrontFacing: Boolean) {
+    val viewW = textureView.width.toFloat()
+    val viewH = textureView.height.toFloat()
+    if (viewW == 0f || viewH == 0f) return
+
     val bufW = previewSize.width.toFloat()
     val bufH = previewSize.height.toFloat()
-    val centerX = viewWidth / 2f
-    val centerY = viewHeight / 2f
+    val contentAspect = if (sensorOrientation % 180 != 0) bufH / bufW else bufW / bufH
+    val viewAspect = viewW / viewH
+    val drawW: Float
+    val drawH: Float
+    if (contentAspect > viewAspect) {
+        drawH = viewH
+        drawW = viewH * contentAspect
+    } else {
+        drawW = viewW
+        drawH = viewW / contentAspect
+    }
 
     val matrix = Matrix()
-    matrix.postScale(bufW / viewWidth, bufH / viewHeight, centerX, centerY)
-    matrix.postRotate(sensorOrientation.toFloat(), centerX, centerY)
+    matrix.postScale(drawW / viewW, drawH / viewH, viewW / 2f, viewH / 2f)
     if (isFrontFacing) {
-        matrix.postScale(-1f, 1f, centerX, centerY)
+        matrix.postScale(-1f, 1f, viewW / 2f, viewH / 2f)
     }
-    val axesSwapped = sensorOrientation % 180 != 0
-    val scale = if (axesSwapped) {
-        max(viewWidth / bufH, viewHeight / bufW)
-    } else {
-        max(viewWidth / bufW, viewHeight / bufH)
-    }
-    matrix.postScale(scale, scale, centerX, centerY)
-
     textureView.setTransform(matrix)
 }
 
@@ -299,79 +431,133 @@ private fun FocusIndicator(position: Offset, onFinished: () -> Unit) {
     }
 }
 
+/** The JPEG/RAW pill at the viewfinder's top-left, as in the reference: shows the current output
+ * format and, where the sensor supports RAW, toggles it. */
 @Composable
-private fun TopBar(controller: CameraController, modifier: Modifier = Modifier) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.End,
+private fun FormatPill(controller: CameraController) {
+    val scope = rememberCoroutineScope()
+    val rawSupported = controller.engine.isRawSupported
+    val rawOn = controller.isRawEnabled && rawSupported
+    Box(
+        modifier = Modifier
+            .height(40.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(if (rawOn) Color.White else OVERLAY_BUTTON_COLOR)
+            .clickable(enabled = rawSupported && !controller.isRecording) { scope.launch { controller.toggleRaw() } }
+            .padding(horizontal = 16.dp),
+        contentAlignment = Alignment.Center,
     ) {
-        TopBarIcon(glyph = controller.flashMode.glyph) { controller.cycleFlash() }
-        Spacer(modifier = Modifier.width(10.dp))
-        TopBarIcon(glyph = if (controller.timerSeconds == 0) "⏱" else "${controller.timerSeconds}s", highlighted = controller.timerSeconds != 0) {
-            controller.cycleTimer()
+        Text(
+            text = if (rawOn) "RAW" else "JPEG",
+            color = if (rawOn) Color.Black else Color.White,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 1.sp,
+        )
+    }
+}
+
+@Composable
+private fun FlashButton(controller: CameraController) {
+    val torch = controller.flashMode == FlashMode.TORCH
+    val label = when (controller.flashMode) {
+        FlashMode.OFF -> null
+        FlashMode.ON -> "On"
+        FlashMode.TORCH -> "Torch"
+    }
+    Row(
+        modifier = Modifier
+            .height(44.dp)
+            .clip(RoundedCornerShape(22.dp))
+            .background(if (torch) Color.White else OVERLAY_BUTTON_COLOR)
+            .clickable { controller.cycleFlash() }
+            .padding(horizontal = if (label == null) 12.dp else 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = if (controller.flashMode == FlashMode.OFF) Icons.Rounded.FlashOff else Icons.Rounded.FlashOn,
+            contentDescription = "Flash",
+            tint = if (torch) Color.Black else Color.White,
+            modifier = Modifier.size(22.dp),
+        )
+        if (label != null) {
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(label, color = if (torch) Color.Black else Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
         }
-        Spacer(modifier = Modifier.width(10.dp))
-        TopBarIcon(glyph = "▦", highlighted = controller.isGridEnabled) {
-            controller.isGridEnabled = !controller.isGridEnabled
-        }
-        if (controller.engine.isRawSupported) {
-            Spacer(modifier = Modifier.width(10.dp))
-            val scope = rememberCoroutineScope()
-            TopBarIcon(glyph = "RAW", highlighted = controller.isRawEnabled, textGlyph = true) {
-                scope.launch { controller.toggleRaw() }
+    }
+}
+
+@Composable
+private fun ZoomChips(controller: CameraController) {
+    val maxZoom = controller.engine.maxZoomRatio()
+    val presets = listOf(1f, 2f, 5f, 10f).filter { it == 1f || it <= maxZoom + 0.01f }
+    if (presets.size < 2) return
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(OVERLAY_BUTTON_COLOR)
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        for (preset in presets) {
+            val selected = abs(controller.zoomRatio - preset) < 0.15f
+            Box(
+                modifier = Modifier
+                    .size(width = if (selected) 54.dp else 44.dp, height = 40.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(if (selected) Color.White else Color.Transparent)
+                    .clickable { controller.setZoom(preset) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = if (selected) "${preset.toInt()}×" else preset.toInt().toString(),
+                    color = if (selected) Color.Black else Color.White,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                )
             }
         }
     }
 }
 
 @Composable
-private fun TopBarIcon(glyph: String, highlighted: Boolean = false, textGlyph: Boolean = false, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .height(32.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(if (highlighted) CameraTheme.ACCENT else CameraTheme.SURFACE.copy(alpha = 0.6f))
-            .clickable { onClick() }
-            .padding(horizontal = 10.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = glyph,
-            color = if (highlighted) Color.Black else CameraTheme.TEXT_PRIMARY,
-            fontSize = if (textGlyph) 11.sp else 15.sp,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Bold,
-        )
-    }
-}
-
-@Composable
-private fun RecordingPill(elapsedMs: Long, modifier: Modifier = Modifier) {
+private fun RecordingPill(elapsedMs: Long) {
     val totalSeconds = elapsedMs / 1000
     val label = String.format(Locale.US, "%d:%02d", totalSeconds / 60, totalSeconds % 60)
     Row(
-        modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(CameraTheme.SURFACE_RAISED.copy(alpha = 0.85f))
+        modifier = Modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(OVERLAY_BUTTON_COLOR)
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(CameraTheme.CRITICAL))
         Spacer(modifier = Modifier.width(6.dp))
-        Text(label, color = CameraTheme.TEXT_PRIMARY, fontSize = 13.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold)
+        Text(label, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
     }
+}
+
+@Composable
+private fun InfoPill(text: String) {
+    Text(
+        text = text,
+        color = Color.White,
+        fontSize = 12.sp,
+        modifier = Modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(OVERLAY_BUTTON_COLOR)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+    )
 }
 
 /** A dismissible banner for a failed camera action -- [CameraController] catches every failure
  * in its own suspend functions rather than letting them crash the app, so this is where the
- * user actually learns something went wrong (e.g. the camera was busy, a session reconfiguration
- * failed) instead of the shutter button just silently doing nothing. */
+ * user actually learns something went wrong instead of the shutter silently doing nothing. */
 @Composable
-private fun ErrorBanner(message: String, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
+private fun ErrorBanner(message: String, onDismiss: () -> Unit) {
     Row(
-        modifier = modifier
+        modifier = Modifier
             .padding(horizontal = 16.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(CameraTheme.CRITICAL.copy(alpha = 0.92f))
@@ -379,97 +565,134 @@ private fun ErrorBanner(message: String, onDismiss: () -> Unit, modifier: Modifi
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = message,
-            color = Color.White,
-            fontSize = 11.sp,
-            fontFamily = FontFamily.Monospace,
-            modifier = Modifier.weight(1f, fill = false),
-        )
+        Text(text = message, color = Color.White, fontSize = 11.sp, modifier = Modifier.weight(1f, fill = false))
         Spacer(modifier = Modifier.width(8.dp))
-        Text("✕", color = Color.White, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
+        Text("✕", color = Color.White, fontSize = 13.sp)
     }
 }
 
+/** The mode pill under the viewfinder: the selected mode is a white pill with dark text, the
+ * others plain gray text -- the Photo group (Photo/Pro/Portrait/Pano) or, when the bottom toggle
+ * is on video, the Video group (Video/Slo-mo). */
 @Composable
-private fun ModeCarousel(controller: CameraController) {
-    val listState = rememberLazyListState()
+private fun ModeChips(controller: CameraController) {
+    val modes = if (controller.mode.isVideo) {
+        listOf(CaptureMode.VIDEO, CaptureMode.SLOW_MOTION)
+    } else {
+        listOf(CaptureMode.PHOTO, CaptureMode.PRO, CaptureMode.PORTRAIT, CaptureMode.PANORAMA)
+    }
     LazyRow(
-        state = listState,
-        horizontalArrangement = Arrangement.spacedBy(22.dp),
-        contentPadding = PaddingValues(horizontal = 24.dp),
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+        contentPadding = PaddingValues(horizontal = 16.dp),
     ) {
-        items(CaptureMode.entries) { candidate ->
+        items(modes) { candidate ->
             val selected = candidate == controller.mode
             Text(
                 text = candidate.label,
-                color = if (selected) CameraTheme.TEXT_PRIMARY else CameraTheme.TEXT_SECONDARY,
-                fontSize = if (selected) 14.sp else 12.sp,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                letterSpacing = 1.sp,
-                modifier = Modifier.clickable {
-                    if (controller.isRecording) return@clickable
-                    controller.mode = candidate
-                },
+                color = if (selected) Color.Black else CameraTheme.TEXT_SECONDARY,
+                fontSize = 16.sp,
+                fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(if (selected) Color.White else Color.Transparent)
+                    .clickable { controller.selectMode(candidate) }
+                    .padding(horizontal = 18.dp, vertical = 9.dp),
             )
         }
     }
 }
 
 @Composable
-private fun CaptureControlsRow(
-    controller: CameraController,
-    onCapture: () -> Unit,
-    onStartVideo: () -> Unit,
-    onStopVideo: () -> Unit,
-) {
+private fun PhotoVideoToggle(controller: CameraController) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(CameraTheme.SURFACE)
+            .padding(4.dp),
     ) {
-        GalleryThumbnail(controller)
-
-        ShutterButton(
-            mode = controller.mode,
-            isRecording = controller.isRecording,
-            isBusy = controller.isCapturing,
-            onClick = {
-                when (controller.mode) {
-                    CaptureMode.VIDEO -> if (controller.isRecording) onStopVideo() else onStartVideo()
-                    else -> onCapture()
-                }
-            },
-        )
-
-        val scope = rememberCoroutineScope()
-        Box(
-            modifier = Modifier
-                .size(44.dp)
-                .clip(CircleShape)
-                .background(CameraTheme.SURFACE)
-                .clickable(enabled = !controller.isRecording && controller.engine.hasFrontCamera()) {
-                    scope.launch { controller.switchCamera() }
-                },
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("⟲", color = CameraTheme.TEXT_PRIMARY, fontSize = 20.sp)
+        ToggleSegment(icon = Icons.Rounded.PhotoCamera, description = "Photo", selected = !controller.mode.isVideo) {
+            if (controller.mode.isVideo) controller.selectMode(CaptureMode.PHOTO)
+        }
+        ToggleSegment(icon = Icons.Rounded.Videocam, description = "Video", selected = controller.mode.isVideo) {
+            if (!controller.mode.isVideo) controller.selectMode(CaptureMode.VIDEO)
         }
     }
 }
 
 @Composable
-private fun GalleryThumbnail(controller: CameraController) {
-    val context = LocalContext.current
+private fun ToggleSegment(icon: ImageVector, description: String, selected: Boolean, onClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .size(44.dp)
-            .clip(RoundedCornerShape(10.dp))
+            .size(width = 62.dp, height = 48.dp)
+            .clip(RoundedCornerShape(50))
+            .background(if (selected) Color.White else Color.Transparent)
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = description,
+            tint = if (selected) Color.Black else Color.White,
+            modifier = Modifier.size(26.dp),
+        )
+    }
+}
+
+@Composable
+private fun CircleIconButton(
+    icon: ImageVector,
+    description: String,
+    size: Dp,
+    background: Color,
+    highlighted: Boolean = false,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(if (highlighted) Color.White else background)
+            .clickable(enabled = enabled) { onClick() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = description,
+            tint = if (highlighted) Color.Black else Color.White.copy(alpha = if (enabled) 1f else 0.4f),
+            modifier = Modifier.size(size * 0.46f),
+        )
+    }
+}
+
+/** The last capture's thumbnail, popping in with a small bounce each time a new one lands. */
+@Composable
+private fun GalleryThumbnail(controller: CameraController) {
+    val context = LocalContext.current
+    val uri = controller.lastCaptureUri
+    var bitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+    val popScale = remember { Animatable(1f) }
+
+    LaunchedEffect(uri) {
+        bitmap = if (uri == null) null else withContext(Dispatchers.IO) { loadThumbnail(context, uri) }?.asImageBitmap()
+    }
+    LaunchedEffect(bitmap) {
+        if (bitmap != null) {
+            popScale.snapTo(0.55f)
+            popScale.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy))
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .size(56.dp)
+            .scale(popScale.value)
+            .clip(CircleShape)
             .background(CameraTheme.SURFACE)
-            .clickable(enabled = controller.lastCaptureUri != null) {
-                val uri = controller.lastCaptureUri ?: return@clickable
-                val intent = Intent(Intent.ACTION_VIEW, uri)
+            .clickable(enabled = uri != null) {
+                val target = uri ?: return@clickable
+                val intent = Intent(Intent.ACTION_VIEW, target)
                 intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 try {
                     context.startActivity(intent)
@@ -477,83 +700,165 @@ private fun GalleryThumbnail(controller: CameraController) {
                     // No gallery/viewer app available; nothing more we can do.
                 }
             },
-    )
+    ) {
+        bitmap?.let { image ->
+            Image(
+                bitmap = image,
+                contentDescription = "Last capture",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    }
 }
 
+private fun loadThumbnail(context: Context, uri: Uri): Bitmap? = try {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        context.contentResolver.loadThumbnail(uri, Size(256, 256), null)
+    } else {
+        context.contentResolver.openInputStream(uri)?.use { stream ->
+            BitmapFactory.decodeStream(stream, null, BitmapFactory.Options().apply { inSampleSize = 8 })
+        }
+    }
+} catch (e: Exception) {
+    null
+}
+
+/** A white ring around a white disc, as in the reference. The disc shrinks while pressed and
+ * while a capture is in flight -- the tactile half of the capture animation (the viewfinder
+ * blink is the other) -- and turns red for video, becoming a rounded square while recording. */
 @Composable
-private fun ShutterButton(mode: CaptureMode, isRecording: Boolean, isBusy: Boolean, onClick: () -> Unit) {
-    val isVideoMode = mode == CaptureMode.VIDEO
-    val coreColor = if (isVideoMode || isRecording) CameraTheme.CRITICAL else Color.White
+private fun ShutterButton(isVideoMode: Boolean, isRecording: Boolean, isBusy: Boolean, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val discScale by animateFloatAsState(
+        targetValue = if (pressed || isBusy) 0.86f else 1f,
+        animationSpec = tween(durationMillis = 90),
+        label = "shutter-disc-scale",
+    )
+    val discSize by animateDpAsState(
+        targetValue = if (isRecording) 34.dp else 72.dp,
+        animationSpec = tween(durationMillis = 160),
+        label = "shutter-disc-size",
+    )
     Box(
         modifier = Modifier
-            .size(76.dp)
+            .size(92.dp)
             .clip(CircleShape)
-            .background(Color.Transparent)
-            .padding(4.dp)
-            .clip(CircleShape)
-            .background(Color.White.copy(alpha = 0.15f))
-            .clickable(enabled = !isBusy) { onClick() },
+            .border(4.dp, Color.White, CircleShape)
+            .clickable(interactionSource = interaction, indication = null, enabled = !isBusy) { onClick() },
         contentAlignment = Alignment.Center,
     ) {
         Box(
             modifier = Modifier
-                .size(if (isRecording) 32.dp else 60.dp)
-                .clip(if (isRecording) RoundedCornerShape(8.dp) else CircleShape)
-                .background(coreColor),
+                .size(discSize)
+                .scale(discScale)
+                .clip(if (isRecording) RoundedCornerShape(9.dp) else CircleShape)
+                .background(if (isVideoMode) CameraTheme.CRITICAL else Color.White),
         )
     }
 }
 
 @Composable
-private fun ProControlsPanel(controller: CameraController) {
+private fun SettingsPanel(controller: CameraController) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp))
+            .background(PANEL_COLOR)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        PanelRow("Timer") {
+            OptionChips(listOf(0 to "Off", 3 to "3s", 10 to "10s"), controller.timerSeconds) { controller.timerSeconds = it }
+        }
+        PanelRow("Grid") {
+            OptionChips(listOf(false to "Off", true to "On"), controller.isGridEnabled) { controller.isGridEnabled = it }
+        }
+    }
+}
+
+@Composable
+private fun PanelRow(label: String, content: @Composable () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = CameraTheme.TEXT_SECONDARY, fontSize = 13.sp, modifier = Modifier.width(72.dp))
+        content()
+    }
+}
+
+@Composable
+private fun <T> OptionChips(options: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        for ((value, label) in options) {
+            val isSelected = value == selected
+            Text(
+                text = label,
+                color = if (isSelected) Color.Black else Color.White,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(if (isSelected) Color.White else CameraTheme.SURFACE_RAISED)
+                    .clickable { onSelect(value) }
+                    .padding(horizontal = 14.dp, vertical = 7.dp),
+            )
+        }
+    }
+}
+
+/** Exposure compensation and white balance always; Pro mode adds the fully manual exposure
+ * (ISO + shutter) and manual focus controls on top. */
+@Composable
+private fun ControlsPanel(controller: CameraController, manual: Boolean) {
     val settings = controller.proSettings
     val isoRange = controller.engine.isoRange
     val exposureRange = controller.engine.exposureTimeRange
+    val manualExposure = manual && settings.manualExposureEnabled
+    val manualFocus = manual && settings.manualFocusEnabled
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 18.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(CameraTheme.SURFACE.copy(alpha = 0.78f))
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+            .clip(RoundedCornerShape(22.dp))
+            .background(PANEL_COLOR)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("MANUAL", color = CameraTheme.TEXT_SECONDARY, fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, modifier = Modifier.width(74.dp))
-            ProToggleChip("EXPOSURE", settings.manualExposureEnabled) {
-                controller.updateProSettings { it.copy(manualExposureEnabled = !it.manualExposureEnabled) }
-            }
-            Spacer(modifier = Modifier.width(8.dp))
-            if (controller.engine.supportsManualFocus) {
-                ProToggleChip("FOCUS", settings.manualFocusEnabled) {
-                    controller.updateProSettings { it.copy(manualFocusEnabled = !it.manualFocusEnabled) }
+        if (manual) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Manual", color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp, modifier = Modifier.width(72.dp))
+                ProToggleChip("Exposure", settings.manualExposureEnabled) {
+                    controller.updateProSettings { it.copy(manualExposureEnabled = !it.manualExposureEnabled) }
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                if (controller.engine.supportsManualFocus) {
+                    ProToggleChip("Focus", settings.manualFocusEnabled) {
+                        controller.updateProSettings { it.copy(manualFocusEnabled = !it.manualFocusEnabled) }
+                    }
                 }
             }
         }
 
-        if (settings.manualExposureEnabled && isoRange != null) {
-            Spacer(modifier = Modifier.height(6.dp))
+        if (manualExposure && isoRange != null) {
             val isoSteps = remember(isoRange) { standardIsoValues(isoRange.lower, isoRange.upper) }
             ProDiscreteRow("ISO", settings.iso.toString(), isoSteps.indexOf(settings.iso).coerceAtLeast(0), isoSteps.size) { index ->
                 controller.updateProSettings { it.copy(iso = isoSteps[index]) }
             }
         }
 
-        if (settings.manualExposureEnabled && exposureRange != null) {
-            Spacer(modifier = Modifier.height(6.dp))
+        if (manualExposure && exposureRange != null) {
             val shutterSteps = remember(exposureRange) { standardShutterSpeedsNanos(exposureRange.lower, exposureRange.upper) }
             val currentIndex = shutterSteps.indexOf(settings.exposureTimeNanos).coerceAtLeast(0)
-            ProDiscreteRow("SHUTTER", shutterSpeedLabel(settings.exposureTimeNanos), currentIndex, shutterSteps.size) { index ->
+            ProDiscreteRow("Shutter", shutterSpeedLabel(settings.exposureTimeNanos), currentIndex, shutterSteps.size) { index ->
                 controller.updateProSettings { it.copy(exposureTimeNanos = shutterSteps[index]) }
             }
         }
 
-        if (!settings.manualExposureEnabled) {
+        if (!manualExposure) {
             val evRange = controller.engine.exposureCompensationRange
             if (evRange != null && evRange.lower != evRange.upper) {
-                Spacer(modifier = Modifier.height(6.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("EV", color = CameraTheme.TEXT_SECONDARY, fontSize = 11.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.width(74.dp))
+                    Text("Exposure", color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp, modifier = Modifier.width(72.dp))
                     Slider(
                         value = settings.exposureCompensation.toFloat(),
                         valueRange = evRange.lower.toFloat()..evRange.upper.toFloat(),
@@ -562,15 +867,14 @@ private fun ProControlsPanel(controller: CameraController) {
                         colors = SliderDefaults.colors(thumbColor = CameraTheme.ACCENT, activeTrackColor = CameraTheme.ACCENT, inactiveTrackColor = CameraTheme.HAIRLINE),
                         modifier = Modifier.weight(1f),
                     )
-                    Text("${settings.exposureCompensation}", color = CameraTheme.TEXT_SECONDARY, fontSize = 11.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.width(28.dp))
+                    Text("${settings.exposureCompensation}", color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp, modifier = Modifier.width(28.dp))
                 }
             }
         }
 
-        if (settings.manualFocusEnabled) {
-            Spacer(modifier = Modifier.height(6.dp))
+        if (manualFocus) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("FOCUS", color = CameraTheme.TEXT_SECONDARY, fontSize = 11.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.width(74.dp))
+                Text("Focus", color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp, modifier = Modifier.width(72.dp))
                 Slider(
                     value = settings.focusDistance,
                     valueRange = 0f..controller.engine.minFocusDistance.coerceAtLeast(0.01f),
@@ -581,23 +885,24 @@ private fun ProControlsPanel(controller: CameraController) {
             }
         }
 
-        Spacer(modifier = Modifier.height(6.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("WB", color = CameraTheme.TEXT_SECONDARY, fontSize = 11.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.width(74.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("White bal.", color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp, modifier = Modifier.width(72.dp))
+            Row(
+                modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
                 for (wb in WhiteBalanceMode.entries) {
                     val selected = settings.whiteBalanceMode == wb
                     Text(
                         text = wb.label,
-                        color = if (selected) Color.Black else CameraTheme.TEXT_SECONDARY,
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.SemiBold,
+                        color = if (selected) Color.Black else Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(if (selected) CameraTheme.ACCENT else CameraTheme.SURFACE_RAISED)
+                            .clip(RoundedCornerShape(50))
+                            .background(if (selected) Color.White else CameraTheme.SURFACE_RAISED)
                             .clickable { controller.updateProSettings { it.copy(whiteBalanceMode = wb) } }
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
                     )
                 }
             }
@@ -609,22 +914,21 @@ private fun ProControlsPanel(controller: CameraController) {
 private fun ProToggleChip(label: String, enabled: Boolean, onClick: () -> Unit) {
     Text(
         text = label,
-        color = if (enabled) Color.Black else CameraTheme.TEXT_SECONDARY,
-        fontSize = 11.sp,
-        fontFamily = FontFamily.Monospace,
-        fontWeight = FontWeight.Bold,
+        color = if (enabled) Color.Black else Color.White,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Medium,
         modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (enabled) CameraTheme.ACCENT else CameraTheme.SURFACE_RAISED)
+            .clip(RoundedCornerShape(50))
+            .background(if (enabled) Color.White else CameraTheme.SURFACE_RAISED)
             .clickable { onClick() }
-            .padding(horizontal = 10.dp, vertical = 5.dp),
+            .padding(horizontal = 12.dp, vertical = 6.dp),
     )
 }
 
 @Composable
 private fun ProDiscreteRow(label: String, valueLabel: String, index: Int, stepCount: Int, onIndexChange: (Int) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(label, color = CameraTheme.TEXT_SECONDARY, fontSize = 11.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.width(74.dp))
+        Text(label, color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp, modifier = Modifier.width(72.dp))
         Slider(
             value = index.toFloat(),
             valueRange = 0f..(stepCount - 1).coerceAtLeast(1).toFloat(),
@@ -633,6 +937,6 @@ private fun ProDiscreteRow(label: String, valueLabel: String, index: Int, stepCo
             colors = SliderDefaults.colors(thumbColor = CameraTheme.ACCENT, activeTrackColor = CameraTheme.ACCENT, inactiveTrackColor = CameraTheme.HAIRLINE),
             modifier = Modifier.weight(1f),
         )
-        Text(valueLabel, color = CameraTheme.TEXT_SECONDARY, fontSize = 11.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.width(52.dp))
+        Text(valueLabel, color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp, modifier = Modifier.width(52.dp))
     }
 }

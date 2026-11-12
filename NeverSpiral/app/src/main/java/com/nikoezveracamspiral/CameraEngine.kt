@@ -28,6 +28,7 @@ import java.io.File
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.min
 
 /**
@@ -196,14 +197,26 @@ class CameraEngine(private val context: Context) {
         return sizes.maxByOrNull { it.width.toLong() * it.height }
     }
 
-    /** Picks the preview resolution closest to [targetAspect] among sizes the HAL can actually
-     * stream to a SurfaceTexture, capped at 1920 on the long side -- a full-sensor preview buffer
-     * wastes bandwidth the on-screen TextureView can't use anyway. */
+    /** The still-capture aspect ratio as long side over short side (4/3 for a typical sensor), so
+     * the viewfinder can be shaped to match exactly what ends up saved. */
+    fun captureAspect(): Float {
+        val size = chooseJpegSize()
+        return max(size.width, size.height).toFloat() / min(size.width, size.height).toFloat()
+    }
+
+    /** Picks the largest preview resolution matching [targetAspect] (long over short side) among
+     * sizes the HAL can actually stream to a SurfaceTexture, capped at 1920 on the long side -- a
+     * full-sensor preview buffer wastes bandwidth the on-screen TextureView can't use anyway. Falls
+     * back to the closest aspect if nothing matches exactly. */
     fun choosePreviewSize(targetAspect: Float): Size {
         val map = characteristics?.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
         val sizes = map?.getOutputSizes(SurfaceTexture::class.java) ?: arrayOf(Size(1280, 720))
         val capped = sizes.filter { it.width <= 1920 && it.height <= 1920 }.ifEmpty { sizes.toList() }
-        return capped.minByOrNull { abs((it.width.toFloat() / it.height) - targetAspect) } ?: capped.first()
+        fun aspectOf(size: Size) = max(size.width, size.height).toFloat() / min(size.width, size.height).toFloat()
+        val matching = capped.filter { abs(aspectOf(it) - targetAspect) < 0.02f }
+        return matching.maxByOrNull { it.width.toLong() * it.height }
+            ?: capped.minByOrNull { abs(aspectOf(it) - targetAspect) }
+            ?: capped.first()
     }
 
     fun maxZoomRatio(): Float = characteristics?.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM) ?: 1f
@@ -334,6 +347,12 @@ class CameraEngine(private val context: Context) {
         startRepeatingPreview()
     }
 
+    /** Resets zoom without issuing a request -- used right before a new session starts, so a
+     * freshly opened camera doesn't inherit the previous one's zoom. */
+    fun resetZoom() {
+        zoomRatio = 1f
+    }
+
     fun setFlashMode(mode: FlashMode) {
         flashMode = mode
         startRepeatingPreview()
@@ -370,8 +389,14 @@ class CameraEngine(private val context: Context) {
         val (rx, ry) = rotateToSensorSpace(normalizedX.coerceIn(0f, 1f), normalizedY.coerceIn(0f, 1f), sensorOrientation, facingFront)
 
         val regionSize = (min(activeArray.width(), activeArray.height()) * 0.12f).toInt().coerceAtLeast(1)
-        val sensorX = (rx * activeArray.width()).toInt().coerceIn(0, activeArray.width() - 1)
-        val sensorY = (ry * activeArray.height()).toInt().coerceIn(0, activeArray.height() - 1)
+        // The viewfinder shows only the centered zoom crop, so a tap at a normalized point maps
+        // into that crop rectangle, not the whole active array.
+        val cropWidth = activeArray.width() / zoomRatio.coerceAtLeast(1f)
+        val cropHeight = activeArray.height() / zoomRatio.coerceAtLeast(1f)
+        val cropLeft = (activeArray.width() - cropWidth) / 2f
+        val cropTop = (activeArray.height() - cropHeight) / 2f
+        val sensorX = (cropLeft + rx * cropWidth).toInt().coerceIn(0, activeArray.width() - 1)
+        val sensorY = (cropTop + ry * cropHeight).toInt().coerceIn(0, activeArray.height() - 1)
         val left = (sensorX - regionSize / 2).coerceIn(0, (activeArray.width() - regionSize).coerceAtLeast(0))
         val top = (sensorY - regionSize / 2).coerceIn(0, (activeArray.height() - regionSize).coerceAtLeast(0))
         val region = MeteringRectangle(left, top, regionSize, regionSize, MeteringRectangle.METERING_WEIGHT_MAX)

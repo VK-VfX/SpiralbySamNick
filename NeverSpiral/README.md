@@ -5,7 +5,7 @@ Pro mode's manual controls and true RAW capture both need `CaptureRequest`-level
 stable public API doesn't expose. Distributed as a sideloaded APK via GitHub Releases, the same
 OTA pattern the author's other apps use -- not published on the Play Store.
 
-## What it does (v1.0.0)
+## What it does (v1.1.0)
 
 - **Photo**: tap-to-focus/meter, pinch-to-zoom, flash (off/on/torch), self-timer (off/3s/10s), a
   3x3 grid overlay, front/back camera switch.
@@ -128,3 +128,9 @@ different key than the one already installed).
 
 `com.nikoezveracamspiral` -- a separate identity from the author's other apps on this account, so
 installing this one never collides with or gets confused for anything else already on a device.
+
+## v1.1.0 UI and preview
+
+- Pixel-style layout: rounded 3:4 viewfinder (matches the saved photo), JPEG/RAW pill and flash top corners, zoom chips, mode pills, ringed shutter with thumbnail and flip, bottom row with settings, Photo/Video toggle, manual controls.
+- Preview transform applies no rotation (the camera framework already delivers upright buffers); it only cover-crops and mirrors the front camera.
+- Capture animation: shutter blink on the viewfinder, shutter disc press/busy shrink, haptic tick, thumbnail pop.

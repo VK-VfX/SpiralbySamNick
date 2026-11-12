@@ -11,12 +11,20 @@ import android.media.Image
  * background blur, multi-frame stitching, and constrained-high-speed capture all need more room
  * than the core Photo/Pro/Video pipeline). */
 enum class CaptureMode(val label: String) {
-    PHOTO("PHOTO"),
-    PRO("PRO"),
-    VIDEO("VIDEO"),
-    PORTRAIT("PORTRAIT"),
-    PANORAMA("PANO"),
-    SLOW_MOTION("SLO-MO"),
+    PHOTO("Photo"),
+    PRO("Pro"),
+    VIDEO("Video"),
+    PORTRAIT("Portrait"),
+    PANORAMA("Pano"),
+    SLOW_MOTION("Slo-mo");
+
+    /** Video modes share the bottom Photo/Video toggle's "video" side and record instead of
+     * taking stills. */
+    val isVideo: Boolean get() = this == VIDEO || this == SLOW_MOTION
+
+    /** Modes whose dedicated capture pipeline isn't built yet; they fall back to a standard photo
+     * (or standard video, for slow-motion) and the viewfinder says so. */
+    val isComingSoon: Boolean get() = this == PORTRAIT || this == PANORAMA || this == SLOW_MOTION
 }
 
 enum class FlashMode(val glyph: String) {

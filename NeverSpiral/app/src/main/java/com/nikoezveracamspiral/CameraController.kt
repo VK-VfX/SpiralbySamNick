@@ -7,6 +7,7 @@ import android.net.Uri
 import android.util.Log
 import android.util.Size
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -24,21 +25,21 @@ private const val TAG = "CameraController"
 /**
  * Orchestrates [CameraEngine] for the UI layer: owns every piece of Compose-observable session
  * state (mode, Pro settings, zoom, flash, recording state, last capture) that [CameraScreen]
- * reads and writes directly -- the same "a plain class holding mutableStateOf properties, read
- * straight from Compose" shape [VuMeterEngine] and the other visualizer engines already used,
- * rather than an AndroidViewModel this single-Activity app has no real need for.
+ * reads and writes directly -- a plain class holding mutableStateOf properties, read straight
+ * from Compose, rather than an AndroidViewModel this single-Activity app has no real need for.
  *
  * Every suspend action below catches its own failures into [lastError] instead of letting them
  * propagate: these are all launched fire-and-forget from `scope.launch { ... }` call sites in
  * [CameraScreen] with no exception handler of their own, so an uncaught exception here -- a real
  * camera being busy, a session reconfiguration racing a mode switch, any of the ordinary ways a
- * physical device's camera stack can fail that a sandboxed build environment never exercises --
- * would otherwise crash the whole app instead of surfacing as a recoverable, visible error.
+ * physical device's camera stack can fail -- would otherwise crash the whole app instead of
+ * surfacing as a recoverable, visible error.
  */
 class CameraController(private val context: Context) {
     val engine = CameraEngine(context)
 
     var mode by mutableStateOf(CaptureMode.PHOTO)
+        private set
     var isRawEnabled by mutableStateOf(false)
         private set
     var isGridEnabled by mutableStateOf(false)
@@ -62,12 +63,25 @@ class CameraController(private val context: Context) {
     var lastError by mutableStateOf<String?>(null)
         private set
 
+    /** Bumped every time a camera finishes opening, so UI that depends on what that camera can do
+     * (RAW support, zoom range, manual-control ranges) re-reads it -- [engine]'s capability
+     * getters aren't observable state themselves. */
+    var cameraEpoch by mutableIntStateOf(0)
+        private set
+
+    /** Bumped at the instant a still capture is triggered; [CameraScreen] plays its shutter
+     * blink off each change. */
+    var shutterTick by mutableIntStateOf(0)
+        private set
+
     private var currentTexture: SurfaceTexture? = null
     private var currentPreviewSize: Size? = null
-    private var viewWidth: Int = 0
-    private var viewHeight: Int = 0
     private var applyTransform: ((Size) -> Unit)? = null
     private var videoFile: File? = null
+
+    /** The preview resolution actually streaming, so the UI can re-apply its TextureView
+     * transform when the view is resized. */
+    val previewSize: Size? get() = currentPreviewSize
 
     private val controllerScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var recordingTimerJob: Job? = null
@@ -81,25 +95,40 @@ class CameraController(private val context: Context) {
         lastError = "$action failed: ${e.message ?: e::class.simpleName}"
     }
 
+    /** Manual exposure/focus only apply in Pro mode; every other mode runs fully automatic even
+     * if Pro's toggles were left on, while the stored values survive for when Pro is reselected. */
+    private fun pushProSettings() {
+        val effective = if (mode == CaptureMode.PRO) {
+            proSettings
+        } else {
+            proSettings.copy(manualExposureEnabled = false, manualFocusEnabled = false)
+        }
+        engine.updateProSettings { effective }
+    }
+
+    fun selectMode(newMode: CaptureMode) {
+        if (isRecording || newMode == mode) return
+        mode = newMode
+        pushProSettings()
+    }
+
     /** [applyTransform] is invoked once the camera is open (so [CameraEngine.lensFacing] and
      * [CameraEngine.sensorOrientation] are both known) with the preview size actually chosen,
-     * so the caller can orient/scale its TextureView correctly -- and again from
-     * [switchCamera], since the front and back cameras can have different sensor orientations
-     * and supported preview sizes. */
-    suspend fun start(cameraId: String, texture: SurfaceTexture, viewWidth: Int, viewHeight: Int, applyTransform: (Size) -> Unit) {
+     * so the caller can scale its TextureView correctly -- and again from [switchCamera], since
+     * the front and back cameras can support different preview sizes. */
+    suspend fun start(cameraId: String, texture: SurfaceTexture, applyTransform: (Size) -> Unit) {
         try {
             currentTexture = texture
-            this.viewWidth = viewWidth
-            this.viewHeight = viewHeight
             this.applyTransform = applyTransform
             engine.startBackgroundThread()
             engine.openCamera(cameraId)
-            val previewSize = engine.choosePreviewSize(viewHeight.toFloat() / viewWidth.toFloat())
+            val previewSize = engine.choosePreviewSize(engine.captureAspect())
             currentPreviewSize = previewSize
             applyTransform(previewSize)
             engine.startPreviewSession(texture, previewSize, isRawEnabled)
             engine.setFlashMode(flashMode)
-            engine.updateProSettings { proSettings }
+            pushProSettings()
+            cameraEpoch += 1
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -115,7 +144,6 @@ class CameraController(private val context: Context) {
 
     suspend fun switchCamera() {
         val texture = currentTexture ?: return
-        if (viewWidth == 0 || viewHeight == 0) return
         try {
             val targetFacing = if (engine.lensFacing == CameraCharacteristics.LENS_FACING_BACK) {
                 CameraCharacteristics.LENS_FACING_FRONT
@@ -125,11 +153,13 @@ class CameraController(private val context: Context) {
             val targetId = engine.findCameraId(targetFacing) ?: return
             engine.closeCamera()
             engine.openCamera(targetId)
-            val previewSize = engine.choosePreviewSize(viewHeight.toFloat() / viewWidth.toFloat())
+            val previewSize = engine.choosePreviewSize(engine.captureAspect())
             currentPreviewSize = previewSize
             applyTransform?.invoke(previewSize)
-            engine.startPreviewSession(texture, previewSize, isRawEnabled)
+            engine.resetZoom()
             zoomRatio = 1f
+            engine.startPreviewSession(texture, previewSize, isRawEnabled)
+            cameraEpoch += 1
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -151,17 +181,9 @@ class CameraController(private val context: Context) {
         engine.setFlashMode(flashMode)
     }
 
-    fun cycleTimer() {
-        timerSeconds = when (timerSeconds) {
-            0 -> 3
-            3 -> 10
-            else -> 0
-        }
-    }
-
     fun updateProSettings(update: (ProSettings) -> ProSettings) {
         proSettings = update(proSettings)
-        engine.updateProSettings { proSettings }
+        pushProSettings()
     }
 
     /** Takes effect immediately by restarting just the capture session (not the whole camera
@@ -190,6 +212,7 @@ class CameraController(private val context: Context) {
             }
         }
         isCapturing = true
+        shutterTick += 1
         try {
             val captured = engine.capturePhoto(rotationDegrees, isRawEnabled)
             lastCaptureUri = CaptureStore.saveJpeg(context, captured.jpegBytes)
