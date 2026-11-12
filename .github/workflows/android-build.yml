@@ -32,8 +32,16 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      # v3's default package list still requested the legacy "tools" meta-package, which Google
+      # has since removed from the SDK repository entirely (the action now only documents this
+      # as a known, no-longer-requestable package) -- v3's setup step therefore started failing
+      # outright with "Failed to find package 'tools'" on every run, unrelated to anything in this
+      # repo. v4 defaults to just platform-tools, so the platform/build-tools this project's
+      # compileSdk 34 needs are requested explicitly instead of relying on legacy defaults.
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          packages: "platform-tools platforms;android-34 build-tools;34.0.0"
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
