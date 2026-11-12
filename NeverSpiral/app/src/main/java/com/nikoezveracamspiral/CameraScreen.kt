@@ -1168,7 +1168,7 @@ private fun UpdateSection(controller: CameraController) {
     SegmentRow(
         options = listOf(true to "On", false to "Off").map { Triple(it.first, it.second, null as ImageVector?) },
         selected = controller.autoCheckUpdates,
-    ) { controller.setAutoCheckUpdates(it) }
+    ) { controller.changeAutoCheckUpdates(it) }
 }
 
 @Composable

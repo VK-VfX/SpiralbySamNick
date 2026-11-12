@@ -120,7 +120,7 @@ class CameraController(private val context: Context) {
 
     private fun prefs() = context.getSharedPreferences("never_spiral", Context.MODE_PRIVATE)
 
-    fun setAutoCheckUpdates(enabled: Boolean) {
+    fun changeAutoCheckUpdates(enabled: Boolean) {
         autoCheckUpdates = enabled
         prefs().edit().putBoolean("autoCheckUpdates", enabled).apply()
     }
