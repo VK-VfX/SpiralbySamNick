@@ -4,15 +4,15 @@ plugins {
 }
 
 android {
-    namespace = "com.samnick.neverspiral"
+    namespace = "com.nikoezveracamspiral"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.samnick.neverspiral"
-        minSdk = 24
+        applicationId = "com.nikoezveracamspiral"
+        minSdk = 26
         targetSdk = 34
-        versionCode = 26
-        versionName = "5.4.0"
+        versionCode = 1
+        versionName = "1.0.0"
     }
 
     // Without this, Gradle falls back to its own default debug config, which auto-generates
@@ -74,8 +74,16 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.animation:animation")
     implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-extended")
 
-    // Every engine's ballistics/DSP math is plain Kotlin (no Android framework calls), so these
-    // run as fast plain-JVM tests -- no Robolectric or emulator needed.
+    // The camera engine is built directly on android.hardware.camera2 rather than CameraX: Pro
+    // mode's manual ISO/shutter/focus/white-balance controls and true RAW_SENSOR (DNG) capture
+    // both need CaptureRequest-level access that CameraX's stable public API doesn't expose.
+    // These two libraries are the only non-Compose additions that raw Camera2 usage calls for:
+    // coroutines to bridge Camera2's callback APIs into suspend functions, and exifinterface to
+    // write correct orientation/metadata into saved JPEGs.
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    implementation("androidx.exifinterface:exifinterface:1.3.7")
+
     testImplementation("junit:junit:4.13.2")
 }

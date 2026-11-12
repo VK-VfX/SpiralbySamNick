@@ -67,7 +67,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.appversion.outputs.versionName }}
-          name: "Sam's Music Viz v${{ steps.appversion.outputs.versionName }}"
+          name: "Never Spiral v${{ steps.appversion.outputs.versionName }}"
           body: |
             Automated debug build from commit ${{ github.sha }} on branch `${{ github.ref_name }}`.
           generate_release_notes: true

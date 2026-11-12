@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Exposes app-private storage through content:// URIs, since other apps (a share-sheet target,
-     the system package installer) can't be granted read access to a plain file:// path in our
-     private storage. -->
+<!-- Exposes app-private storage through content:// URIs, since other apps (the share sheet, a
+     gallery-preview intent) can't be granted read access to a plain file:// path in our private
+     storage. -->
 <paths>
-    <!-- Where FrameCapture writes a captured visualizer frame before handing it to the share
-         sheet: cache rather than files/, since these are disposable, regeneratable on demand. -->
-    <cache-path name="shared-frames" path="shared_frames/" />
+    <!-- Where CaptureStore stages a just-captured photo/video/RAW file before (and briefly after)
+         it's copied into the shared MediaStore collection -- cache rather than files/, since once
+         the MediaStore copy exists this one is disposable. -->
+    <cache-path name="captures" path="captures/" />
 </paths>
