@@ -29,6 +29,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -130,18 +131,15 @@ internal fun FilterPanel(look: Look, onLook: (Look) -> Unit, frame: ImageBitmap?
             }
         }
         val strengthEnabled = look.lut != null || look.filter != PhotoFilter.NATURAL
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Strength", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.width(64.dp))
-            Slider(
-                value = look.strength,
-                valueRange = 0f..1f,
-                onValueChange = { onLook(look.copy(strength = it)) },
-                enabled = strengthEnabled,
-                colors = lookSliderColors(),
-                modifier = Modifier.weight(1f),
-            )
-            Text("${(look.strength * 100).toInt()}", color = CameraTheme.TEXT_SECONDARY, fontSize = 13.sp, modifier = Modifier.width(28.dp))
-        }
+        FloatWheelRow(
+            label = "Strength",
+            value = look.strength,
+            min = 0f,
+            max = 1f,
+            steps = 20,
+            format = { "${(it * 100).roundToInt()}%" },
+            enabled = strengthEnabled,
+        ) { onLook(look.copy(strength = it)) }
     }
 }
 
@@ -192,16 +190,14 @@ internal fun AdjustPanel(look: Look, onLook: (Look) -> Unit) {
                 ChipText(param.label + if (changed) " •" else "", param == selected) { selected = param }
             }
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Slider(
-                value = selected.get(look),
-                valueRange = selected.min..selected.max,
-                onValueChange = { onLook(selected.set(look, it)) },
-                colors = lookSliderColors(),
-                modifier = Modifier.weight(1f),
-            )
-            Text(selected.display(look), color = CameraTheme.TEXT_SECONDARY, fontSize = 13.sp, modifier = Modifier.width(64.dp))
-        }
+        FloatWheelRow(
+            label = selected.label,
+            value = selected.get(look),
+            min = selected.min,
+            max = selected.max,
+            steps = 40,
+            format = { selected.display(selected.set(look, it)) },
+        ) { onLook(selected.set(look, it)) }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             ChipText("Reset ${selected.label}", false) { onLook(selected.set(look, 0f)) }
             ChipText("Reset all", false) { onLook(Look(filter = look.filter, strength = look.strength)) }

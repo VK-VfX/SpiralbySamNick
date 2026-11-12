@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import androidx.exifinterface.media.ExifInterface
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -22,8 +23,18 @@ import java.util.Locale
  * IS_PENDING flag on API 29+ (scoped storage) so a half-written file never shows up as a
  * zero-byte/corrupt entry to other apps watching the collection.
  */
+/** What gets written into a saved photo's EXIF block, all best-effort. */
+class PhotoMeta(
+    val exposureNanos: Long? = null,
+    val iso: Int? = null,
+    val aperture: Float? = null,
+    val focalLengthMm: Float? = null,
+    val software: String = "",
+    val description: String = "",
+)
+
 object CaptureStore {
-    private const val ALBUM_NAME = "Never Spiral"
+    private const val ALBUM_NAME = "Niko's Cam"
 
     fun newStamp(): String = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
 
@@ -31,7 +42,7 @@ object CaptureStore {
     private fun timestampName(extension: String, stamp: String = newStamp()): String =
         "bynikezvera_$stamp.$extension"
 
-    fun saveJpeg(context: Context, bytes: ByteArray, stamp: String = newStamp(), suffix: String = ""): Uri? {
+    fun saveJpeg(context: Context, bytes: ByteArray, stamp: String = newStamp(), suffix: String = "", meta: PhotoMeta? = null): Uri? {
         val resolver = context.contentResolver
         val values = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, timestampName("jpeg", stamp).let { if (suffix.isEmpty()) it else it.replace(".jpeg", "$suffix.jpeg") })
@@ -43,8 +54,31 @@ object CaptureStore {
         }
         val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return null
         resolver.openOutputStream(uri)?.use { it.write(bytes) }
+        if (meta != null) writeExif(context, uri, meta)
         markNotPending(context, uri, isVideo = false)
         return uri
+    }
+
+    /** Stamps camera, exposure and processing details into the saved JPEG so the Details tab (and
+     * any other app) can read them back. A failure here never loses the photo itself. */
+    private fun writeExif(context: Context, uri: Uri, meta: PhotoMeta) {
+        try {
+            context.contentResolver.openFileDescriptor(uri, "rw")?.use { pfd ->
+                val exif = ExifInterface(pfd.fileDescriptor)
+                exif.setAttribute(ExifInterface.TAG_MAKE, Build.MANUFACTURER)
+                exif.setAttribute(ExifInterface.TAG_MODEL, Build.MODEL)
+                if (meta.software.isNotEmpty()) exif.setAttribute(ExifInterface.TAG_SOFTWARE, meta.software)
+                exif.setAttribute(ExifInterface.TAG_DATETIME_ORIGINAL, SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US).format(Date()))
+                meta.exposureNanos?.let { exif.setAttribute(ExifInterface.TAG_EXPOSURE_TIME, (it / 1e9).toString()) }
+                meta.iso?.let { exif.setAttribute(ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY, it.toString()) }
+                meta.aperture?.let { exif.setAttribute(ExifInterface.TAG_F_NUMBER, it.toString()) }
+                meta.focalLengthMm?.let { exif.setAttribute(ExifInterface.TAG_FOCAL_LENGTH, "${(it * 1000).toInt()}/1000") }
+                if (meta.description.isNotEmpty()) exif.setAttribute(ExifInterface.TAG_IMAGE_DESCRIPTION, meta.description)
+                exif.saveAttributes()
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("CaptureStore", "Couldn't write EXIF", e)
+        }
     }
 
     /** [rawImage] is consumed (and closed) by this call either way -- on a failed insert it's

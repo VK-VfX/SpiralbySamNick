@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.CameraCharacteristics
 import android.net.Uri
+import android.widget.Toast
 import android.util.Log
 import android.util.Size
 import androidx.compose.runtime.getValue
@@ -62,6 +63,8 @@ class CameraController(private val context: Context) {
     var holdStillMs by mutableLongStateOf(0L)
         private set
     var portraitBlurStrength by mutableStateOf(0.7f)
+    /** Night Sight: roughly how long to expose, 3 or 6 seconds. */
+    var nightSeconds by mutableIntStateOf(3)
     var update by mutableStateOf<UpdateStatus>(UpdateStatus.Idle)
         private set
     var autoCheckUpdates by mutableStateOf(prefs().getBoolean("autoCheckUpdates", true))
@@ -346,12 +349,15 @@ class CameraController(private val context: Context) {
             val tone: PhotoProcessor.ToneMode
             when {
                 night && base != null -> {
+                    // 3 s: twelve frames of up to 1/6 s; 6 s: sixteen frames of up to 1/3 s.
+                    val long = nightSeconds >= 6
                     val range = engine.exposureTimeRange
-                    var time = minOf(base.first * 4, 160_000_000L)
+                    var time = minOf(base.first * (if (long) 6 else 4), if (long) 330_000_000L else 160_000_000L)
                     if (range != null) time = time.coerceIn(range.lower, range.upper)
-                    exposures = List(9) { time to base.second }
+                    exposures = List(if (long) 16 else 12) { time to base.second }
                     tone = PhotoProcessor.ToneMode.Night
                     holdStillMs = exposures.size * (time / 1_000_000L + 40L)
+                    Toast.makeText(context, "Hold your phone steady", Toast.LENGTH_SHORT).show()
                 }
                 hdrEnabled && !manualExposure && !flashActive && !mode.isVideo && base != null -> {
                     exposures = List(4) { engine.bracketExposure(base, underEv) }
@@ -379,6 +385,21 @@ class CameraController(private val context: Context) {
                 }
             }
 
+            val first = burst.firstResult
+            val summary = when {
+                night -> "Night Sight, ${exposures.size} frames"
+                tone is PhotoProcessor.ToneMode.HdrPlus -> "HDR+, ${exposures.size} frames"
+                mode == CaptureMode.PORTRAIT -> "Portrait"
+                else -> "Standard"
+            }
+            val meta = PhotoMeta(
+                exposureNanos = first?.get(android.hardware.camera2.CaptureResult.SENSOR_EXPOSURE_TIME),
+                iso = first?.get(android.hardware.camera2.CaptureResult.SENSOR_SENSITIVITY),
+                aperture = first?.get(android.hardware.camera2.CaptureResult.LENS_APERTURE),
+                focalLengthMm = first?.get(android.hardware.camera2.CaptureResult.LENS_FOCAL_LENGTH),
+                software = "Niko's Cam ${UpdateManager.installedVersionName(context)}",
+                description = "Quality ${jpegQuality}; $summary; ${look.lut?.name ?: look.filter.label}",
+            )
             val job = PhotoJob(
                 frames = burst.jpegs,
                 tone = tone,
@@ -388,6 +409,7 @@ class CameraController(private val context: Context) {
                 quality = jpegQuality,
                 portraitBlur = if (mode == CaptureMode.PORTRAIT) portraitBlurStrength else 0f,
                 stamp = stamp,
+                meta = meta,
             )
             adjustPending(1)
             processingScope.launch { runPhotoJob(job) }
@@ -413,6 +435,7 @@ class CameraController(private val context: Context) {
         val quality: Int,
         val portraitBlur: Float,
         val stamp: String,
+        val meta: PhotoMeta,
     )
 
     private suspend fun runPhotoJob(job: PhotoJob) {
@@ -427,7 +450,7 @@ class CameraController(private val context: Context) {
                 Log.e(TAG, "Processing ran out of memory; saving the camera's own JPEG", e)
                 fallback
             }
-            val uri = CaptureStore.saveJpeg(context, jpeg, job.stamp)
+            val uri = CaptureStore.saveJpeg(context, jpeg, job.stamp, meta = job.meta)
             if (uri != null) {
                 lastCaptureUri = uri
                 lastCaptureIsVideo = false

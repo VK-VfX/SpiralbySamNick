@@ -102,6 +102,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -128,6 +133,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
+import kotlin.math.roundToInt
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.sqrt
@@ -173,6 +179,13 @@ private fun CameraContent(controller: CameraController, onOpenEditor: (Uri) -> U
     val haptic = LocalHapticFeedback.current
     val hasFrontCamera = remember(cameraEpoch) { controller.engine.hasFrontCamera() }
 
+    var previewView by remember { mutableStateOf<TextureView?>(null) }
+    var viewfinderRect by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
+    var thumbRect by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
+    var origin by remember { mutableStateOf(Offset.Zero) }
+
+    BackHandler(enabled = panel != SidePanel.NONE) { panel = SidePanel.NONE }
+
     LaunchedEffect(controller.mode) {
         if (controller.mode == CaptureMode.PRO) panel = SidePanel.CONTROLS
     }
@@ -185,7 +198,8 @@ private fun CameraContent(controller: CameraController, onOpenEditor: (Uri) -> U
             .fillMaxSize()
             .background(CameraTheme.BACKGROUND)
             .statusBarsPadding()
-            .navigationBarsPadding(),
+            .navigationBarsPadding()
+            .onGloballyPositioned { origin = it.positionInRoot() },
     ) {
         // The viewfinder takes the chosen output ratio (so what you see is what gets saved) and
         // shrinks, staying centered, on a screen too short for it plus the controls.
@@ -206,10 +220,19 @@ private fun CameraContent(controller: CameraController, onOpenEditor: (Uri) -> U
                 width = viewfinderWidth,
                 height = viewfinderHeight,
                 onOpenSettings = { panel = SidePanel.SETTINGS },
+                onDismissPanel = { panel = SidePanel.NONE },
+                onViewReady = { previewView = it },
+                onPositioned = { viewfinderRect = it },
             )
 
             Column(
-                modifier = Modifier.fillMaxWidth().weight(1f),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    // Tapping the empty space between the controls returns to shooting.
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
+                        if (panel == SidePanel.CONTROLS && controller.mode != CaptureMode.PRO) panel = SidePanel.NONE
+                    },
                 verticalArrangement = Arrangement.SpaceEvenly,
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
@@ -224,7 +247,7 @@ private fun CameraContent(controller: CameraController, onOpenEditor: (Uri) -> U
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    GalleryThumbnail(controller, onOpenEditor)
+                    GalleryThumbnail(controller, onOpenEditor, onPositioned = { thumbRect = it })
                     ShutterButton(
                         isVideoMode = controller.mode.isVideo,
                         isRecording = controller.isRecording,
@@ -279,6 +302,8 @@ private fun CameraContent(controller: CameraController, onOpenEditor: (Uri) -> U
             }
         }
 
+        FlyingCapture(controller.shutterTick, previewView, viewfinderRect, thumbRect, origin)
+
         if (panel == SidePanel.SETTINGS) {
             Box(
                 modifier = Modifier
@@ -299,7 +324,12 @@ private fun CameraContent(controller: CameraController, onOpenEditor: (Uri) -> U
 }
 
 @Composable
-private fun Viewfinder(controller: CameraController, showControls: Boolean, strip: StripItem, width: Dp, height: Dp, onOpenSettings: () -> Unit) {
+private fun Viewfinder(controller: CameraController, showControls: Boolean, strip: StripItem, width: Dp, height: Dp,
+    onOpenSettings: () -> Unit,
+    onDismissPanel: () -> Unit,
+    onViewReady: (TextureView) -> Unit,
+    onPositioned: (androidx.compose.ui.geometry.Rect) -> Unit,
+) {
     var focusIndicator by remember { mutableStateOf<Offset?>(null) }
     var formatOpen by remember { mutableStateOf(false) }
     var textureRef by remember { mutableStateOf<TextureView?>(null) }
@@ -318,12 +348,15 @@ private fun Viewfinder(controller: CameraController, showControls: Boolean, stri
         modifier = Modifier
             .size(width, height)
             .clip(RoundedCornerShape(28.dp))
-            .background(Color(0xFF101010)),
+            .background(Color(0xFF101010))
+            .onGloballyPositioned { onPositioned(it.boundsInRoot()) },
     ) {
         CameraPreview(
             controller = controller,
-            onViewReady = { textureRef = it },
+            onViewReady = { textureRef = it; onViewReady(it) },
             onTap = { offset, size ->
+                // Choosing a filter and then tapping the picture goes back to shooting.
+                if (showControls && controller.mode != CaptureMode.PRO) onDismissPanel()
                 focusIndicator = offset
                 var nx = (offset.x / size.width).coerceIn(0f, 1f)
                 var ny = (offset.y / size.height).coerceIn(0f, 1f)
@@ -406,7 +439,10 @@ private fun Viewfinder(controller: CameraController, showControls: Boolean, stri
             if (showControls) {
                 ControlsContent(controller, strip) { textureRef?.takeIf { it.isAvailable }?.getBitmap(180, 240) }
             } else {
-                ZoomChips(controller)
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (controller.mode == CaptureMode.NIGHT) NightDurationPills(controller)
+                    ZoomChips(controller)
+                }
             }
         }
     }
@@ -609,17 +645,94 @@ private fun LevelIndicator(modifier: Modifier = Modifier) {
 
 @Composable
 private fun FocusIndicator(position: Offset, onFinished: () -> Unit) {
+    val scale = remember { Animatable(1.6f) }
+    val alpha = remember { Animatable(1f) }
     LaunchedEffect(position) {
-        delay(700)
+        scale.snapTo(1.6f)
+        alpha.snapTo(1f)
+        scale.animateTo(1f, spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMedium))
+        delay(650)
+        alpha.animateTo(0f, tween(200))
         onFinished()
     }
     Canvas(modifier = Modifier.fillMaxSize()) {
-        drawRect(
-            color = Color.White,
-            topLeft = Offset(position.x - 40f, position.y - 40f),
-            size = androidx.compose.ui.geometry.Size(80f, 80f),
-            style = Stroke(width = 2.dp.toPx()),
+        val color = Color.White.copy(alpha = alpha.value)
+        drawCircle(color = color, radius = 38.dp.toPx() * scale.value, center = position, style = Stroke(width = 2.dp.toPx()))
+        drawCircle(color = color, radius = 3.dp.toPx(), center = position)
+    }
+}
+
+/** After the shutter, a snapshot of the viewfinder shrinks and flies into the thumbnail, the way
+ * Apple's and Pixel's cameras hand a shot off to the gallery while it is still processing. */
+@Composable
+private fun FlyingCapture(
+    tick: Int,
+    view: TextureView?,
+    from: androidx.compose.ui.geometry.Rect?,
+    to: androidx.compose.ui.geometry.Rect?,
+    origin: Offset,
+) {
+    var image by remember { mutableStateOf<ImageBitmap?>(null) }
+    val progress = remember { Animatable(0f) }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    LaunchedEffect(tick) {
+        if (tick == 0 || view == null || from == null || to == null) return@LaunchedEffect
+        val snapshot = try {
+            if (view.isAvailable) view.getBitmap(240, 320)?.asImageBitmap() else null
+        } catch (e: Exception) {
+            null
+        } ?: return@LaunchedEffect
+        image = snapshot
+        progress.snapTo(0f)
+        delay(140)
+        progress.animateTo(1f, tween(520, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+        image = null
+    }
+    val shot = image
+    val start = from
+    val end = to
+    if (shot != null && start != null && end != null) {
+        val p = progress.value
+        val left = androidx.compose.ui.util.lerp(start.left, end.left, p) - origin.x
+        val top = androidx.compose.ui.util.lerp(start.top, end.top, p) - origin.y
+        val w = androidx.compose.ui.util.lerp(start.width, end.width, p)
+        val h = androidx.compose.ui.util.lerp(start.height, end.height, p)
+        Image(
+            bitmap = shot,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .offset { androidx.compose.ui.unit.IntOffset(left.roundToInt(), top.roundToInt()) }
+                .size(with(density) { w.toDp() }, with(density) { h.toDp() })
+                .clip(RoundedCornerShape(androidx.compose.ui.util.lerp(28f, 28f, p).dp))
+                .alpha(1f - 0.4f * p),
         )
+    }
+}
+
+@Composable
+private fun NightDurationPills(controller: CameraController) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(OVERLAY_BUTTON_COLOR)
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        for (seconds in listOf(3, 6)) {
+            val selected = controller.nightSeconds == seconds
+            Text(
+                text = "Wait ${seconds}s",
+                color = if (selected) Color.Black else Color.White,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(if (selected) Color.White else Color.Transparent)
+                    .clickable { controller.nightSeconds = seconds }
+                    .padding(horizontal = 16.dp, vertical = 9.dp),
+            )
+        }
     }
 }
 
@@ -949,11 +1062,26 @@ private fun CircleIconButton(
 
 /** The last capture's thumbnail, popping in with a small bounce each time a new one lands. */
 @Composable
-private fun GalleryThumbnail(controller: CameraController, onOpenEditor: (Uri) -> Unit) {
+private fun GalleryThumbnail(controller: CameraController, onOpenEditor: (Uri) -> Unit, onPositioned: (androidx.compose.ui.geometry.Rect) -> Unit) {
     val context = LocalContext.current
     val uri = controller.lastCaptureUri
     var bitmap by remember { mutableStateOf<ImageBitmap?>(null) }
     val popScale = remember { Animatable(1f) }
+    val processing = controller.pendingProcessing > 0
+    val infinite = androidx.compose.animation.core.rememberInfiniteTransition(label = "processing")
+    val sweep by infinite.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = androidx.compose.animation.core.infiniteRepeatable(tween(1100, easing = androidx.compose.animation.core.LinearEasing)),
+        label = "sweep",
+    )
+    val breathe by infinite.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.05f,
+        animationSpec = androidx.compose.animation.core.infiniteRepeatable(tween(700), androidx.compose.animation.core.RepeatMode.Reverse),
+        label = "breathe",
+    )
+    val pulse = if (processing) breathe else 1f
 
     LaunchedEffect(uri) {
         bitmap = if (uri == null) null else withContext(Dispatchers.IO) { loadThumbnail(context, uri) }?.asImageBitmap()
@@ -968,7 +1096,8 @@ private fun GalleryThumbnail(controller: CameraController, onOpenEditor: (Uri) -
     Box(
         modifier = Modifier
             .size(56.dp)
-            .scale(popScale.value)
+            .onGloballyPositioned { onPositioned(it.boundsInRoot()) }
+            .scale(popScale.value * pulse)
             .clip(CircleShape)
             .background(CameraTheme.SURFACE)
             .clickable(enabled = uri != null) {
@@ -994,12 +1123,23 @@ private fun GalleryThumbnail(controller: CameraController, onOpenEditor: (Uri) -
                 modifier = Modifier.fillMaxSize(),
             )
         }
-        if (controller.pendingProcessing > 0) {
-            androidx.compose.material3.CircularProgressIndicator(
-                color = Color.White,
-                strokeWidth = 3.dp,
-                modifier = Modifier.fillMaxSize().padding(2.dp),
-            )
+        if (processing) {
+            // A soft dim plus a comet-tail ring orbiting the thumbnail while the shot develops.
+            Box(modifier = Modifier.fillMaxSize().background(Color(0x55000000)))
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val stroke = 3.dp.toPx()
+                androidx.compose.ui.graphics.drawscope.rotate(sweep) {
+                    drawArc(
+                        brush = androidx.compose.ui.graphics.Brush.sweepGradient(listOf(Color.Transparent, Color.White)),
+                        startAngle = 0f,
+                        sweepAngle = 300f,
+                        useCenter = false,
+                        topLeft = Offset(stroke / 2, stroke / 2),
+                        size = androidx.compose.ui.geometry.Size(size.width - stroke, size.height - stroke),
+                        style = Stroke(width = stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round),
+                    )
+                }
+            }
         }
     }
 }
@@ -1147,7 +1287,7 @@ private fun UpdateSection(controller: CameraController) {
     val status = controller.update
     SheetSection("Updates", "v${UpdateManager.installedVersionName(context)}")
     val message = when (status) {
-        UpdateStatus.Idle -> "Check for a newer build of Never Spiral."
+        UpdateStatus.Idle -> "Check for a newer build of Niko's Cam."
         UpdateStatus.Checking -> "Checking..."
         UpdateStatus.UpToDate -> "You're on the latest version."
         is UpdateStatus.Available -> "Version ${status.info.versionName} is available." + if (status.info.notes.isNotBlank()) " ${status.info.notes}" else ""
@@ -1286,6 +1426,7 @@ private fun ControlsContent(controller: CameraController, strip: StripItem, snap
             .fillMaxWidth()
             .clip(RoundedCornerShape(22.dp))
             .background(PANEL_COLOR)
+            .pointerInput(Unit) { detectTapGestures { } }
             .padding(horizontal = 12.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -1302,19 +1443,14 @@ private fun ControlsContent(controller: CameraController, strip: StripItem, snap
                     ProToggleChip("Off", !controller.hdrEnabled) { controller.hdrEnabled = false }
                     ProToggleChip("On", controller.hdrEnabled) { controller.hdrEnabled = true }
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Strength", color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp, modifier = Modifier.width(64.dp))
-                    Slider(
-                        value = controller.hdrStrength.toFloat(),
-                        valueRange = 1f..5f,
-                        steps = 3,
-                        enabled = controller.hdrEnabled,
-                        onValueChange = { controller.hdrStrength = it.toInt().coerceIn(1, 5) },
-                        colors = lookSliderColors(),
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text("${controller.hdrStrength}", color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp, modifier = Modifier.width(20.dp))
-                }
+                WheelRow(
+                    label = "Strength",
+                    valueText = "${controller.hdrStrength}",
+                    count = 5,
+                    index = controller.hdrStrength - 1,
+                    enabled = controller.hdrEnabled,
+                    onIndexChange = { controller.hdrStrength = it + 1 },
+                )
                 Text(
                     "Like Pixel's HDR+: the shutter grabs a quick burst and returns at once; the burst is aligned, merged and tone-mapped in the background. Strength sets how hard shadows are lifted. Not used with flash or manual exposure.",
                     color = CameraTheme.TEXT_SECONDARY,
@@ -1322,50 +1458,39 @@ private fun ControlsContent(controller: CameraController, strip: StripItem, snap
                 )
             }
             StripItem.BLUR -> {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Blur", color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp, modifier = Modifier.width(64.dp))
-                    Slider(
-                        value = controller.portraitBlurStrength,
-                        valueRange = 0.1f..1f,
-                        onValueChange = { controller.portraitBlurStrength = it },
-                        colors = lookSliderColors(),
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text("${(controller.portraitBlurStrength * 100).toInt()}", color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp, modifier = Modifier.width(28.dp))
-                }
+                FloatWheelRow(
+                    label = "Blur",
+                    value = controller.portraitBlurStrength,
+                    min = 0.1f,
+                    max = 1f,
+                    steps = 18,
+                    format = { "${(it * 100).roundToInt()}" },
+                ) { controller.portraitBlurStrength = it }
                 Text("Blurs the background behind people. If nobody is found, the photo is left as is.", color = CameraTheme.TEXT_SECONDARY, fontSize = 11.sp)
             }
             StripItem.ZOOM -> {
                 val maxZoom = controller.engine.maxZoomRatio().coerceAtLeast(1f)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Zoom", color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp, modifier = Modifier.width(64.dp))
-                    Slider(
-                        value = controller.zoomRatio.coerceIn(1f, maxZoom),
-                        valueRange = 1f..maxZoom.coerceAtLeast(1.01f),
-                        onValueChange = { controller.setZoom(it) },
-                        colors = lookSliderColors(),
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text(String.format(Locale.US, "%.1f×", controller.zoomRatio), color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp, modifier = Modifier.width(40.dp))
-                }
+                FloatWheelRow(
+                    label = "Zoom",
+                    value = controller.zoomRatio.coerceIn(1f, maxZoom),
+                    min = 1f,
+                    max = maxZoom.coerceAtLeast(1.1f),
+                    steps = ((maxZoom - 1f) * 10f).roundToInt().coerceIn(1, 190),
+                    format = { String.format(Locale.US, "%.1f×", it) },
+                ) { controller.setZoom(it) }
             }
             StripItem.EV -> {
                 val evRange = controller.engine.exposureCompensationRange
                 if (evRange == null || evRange.lower == evRange.upper) {
                     Text("Exposure compensation isn't available on this camera", color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp)
                 } else {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Exposure", color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp, modifier = Modifier.width(64.dp))
-                        Slider(
-                            value = settings.exposureCompensation.toFloat(),
-                            valueRange = evRange.lower.toFloat()..evRange.upper.toFloat(),
-                            steps = (evRange.upper - evRange.lower - 1).coerceAtLeast(0),
-                            onValueChange = { controller.updateProSettings { s -> s.copy(exposureCompensation = it.toInt()) } },
-                            colors = lookSliderColors(),
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text("${settings.exposureCompensation}", color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp, modifier = Modifier.width(28.dp))
-                    }
+                    WheelRow(
+                        label = "Exposure compensation",
+                        valueText = String.format(Locale.US, "%+d", settings.exposureCompensation),
+                        count = evRange.upper - evRange.lower + 1,
+                        index = settings.exposureCompensation - evRange.lower,
+                        onIndexChange = { controller.updateProSettings { s -> s.copy(exposureCompensation = evRange.lower + it) } },
+                    )
                     if (manualExposure) {
                         Text("Manual exposure is on: compensation has no effect", color = CameraTheme.WARN, fontSize = 11.sp)
                     }
@@ -1412,16 +1537,14 @@ private fun ControlsContent(controller: CameraController, strip: StripItem, snap
                     controller.updateProSettings { it.copy(manualFocusEnabled = wantManual) }
                 }
                 if (manualFocus) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Focus", color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp, modifier = Modifier.width(64.dp))
-                        Slider(
-                            value = settings.focusDistance,
-                            valueRange = 0f..controller.engine.minFocusDistance.coerceAtLeast(0.01f),
-                            onValueChange = { controller.updateProSettings { s -> s.copy(focusDistance = it) } },
-                            colors = lookSliderColors(),
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
+                    FloatWheelRow(
+                        label = "Focus distance",
+                        value = settings.focusDistance,
+                        min = 0f,
+                        max = controller.engine.minFocusDistance.coerceAtLeast(0.01f),
+                        steps = 40,
+                        format = { if (it < 0.05f) "Infinity" else String.format(Locale.US, "%.0f cm", 100f / it) },
+                    ) { controller.updateProSettings { s -> s.copy(focusDistance = it) } }
                 }
             }
         }
@@ -1453,16 +1576,5 @@ private fun ProToggleChip(label: String, enabled: Boolean, onClick: () -> Unit) 
 
 @Composable
 private fun ProDiscreteRow(label: String, valueLabel: String, index: Int, stepCount: Int, onIndexChange: (Int) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(label, color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp, modifier = Modifier.width(72.dp))
-        Slider(
-            value = index.toFloat(),
-            valueRange = 0f..(stepCount - 1).coerceAtLeast(1).toFloat(),
-            steps = (stepCount - 2).coerceAtLeast(0),
-            onValueChange = { onIndexChange(it.toInt().coerceIn(0, stepCount - 1)) },
-            colors = lookSliderColors(),
-            modifier = Modifier.weight(1f),
-        )
-        Text(valueLabel, color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp, modifier = Modifier.width(52.dp))
-    }
+    WheelRow(label = label, valueText = valueLabel, count = stepCount, index = index, onIndexChange = onIndexChange)
 }

@@ -467,6 +467,7 @@ class CameraEngine(private val context: Context) {
         val rawImage: Image?,
         val rawResult: TotalCaptureResult?,
         val characteristics: CameraCharacteristics,
+        val firstResult: TotalCaptureResult? = null,
     )
 
     /**
@@ -509,6 +510,7 @@ class CameraEngine(private val context: Context) {
             var failed = 0
             var rawImage: Image? = null
             var rawResult: TotalCaptureResult? = null
+            var firstResult: TotalCaptureResult? = null
             var finished = false
 
             fun maybeFinish() {
@@ -520,7 +522,7 @@ class CameraEngine(private val context: Context) {
                 if (jpegs.isEmpty()) {
                     cont.resumeWithException(RuntimeException("Capture failed: no frames received"))
                 } else {
-                    cont.resume(BurstResult(jpegs.toList(), rawImage, rawResult, chars))
+                    cont.resume(BurstResult(jpegs.toList(), rawImage, rawResult, chars, firstResult))
                 }
             }
 
@@ -546,6 +548,7 @@ class CameraEngine(private val context: Context) {
             session.captureBurst(requests, object : CameraCaptureSession.CaptureCallback() {
                 override fun onCaptureCompleted(session: CameraCaptureSession, request: CaptureRequest, result: TotalCaptureResult) {
                     completed += 1
+                    if (firstResult == null) firstResult = result
                     if (wantsRaw && request.tag == rawIndex) rawResult = result
                     maybeFinish()
                 }

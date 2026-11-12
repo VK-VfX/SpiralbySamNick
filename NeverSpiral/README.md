@@ -163,3 +163,12 @@ installing this one never collides with or gets confused for anything else alrea
 ## v1.5.0
 
 - Custom LUTs: import 3D `.cube` files (Filters > My LUTs > Import). Saved photos and the editor use the exact table with trilinear interpolation and the strength slider; the live preview and video use a least-squares colour-matrix fit of the table. LUTs are kept in app storage and can be deleted from the same tab.
+
+## v1.6.0 (Niko's Cam)
+
+- Renamed to Niko's Cam, with the new glyph icon, a splash that zooms into the app, and fade/scale open and close animations.
+- Every slider is now a ruler-style wheel picker with a haptic tick per step.
+- Night Sight offers Wait 3 s or Wait 6 s and shows a "Hold your phone steady" toast.
+- Focus ring is a circle that springs in; the capture snapshot flies into the thumbnail, which orbits with a comet ring while the shot processes.
+- Tapping the picture (outside Pro) or the empty space closes the filter/control panel and returns to shooting; Back closes panels, then exits with an animation.
+- Photos carry EXIF (camera, exposure, ISO, aperture, focal length, processing, JPEG quality) and the editor has a Details tab (file, resolution, size, quality, compression, camera, exposure, date). Location will come later.

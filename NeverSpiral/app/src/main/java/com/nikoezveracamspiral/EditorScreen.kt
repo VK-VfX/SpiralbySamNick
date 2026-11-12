@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -28,6 +30,7 @@ import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Crop
 import androidx.compose.material.icons.rounded.Flip
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material.icons.rounded.RotateRight
@@ -64,6 +67,7 @@ private enum class EditorTab(val label: String, val icon: ImageVector) {
     FILTER("Filters", Icons.Rounded.Palette),
     ADJUST("Adjust", Icons.Rounded.AutoFixHigh),
     CROP("Crop", Icons.Rounded.Crop),
+    DETAILS("Details", Icons.Rounded.Info),
 }
 
 private fun readBytes(context: Context, uri: Uri): ByteArray? =
@@ -154,7 +158,7 @@ fun EditorScreen(uri: Uri, controller: CameraController, onClose: () -> Unit) {
                                 val out = withContext(Dispatchers.Default) {
                                     PhotoProcessor.processEdit(bytes, look, transform, controller.jpegQuality)
                                 } ?: throw IllegalStateException("Couldn't decode the original")
-                                val saved = withContext(Dispatchers.IO) { CaptureStore.saveJpeg(context, out) }
+                                val saved = withContext(Dispatchers.IO) { CaptureStore.saveJpeg(context, out, meta = PhotoMeta(software = "Niko's Cam ${UpdateManager.installedVersionName(context)}", description = "Quality ${controller.jpegQuality}; Edited; ${look.lut?.name ?: look.filter.label}")) }
                                 if (saved != null) {
                                     controller.publishCapture(saved)
                                     message = "Saved as a new photo"
@@ -223,6 +227,8 @@ fun EditorScreen(uri: Uri, controller: CameraController, onClose: () -> Unit) {
                 .padding(horizontal = 10.dp, vertical = 8.dp)
                 .clip(RoundedCornerShape(22.dp))
                 .background(Color(0xEB161616))
+                .heightIn(max = 280.dp)
+                .verticalScroll(androidx.compose.foundation.rememberScrollState())
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -230,6 +236,7 @@ fun EditorScreen(uri: Uri, controller: CameraController, onClose: () -> Unit) {
                 EditorTab.FILTER -> FilterPanel(look, { look = it }, thumb, controller)
                 EditorTab.ADJUST -> AdjustPanel(look) { look = it }
                 EditorTab.CROP -> CropPanel(transform) { transform = it }
+                EditorTab.DETAILS -> DetailsPanel(uri)
             }
         }
 
@@ -297,5 +304,44 @@ private fun ActionChip(icon: ImageVector, label: String, onClick: () -> Unit) {
         Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
         Spacer(modifier = Modifier.width(5.dp))
         Text(label, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+@Composable
+private fun DetailsPanel(uri: Uri) {
+    val context = LocalContext.current
+    val details by produceState<PhotoDetails?>(initialValue = null, uri) {
+        value = try {
+            withContext(Dispatchers.IO) { PhotoDetails.load(context, uri) }
+        } catch (e: Exception) {
+            null
+        }
+    }
+    val d = details
+    if (d == null) {
+        Text("Reading details...", color = CameraTheme.TEXT_SECONDARY, fontSize = 13.sp)
+        return
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        DetailRow("File", d.name)
+        DetailRow("Resolution", "${d.width} × ${d.height}  (${String.format(java.util.Locale.US, "%.1f", d.megapixels)} MP)")
+        DetailRow("Size", d.sizeLabel)
+        DetailRow("Quality", d.qualityLabel)
+        DetailRow("Compression", d.bitsPerPixel)
+        DetailRow("Format", "JPEG")
+        DetailRow("Camera", d.camera)
+        DetailRow("Exposure", d.exposure)
+        DetailRow("Taken", d.taken)
+        if (d.processing.isNotEmpty()) DetailRow("Processing", d.processing)
+        DetailRow("Software", d.software)
+        DetailRow("Location", "Not recorded yet")
+    }
+}
+
+@Composable
+private fun DetailRow(label: String, value: String) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+        Text(label, color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp, modifier = Modifier.width(92.dp))
+        Text(value, color = Color.White, fontSize = 13.sp, modifier = Modifier.weight(1f))
     }
 }

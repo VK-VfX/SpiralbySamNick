@@ -1,10 +1,21 @@
 package com.nikoezveracamspiral
 
 import android.Manifest
+import android.app.Activity
 import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -33,10 +44,22 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        val splash = installSplashScreen()
         super.onCreate(savedInstanceState)
+        // The launch splash (the glyph on white) zooms slightly and fades into the app.
+        splash.setOnExitAnimationListener { provider ->
+            provider.view.animate()
+                .alpha(0f)
+                .scaleX(1.25f)
+                .scaleY(1.25f)
+                .setDuration(300)
+                .withEndAction { provider.remove() }
+                .start()
+        }
         enableEdgeToEdge()
         setContent {
             NeverSpiralApp()
@@ -64,10 +87,29 @@ private fun NeverSpiralApp() {
         if (!hasPermissions) launcher.launch(REQUIRED_PERMISSIONS)
     }
 
+    // Opening: the camera fades and scales up into place. Closing (back from the viewfinder):
+    // it fades and scales away before the activity actually finishes.
+    var shown by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(hasPermissions) { if (hasPermissions) shown = true }
+    BackHandler(enabled = hasPermissions && shown) {
+        scope.launch {
+            shown = false
+            delay(260)
+            (context as? Activity)?.finish()
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize().background(CameraTheme.BACKGROUND)) {
         if (hasPermissions) {
             val controller = remember { CameraController(context) }
-            CameraScreen(controller)
+            AnimatedVisibility(
+                visible = shown,
+                enter = fadeIn(tween(450)) + scaleIn(tween(450), initialScale = 0.94f),
+                exit = fadeOut(tween(240)) + scaleOut(tween(240), targetScale = 0.94f),
+            ) {
+                CameraScreen(controller)
+            }
         } else {
             PermissionRequestScreen(onRequest = { launcher.launch(REQUIRED_PERMISSIONS) })
         }

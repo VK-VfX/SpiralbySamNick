@@ -1,42 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Minimalist launcher mark: one spiral stroke with a camera lens resting on its outer turn.
-     The spiral is point-sampled (the simplest way to get a true smooth spiral out of
-     VectorDrawable path data) and nudged down-left so the lens, drawn last with a solid white
-     fill, sits over the coil's end. Everything stays inside the 66dp adaptive-icon safe zone. -->
+<!-- The Niko mark: a bold slab N reversed into a Cyrillic-style glyph, drawn as one polygon
+     (two stems joined by a diagonal). Centered on the 108dp canvas and kept well inside the
+     66dp adaptive-icon safe zone. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-
-    <group android:translateX="-8" android:translateY="6">
-        <path
-            android:pathData="M54.0,51.0 L54.34,50.83 L54.72,50.71 L55.13,50.63 L55.56,50.6 L56.01,50.63 L56.48,50.72 L56.94,50.87 L57.4,51.08 L57.85,51.36 L58.28,51.7 L58.67,52.1 L59.03,52.56 L59.34,53.08 L59.59,53.65 L59.78,54.26 L59.9,54.91 L59.95,55.58 L59.92,56.28 L59.8,56.99 L59.6,57.7 L59.32,58.4 L58.94,59.08 L58.48,59.73 L57.94,60.33 L57.32,60.89 L56.62,61.38 L55.85,61.8 L55.03,62.14 L54.15,62.38 L53.23,62.54 L52.28,62.59 L51.31,62.53 L50.34,62.36 L49.37,62.08 L48.42,61.69 L47.5,61.18 L46.62,60.56 L45.81,59.84 L45.07,59.01 L44.41,58.1 L43.85,57.1 L43.39,56.02 L43.05,54.89 L42.83,53.7 L42.75,52.48 L42.79,51.23 L42.98,49.98 L43.31,48.73 L43.78,47.52 L44.39,46.34 L45.14,45.22 L46.02,44.18 L47.02,43.22 L48.14,42.37 L49.36,41.63 L50.67,41.02 L52.06,40.55 L53.51,40.24 L55.0,40.08 L56.53,40.08 L58.06,40.26 L59.58,40.6 L61.08,41.12 L62.53,41.8 L63.92,42.65 L65.22,43.66 L66.41,44.81 L67.49,46.1 L68.43,47.52 L69.22,49.06 L69.84,50.68 L70.29,52.39 L70.56,54.15 L70.63,55.95 L70.5,57.77 L70.18,59.58 L69.65,61.37 L68.93,63.1 L68.01,64.77 L66.91,66.34 L65.63,67.8 L64.18,69.12 L62.58,70.29 L60.85,71.29 L59.0,72.11 L57.05,72.72 L55.03,73.13 L52.96,73.31 L50.86,73.27 L48.76,73.0 L46.67,72.5 L44.64,71.77 L42.68,70.82 L40.82,69.64 L39.08,68.27 L37.49,66.69 L36.06,64.94 L34.82,63.03 L33.78,60.97 L32.97,58.8 L32.39,56.53 L32.06,54.2 L31.98,51.82 L32.16,49.43 L32.6,47.05 L33.3,44.71 L34.26,42.45 L35.47,40.28 L36.91,38.24 L38.59,36.36 L40.47,34.65 L42.53,33.14 L44.77,31.86 L47.15,30.82 L49.65,30.03 L52.24,29.52 L54.89,29.29 L57.57,29.34 L60.24,29.69 L62.88,30.33 L65.46,31.25 L67.94,32.46 L70.29,33.94 L72.49,35.68 L74.5,37.66 L76.29,39.85 L77.85,42.25 L79.15,44.82 L80.17,47.53 L80.9,50.36 L81.32,53.26 L81.42,56.22 L81.21,59.19 L80.67,62.14 L79.81,65.03 L78.64,67.83 L77.16,70.51 L75.39,73.03 L73.34,75.36 L71.05,77.46"
-            android:strokeColor="#111111"
-            android:strokeWidth="5"
-            android:strokeLineCap="round"
-            android:strokeLineJoin="round"
-            android:fillColor="#00000000" />
-    </group>
-
-    <!-- Lens: white body with a black outline, a black glass disc, a pale ring and a pupil. -->
     <path
-        android:pathData="M68,44 m-14.5,0 a14.5,14.5 0 1,0 29,0 a14.5,14.5 0 1,0 -29,0"
-        android:fillColor="#FFFFFF"
-        android:strokeColor="#111111"
-        android:strokeWidth="3" />
-    <path
-        android:pathData="M68,44 m-10,0 a10,10 0 1,0 20,0 a10,10 0 1,0 -20,0"
-        android:fillColor="#111111" />
-    <path
-        android:pathData="M68,44 m-4.6,0 a4.6,4.6 0 1,0 9.2,0 a4.6,4.6 0 1,0 -9.2,0"
-        android:fillColor="#C8C8C8" />
-    <path
-        android:pathData="M68,44 m-2.2,0 a2.2,2.2 0 1,0 4.4,0 a2.2,2.2 0 1,0 -4.4,0"
-        android:fillColor="#111111" />
-
-    <!-- A tiny four-point glint above the lens. -->
-    <path
-        android:pathData="M68,22.5 L69,25 L71.5,26 L69,27 L68,29.5 L67,27 L64.5,26 L67,25 Z"
-        android:fillColor="#111111" />
+        android:pathData="M32.00,34.30 L41.49,34.30 L41.49,61.48 L66.37,34.30 L76.00,34.30 L76.00,73.70 L66.37,73.70 L66.37,46.24 L41.35,73.70 L32.00,73.70 Z"
+        android:fillColor="#1C1C1C" />
 </vector>
