@@ -20,6 +20,8 @@ import android.util.Size
 import android.view.TextureView
 import android.view.View
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -1128,7 +1130,7 @@ private fun GalleryThumbnail(controller: CameraController, onOpenEditor: (Uri) -
             Box(modifier = Modifier.fillMaxSize().background(Color(0x55000000)))
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val stroke = 3.dp.toPx()
-                androidx.compose.ui.graphics.drawscope.rotate(sweep) {
+                rotate(sweep) {
                     drawArc(
                         brush = androidx.compose.ui.graphics.Brush.sweepGradient(listOf(Color.Transparent, Color.White)),
                         startAngle = 0f,
