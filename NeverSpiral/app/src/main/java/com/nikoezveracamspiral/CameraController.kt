@@ -18,6 +18,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 private const val TAG = "CameraController"
@@ -42,7 +43,11 @@ class CameraController(private val context: Context) {
         private set
     var isRawEnabled by mutableStateOf(false)
         private set
-    var isGridEnabled by mutableStateOf(false)
+    var gridStyle by mutableStateOf(GridStyle.OFF)
+    var photoStyle by mutableStateOf(PhotoStyle.NATURAL)
+    var hdrLevel by mutableIntStateOf(3)
+    var aspectRatio by mutableStateOf(AspectOption.R4_3)
+    var mirrorSelfies by mutableStateOf(true)
     var timerSeconds by mutableStateOf(0)
     var flashMode by mutableStateOf(FlashMode.OFF)
         private set
@@ -85,6 +90,11 @@ class CameraController(private val context: Context) {
 
     private val controllerScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var recordingTimerJob: Job? = null
+
+    /** Whether the on-screen preview should be flipped: the front camera, when selfies are set to
+     * mirror (the saved photo follows the same setting). */
+    fun mirrorPreview(): Boolean =
+        mirrorSelfies && engine.lensFacing == CameraCharacteristics.LENS_FACING_FRONT
 
     fun clearError() {
         lastError = null
@@ -215,9 +225,25 @@ class CameraController(private val context: Context) {
         shutterTick += 1
         try {
             val captured = engine.capturePhoto(rotationDegrees, isRawEnabled)
-            lastCaptureUri = CaptureStore.saveJpeg(context, captured.jpegBytes)
+            val stamp = CaptureStore.newStamp()
+            val style = photoStyle
+            val hdr = hdrLevel
+            val ratio = aspectRatio
+            val mirror = mirrorSelfies && engine.lensFacing == CameraCharacteristics.LENS_FACING_FRONT
+            val jpeg = withContext(Dispatchers.Default) {
+                try {
+                    PhotoProcessor.process(captured.jpegBytes, style, hdr, ratio, mirror)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Post-processing failed; saving the camera's original JPEG", e)
+                    captured.jpegBytes
+                } catch (e: OutOfMemoryError) {
+                    Log.e(TAG, "Post-processing ran out of memory; saving the camera's original JPEG", e)
+                    captured.jpegBytes
+                }
+            }
+            lastCaptureUri = withContext(Dispatchers.IO) { CaptureStore.saveJpeg(context, jpeg, stamp) }
             captured.rawImage?.let { raw ->
-                CaptureStore.saveDng(context, raw, captured.characteristics, captured.captureResult)
+                withContext(Dispatchers.IO) { CaptureStore.saveDng(context, raw, captured.characteristics, captured.captureResult, stamp) }
             }
         } catch (e: CancellationException) {
             throw e

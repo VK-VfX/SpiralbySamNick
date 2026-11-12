@@ -25,15 +25,16 @@ import java.util.Locale
 object CaptureStore {
     private const val ALBUM_NAME = "Never Spiral"
 
-    private fun timestampName(extension: String): String {
-        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        return "NeverSpiral_$stamp.$extension"
-    }
+    fun newStamp(): String = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
 
-    fun saveJpeg(context: Context, bytes: ByteArray): Uri? {
+    /** Every file the app writes is named bynikezvera_<date>.<ext>. */
+    private fun timestampName(extension: String, stamp: String = newStamp()): String =
+        "bynikezvera_$stamp.$extension"
+
+    fun saveJpeg(context: Context, bytes: ByteArray, stamp: String = newStamp()): Uri? {
         val resolver = context.contentResolver
         val values = ContentValues().apply {
-            put(MediaStore.Images.Media.DISPLAY_NAME, timestampName("jpg"))
+            put(MediaStore.Images.Media.DISPLAY_NAME, timestampName("jpeg", stamp))
             put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/$ALBUM_NAME")
@@ -53,10 +54,11 @@ object CaptureStore {
         rawImage: Image,
         characteristics: CameraCharacteristics,
         captureResult: TotalCaptureResult,
+        stamp: String = newStamp(),
     ): Uri? {
         val resolver = context.contentResolver
         val values = ContentValues().apply {
-            put(MediaStore.Images.Media.DISPLAY_NAME, timestampName("dng"))
+            put(MediaStore.Images.Media.DISPLAY_NAME, timestampName("dng", stamp))
             put(MediaStore.Images.Media.MIME_TYPE, "image/x-adobe-dng")
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/$ALBUM_NAME/RAW")

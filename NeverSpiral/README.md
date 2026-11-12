@@ -134,3 +134,10 @@ installing this one never collides with or gets confused for anything else alrea
 - Pixel-style layout: rounded 3:4 viewfinder (matches the saved photo), JPEG/RAW pill and flash top corners, zoom chips, mode pills, ringed shutter with thumbnail and flip, bottom row with settings, Photo/Video toggle, manual controls.
 - Preview transform applies no rotation (the camera framework already delivers upright buffers); it only cover-crops and mirrors the front camera.
 - Capture animation: shutter blink on the viewfinder, shutter disc press/busy shrink, haptic tick, thumbnail pop.
+
+## v1.2.0
+
+- After-capture pipeline (`PhotoProcessing.kt`): EXIF rotation, selfie mirroring, crop to the chosen ratio, single-frame HDR tone curve (0-5), light sharpening, color style, re-encode at quality 97. The camera itself is asked for high-quality noise reduction, edge and tone-map modes.
+- Styles (Natural, Vivid, Portrait, Landscape, Moody, Mono) shown live on the preview and applied to the saved photo.
+- Settings sheet (flash, timer, ratio 4:3/16:9/1:1/2:1, grid off/thirds/golden/square, format, selfie mirroring), format popup, control strip (style, EV, shutter, ISO, WB, focus), level indicator.
+- Files are saved as `bynikezvera_<date>.jpeg` and `bynikezvera_<date>.dng` (DNG is the RAW container).

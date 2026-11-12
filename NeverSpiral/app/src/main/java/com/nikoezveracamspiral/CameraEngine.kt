@@ -432,6 +432,22 @@ class CameraEngine(private val context: Context) {
         }
     }
 
+    /** Asks the camera's own ISP for its best still-capture processing wherever the device
+     * advertises support, plus near-lossless JPEG encoding. */
+    private fun applyStillQuality(builder: CaptureRequest.Builder, chars: CameraCharacteristics) {
+        fun supports(key: CameraCharacteristics.Key<IntArray>, mode: Int) = chars.get(key)?.contains(mode) == true
+        if (supports(CameraCharacteristics.NOISE_REDUCTION_AVAILABLE_NOISE_REDUCTION_MODES, CaptureRequest.NOISE_REDUCTION_MODE_HIGH_QUALITY)) {
+            builder.set(CaptureRequest.NOISE_REDUCTION_MODE, CaptureRequest.NOISE_REDUCTION_MODE_HIGH_QUALITY)
+        }
+        if (supports(CameraCharacteristics.EDGE_AVAILABLE_EDGE_MODES, CaptureRequest.EDGE_MODE_HIGH_QUALITY)) {
+            builder.set(CaptureRequest.EDGE_MODE, CaptureRequest.EDGE_MODE_HIGH_QUALITY)
+        }
+        if (supports(CameraCharacteristics.TONEMAP_AVAILABLE_TONE_MAP_MODES, CaptureRequest.TONEMAP_MODE_HIGH_QUALITY)) {
+            builder.set(CaptureRequest.TONEMAP_MODE, CaptureRequest.TONEMAP_MODE_HIGH_QUALITY)
+        }
+        builder.set(CaptureRequest.JPEG_QUALITY, 98.toByte())
+    }
+
     suspend fun capturePhoto(deviceRotationDegrees: Int, includeRaw: Boolean): CapturedPhoto =
         suspendCancellableCoroutine { cont ->
             val device = cameraDevice
@@ -450,6 +466,7 @@ class CameraEngine(private val context: Context) {
             if (wantsRaw) builder.addTarget(raw!!.surface)
             applyControls(builder)
             builder.set(CaptureRequest.JPEG_ORIENTATION, sensorToJpegOrientation(deviceRotationDegrees))
+            applyStillQuality(builder, chars)
 
             var jpegBytes: ByteArray? = null
             var rawImage: Image? = null
