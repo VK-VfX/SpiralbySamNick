@@ -164,7 +164,7 @@ fun EditorScreen(uri: Uri, controller: CameraController, onClose: () -> Unit) {
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            EditorIconButton(Icons.Rounded.Close, "Close", onClose)
+            EditorIconButton(Icons.Rounded.Close, "Close", onClick = onClose)
             Spacer(modifier = Modifier.width(10.dp))
             EditorIconButton(Icons.Rounded.Undo, "Undo", enabled = historyIndex > 0) { jumpTo(historyIndex - 1) }
             Spacer(modifier = Modifier.width(6.dp))
