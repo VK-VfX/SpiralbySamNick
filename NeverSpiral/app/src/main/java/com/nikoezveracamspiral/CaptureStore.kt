@@ -60,13 +60,16 @@ object CaptureStore {
     }
 
     /** Replaces the contents of an already-saved photo with its processed version. */
-    fun overwriteJpeg(context: Context, uri: Uri, bytes: ByteArray, meta: PhotoMeta): Boolean = try {
-        context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) } ?: return false
-        writeExif(context, uri, meta)
-        true
-    } catch (e: Exception) {
-        android.util.Log.w("CaptureStore", "Couldn't overwrite photo", e)
-        false
+    fun overwriteJpeg(context: Context, uri: Uri, bytes: ByteArray, meta: PhotoMeta): Boolean {
+        return try {
+            val stream = context.contentResolver.openOutputStream(uri, "wt") ?: return false
+            stream.use { it.write(bytes) }
+            writeExif(context, uri, meta)
+            true
+        } catch (e: Exception) {
+            android.util.Log.w("CaptureStore", "Couldn't overwrite photo", e)
+            false
+        }
     }
 
     /** Stamps camera, exposure and processing details into the saved JPEG so the Details tab (and

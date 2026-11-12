@@ -338,6 +338,10 @@ class CameraController(private val context: Context) {
         if (look.lut?.name == lut.name) look = look.copy(lut = null)
     }
 
+    fun reportError(message: String) {
+        lastError = message
+    }
+
     fun clearError() {
         lastError = null
     }
@@ -586,6 +590,7 @@ class CameraController(private val context: Context) {
                 portraitBlur = blurNow,
                 stamp = stamp,
                 meta = meta,
+                noiseScale = sqrt((meta.iso ?: 400) / 400f).coerceIn(0.8f, 2.2f),
             )
             adjustPending(1)
             processingScope.launch { runPhotoJob(job) }
@@ -613,13 +618,14 @@ class CameraController(private val context: Context) {
         val portraitBlur: Float,
         val stamp: String,
         val meta: PhotoMeta,
+        val noiseScale: Float,
     )
 
     private suspend fun runPhotoJob(job: PhotoJob) {
         try {
             // On any failure the camera's own JPEG, already saved, simply stays as the photo.
             val jpeg = try {
-                PhotoProcessor.processShots(job.frames, job.tone, job.look, job.ratio, job.mirror, job.quality, job.portraitBlur)
+                PhotoProcessor.processShots(job.frames, job.tone, job.look, job.ratio, job.mirror, job.quality, job.portraitBlur, job.noiseScale)
             } catch (e: Exception) {
                 Log.e(TAG, "Processing failed; keeping the camera's own JPEG", e)
                 null

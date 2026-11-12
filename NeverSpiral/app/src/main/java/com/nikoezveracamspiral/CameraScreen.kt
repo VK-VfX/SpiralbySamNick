@@ -108,6 +108,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.layout.positionInRoot
@@ -148,7 +150,6 @@ import kotlin.math.sqrt
  * rotation relative to the device's natural orientation is always 0 -- the formula CameraEngine
  * uses to derive JPEG/video orientation only needs that one fixed value, never a live
  * OrientationEventListener reading. */
-private const val DEVICE_ROTATION_DEGREES = 0
 
 private val PANEL_COLOR = Color(0xEB161616)
 private val OVERLAY_BUTTON_COLOR = Color(0x66000000)
@@ -1239,6 +1240,7 @@ private fun ShutterButton(isVideoMode: Boolean, isRecording: Boolean, isBusy: Bo
     Box(
         modifier = Modifier
             .size(92.dp)
+            .semantics { contentDescription = if (isVideoMode) (if (isRecording) "Stop recording" else "Start recording") else "Take photo" }
             .clip(CircleShape)
             .border(4.dp, Color.White, CircleShape)
             .clickable(interactionSource = interaction, indication = null, enabled = !isBusy) { onClick() },
@@ -1399,6 +1401,18 @@ private fun UpdateSection(controller: CameraController) {
             else -> UpdateButton("Check for updates", Modifier.weight(1f)) { scope.launch { controller.checkForUpdates() } }
         }
     }
+    SheetSection("Something wrong?", "")
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        UpdateButton("Report a problem (share log)", Modifier.weight(1f)) {
+            scope.launch {
+                try {
+                    Diagnostics.share(context, controller)
+                } catch (e: Exception) {
+                    controller.reportError("Couldn't prepare the report: ${e.message ?: e::class.simpleName}")
+                }
+            }
+        }
+    }
     SheetSection("Check automatically at launch", if (controller.autoCheckUpdates) "On" else "Off")
     SegmentRow(
         options = listOf(true to "On", false to "Off").map { Triple(it.first, it.second, null as ImageVector?) },
@@ -1502,7 +1516,7 @@ private fun ControlStrip(controller: CameraController, selected: StripItem, onSe
                     .width(58.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Icon(icon, contentDescription = null, tint = if (isSelected) Color.Black else Color.White, modifier = Modifier.size(26.dp).keepUpright())
+                Icon(icon, contentDescription = value, tint = if (isSelected) Color.Black else Color.White, modifier = Modifier.size(26.dp).keepUpright())
                 Text(value, color = if (isSelected) Color.Black else Color.White, fontSize = 11.sp, maxLines = 1)
             }
         }

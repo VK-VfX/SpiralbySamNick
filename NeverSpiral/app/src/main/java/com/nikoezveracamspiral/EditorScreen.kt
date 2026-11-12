@@ -28,6 +28,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.material.icons.rounded.Redo
+import androidx.compose.material.icons.rounded.Undo
 import androidx.compose.material.icons.rounded.Crop
 import androidx.compose.material.icons.rounded.Flip
 import androidx.compose.material.icons.rounded.Info
@@ -91,6 +95,32 @@ fun EditorScreen(uri: Uri, controller: CameraController, onClose: () -> Unit) {
     var saving by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
 
+    // Undo/redo: a new history entry is committed once the edit settles (the wheels change
+    // continuously, so each tick isn't its own step).
+    val history = remember { mutableStateListOf(Look() to PhotoProcessor.Transform()) }
+    var historyIndex by remember { mutableIntStateOf(0) }
+    var restoring by remember { mutableStateOf(false) }
+    LaunchedEffect(look, transform) {
+        if (restoring) {
+            restoring = false
+            return@LaunchedEffect
+        }
+        delay(600)
+        val current = history[historyIndex]
+        if (current.first != look || current.second != transform) {
+            while (history.size > historyIndex + 1) history.removeAt(history.size - 1)
+            history.add(look to transform)
+            historyIndex = history.size - 1
+        }
+    }
+    fun jumpTo(index: Int) {
+        val target = history[index]
+        if (target.first != look || target.second != transform) restoring = true
+        historyIndex = index
+        look = target.first
+        transform = target.second
+    }
+
     LaunchedEffect(uri) {
         try {
             source = withContext(Dispatchers.IO) {
@@ -135,6 +165,10 @@ fun EditorScreen(uri: Uri, controller: CameraController, onClose: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             EditorIconButton(Icons.Rounded.Close, "Close", onClose)
+            Spacer(modifier = Modifier.width(10.dp))
+            EditorIconButton(Icons.Rounded.Undo, "Undo", enabled = historyIndex > 0) { jumpTo(historyIndex - 1) }
+            Spacer(modifier = Modifier.width(6.dp))
+            EditorIconButton(Icons.Rounded.Redo, "Redo", enabled = historyIndex < history.size - 1) { jumpTo(historyIndex + 1) }
             Spacer(modifier = Modifier.weight(1f))
             EditorIconButton(Icons.Rounded.PhotoLibrary, "Open in gallery") {
                 try {
@@ -263,16 +297,16 @@ fun EditorScreen(uri: Uri, controller: CameraController, onClose: () -> Unit) {
 }
 
 @Composable
-private fun EditorIconButton(icon: ImageVector, description: String, onClick: () -> Unit) {
+private fun EditorIconButton(icon: ImageVector, description: String, enabled: Boolean = true, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .size(44.dp)
             .clip(RoundedCornerShape(22.dp))
             .background(CameraTheme.SURFACE)
-            .clickable { onClick() },
+            .clickable(enabled = enabled) { onClick() },
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, contentDescription = description, tint = Color.White, modifier = Modifier.size(22.dp))
+        Icon(icon, contentDescription = description, tint = Color.White.copy(alpha = if (enabled) 1f else 0.35f), modifier = Modifier.size(22.dp))
     }
 }
 

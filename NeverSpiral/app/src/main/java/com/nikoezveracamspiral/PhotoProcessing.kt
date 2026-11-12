@@ -422,6 +422,7 @@ object PhotoProcessor {
         mirror: Boolean,
         quality: Int,
         portraitBlur: Float,
+        noiseScale: Float = 1f,
     ): ByteArray {
         val refIndex = frames.size / 2
         val maxPixels = if (frames.size > 1) BURST_MAX_PIXELS else SINGLE_MAX_PIXELS
@@ -436,6 +437,7 @@ object PhotoProcessor {
                         ToneMode.None -> IntArray(1024) { (it / 4).coerceIn(0, 255) }
                     }
                 },
+                noiseScale = noiseScale,
             ) ?: return frames[refIndex]
         } else {
             loadFrame(frames[refIndex], ratio, mirror, maxPixels) ?: return frames[refIndex]

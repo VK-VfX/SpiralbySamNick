@@ -14,7 +14,7 @@ import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 
-data class UpdateInfo(val versionCode: Long, val versionName: String, val apkUrl: String, val notes: String)
+data class UpdateInfo(val versionCode: Long, val versionName: String, val apkUrl: String, val notes: String, val sha256: String = "")
 
 sealed interface UpdateStatus {
     data object Idle : UpdateStatus
@@ -55,6 +55,7 @@ object UpdateManager {
                 versionName = json.getString("versionName"),
                 apkUrl = json.optString("apkUrl", "$BASE/never-spiral-debug.apk"),
                 notes = json.optString("notes", ""),
+                sha256 = json.optString("sha256", ""),
             )
             if (info.versionCode > installedVersionCode(context)) info else null
         } finally {
@@ -87,6 +88,23 @@ object UpdateManager {
             }
         } finally {
             connection.disconnect()
+        }
+        // Refuse a corrupt or tampered download: the published checksum must match the file.
+        if (info.sha256.isNotEmpty()) {
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            target.inputStream().use { input ->
+                val buffer = ByteArray(64 * 1024)
+                while (true) {
+                    val n = input.read(buffer)
+                    if (n < 0) break
+                    digest.update(buffer, 0, n)
+                }
+            }
+            val actual = digest.digest().joinToString("") { "%02x".format(it) }
+            if (!actual.equals(info.sha256, ignoreCase = true)) {
+                target.delete()
+                throw IllegalStateException("The downloaded update failed its integrity check")
+            }
         }
         target
     }

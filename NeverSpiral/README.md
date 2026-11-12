@@ -172,3 +172,17 @@ installing this one never collides with or gets confused for anything else alrea
 - Focus ring is a circle that springs in; the capture snapshot flies into the thumbnail, which orbits with a comet ring while the shot processes.
 - Tapping the picture (outside Pro) or the empty space closes the filter/control panel and returns to shooting; Back closes panels, then exits with an animation.
 - Photos carry EXIF (camera, exposure, ISO, aperture, focal length, processing, JPEG quality) and the editor has a Details tab (file, resolution, size, quality, compression, camera, exposure, date). Location will come later.
+
+## v2.0.0
+
+Reliability: the camera's own JPEG is saved the instant the shutter finishes and replaced by the processed version in place; a foreground service keeps processing alive if you leave the app; the queue is capped. Photos and video use the phone's real orientation (landscape works) and icons turn upright. Only the camera permission is required. RAW toggle fixed. Settings are remembered. AE/AF lock on long-press; tap-to-focus fires a single AF trigger.
+
+Quality and speed: pixel loops run on all cores; burst alignment is global plus per-tile refinement with ISO-aware rejection; real lens zoom (0.5x on multi-camera phones) through the zoom-ratio API; optical and electronic stabilisation; Night Sight previews brightened, detects a tripod and uses longer exposures; Portrait blooms bright highlights into bokeh.
+
+Video: resolution (720p / 1080p / 4K), 30/60 fps, H.264 or HEVC; filters render after recording with progress, and imported LUTs are applied exactly.
+
+Extras: live histogram, QR scanning, volume keys as shutter, editor undo/redo, "Report a problem" log share.
+
+Build and distribution: CI builds a minified arm64 release APK (and keeps the debug APK as a fallback), publishes a SHA-256 the updater verifies, caches Gradle, and signs with a private key if the repository secrets KEYSTORE_B64, KEYSTORE_PASSWORD, KEY_ALIAS and KEY_PASSWORD exist (otherwise the committed debug key, so existing installs update in place). Unit tests cover LUT parsing, tone curves and the burst merge.
+
+Not built yet (needs on-device testing): a YUV/RAW burst with zero-shutter-lag, a live GPU pipeline, panorama, slow-motion, Ultra HDR and motion photos.

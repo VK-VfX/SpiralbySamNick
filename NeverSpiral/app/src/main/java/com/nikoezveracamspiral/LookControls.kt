@@ -102,7 +102,7 @@ internal fun FilterPanel(look: Look, onLook: (Look) -> Unit, frame: ImageBitmap?
                     val selected = look.lut?.name == lut.name
                     FilterThumb(
                         label = lut.name,
-                        matrix = Look(lut = lut).toColorMatrix(),
+                        matrix = remember(lut) { Look(lut = lut).toColorMatrix() },
                         selected = selected,
                         frame = frame,
                     ) { onLook(look.copy(lut = lut, filter = PhotoFilter.NATURAL, strength = 1f)) }
@@ -123,7 +123,7 @@ internal fun FilterPanel(look: Look, onLook: (Look) -> Unit, frame: ImageBitmap?
                 items(filters) { filter ->
                     FilterThumb(
                         label = filter.label,
-                        matrix = Look(filter = filter).toColorMatrix(),
+                        matrix = remember(filter) { Look(filter = filter).toColorMatrix() },
                         selected = look.lut == null && filter == look.filter,
                         frame = frame,
                     ) { onLook(look.copy(filter = filter, lut = null, strength = if (filter == look.filter && look.lut == null) look.strength else 1f)) }
