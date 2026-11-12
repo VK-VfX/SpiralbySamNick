@@ -48,6 +48,8 @@ class CameraController(private val context: Context) {
         private set
     var gridStyle by mutableStateOf(GridStyle.OFF)
     var look by mutableStateOf(Look())
+    /** Imported .cube LUTs, offered under "My LUTs" in the filter panel. */
+    val luts = androidx.compose.runtime.mutableStateListOf<Lut>()
     var hdrEnabled by mutableStateOf(true)
     var hdrStrength by mutableIntStateOf(4)
     var jpegQuality by mutableIntStateOf(95)
@@ -170,6 +172,33 @@ class CameraController(private val context: Context) {
     fun publishCapture(uri: Uri) {
         lastCaptureUri = uri
         lastCaptureIsVideo = false
+    }
+
+    init {
+        try {
+            luts.addAll(LutStore.load(context))
+        } catch (e: Exception) {
+            Log.w(TAG, "Couldn't load saved LUTs", e)
+        }
+    }
+
+    suspend fun importLut(uri: Uri) {
+        try {
+            val lut = withContext(Dispatchers.IO) { LutStore.import(context, uri) }
+            luts.removeAll { it.name == lut.name }
+            luts.add(lut)
+            look = look.copy(lut = lut, filter = PhotoFilter.NATURAL, strength = 1f)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            lastError = "Couldn't import that LUT: ${e.message ?: e::class.simpleName}"
+        }
+    }
+
+    fun deleteLut(lut: Lut) {
+        luts.removeAll { it.name == lut.name }
+        LutStore.delete(context, lut)
+        if (look.lut?.name == lut.name) look = look.copy(lut = null)
     }
 
     fun clearError() {

@@ -458,7 +458,7 @@ private fun CameraPreview(
             // The chosen style shows live: a color filter on the preview layer, using the same
             // matrix the saved photo gets. Reading look here re-runs this on change.
             val look = controller.look
-            val filter = if (look.filter == PhotoFilter.NATURAL && look.exposure == 0f && look.contrast == 0f &&
+            val filter = if (look.filter == PhotoFilter.NATURAL && look.lut == null && look.exposure == 0f && look.contrast == 0f &&
                 look.saturation == 0f && look.warmth == 0f && look.tint == 0f) null
             else ColorMatrixColorFilter(look.toColorMatrix())
             view.setLayerType(View.LAYER_TYPE_HARDWARE, filter?.let { Paint().apply { colorFilter = it } })
@@ -1231,9 +1231,9 @@ private fun ControlStrip(controller: CameraController, selected: StripItem, onSe
     val s = controller.proSettings
     val manualExposure = controller.mode == CaptureMode.PRO && s.manualExposureEnabled
     val manualFocus = controller.mode == CaptureMode.PRO && s.manualFocusEnabled
-    val edited = !controller.look.copy(filter = PhotoFilter.NATURAL, strength = 1f).isNeutral
+    val edited = !controller.look.copy(filter = PhotoFilter.NATURAL, lut = null, strength = 1f).isNeutral
     val items = buildList {
-        add(Triple(StripItem.FILTER, Icons.Rounded.Palette, controller.look.filter.label))
+        add(Triple(StripItem.FILTER, Icons.Rounded.Palette, controller.look.lut?.name ?: controller.look.filter.label))
         add(Triple(StripItem.ADJUST, Icons.Rounded.AutoFixHigh, if (edited) "Edited" else "Adjust"))
         if (controller.mode != CaptureMode.NIGHT && !controller.mode.isVideo) {
             add(Triple(StripItem.HDR, if (controller.hdrEnabled) Icons.Rounded.HdrOn else Icons.Rounded.HdrOff, if (controller.hdrEnabled) "HDR+ ${controller.hdrStrength}" else "HDR off"))
@@ -1294,7 +1294,7 @@ private fun ControlsContent(controller: CameraController, strip: StripItem, snap
                 val frame by produceState<ImageBitmap?>(initialValue = null) {
                     value = try { snapshot()?.asImageBitmap() } catch (e: Exception) { null }
                 }
-                FilterPanel(controller.look, { controller.look = it }, frame)
+                FilterPanel(controller.look, { controller.look = it }, frame, controller)
             }
             StripItem.ADJUST -> AdjustPanel(controller.look) { controller.look = it }
             StripItem.HDR -> {

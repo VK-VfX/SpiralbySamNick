@@ -159,3 +159,7 @@ installing this one never collides with or gets confused for anything else alrea
 - Night Sight: nine long exposures (up to 1/6 s each) merged the same way with an automatic brightness target. Hold still while the bar fills.
 - Portrait: on-device person segmentation (ML Kit selfie segmenter) and a feathered background blur; strength slider.
 - Filters, develop sliders, zoom, white balance and the rest work in every mode. In video the colour part of the look (filter, exposure, contrast, saturation, warmth, tint) is rendered after recording by Media3 Transformer in the background.
+
+## v1.5.0
+
+- Custom LUTs: import 3D `.cube` files (Filters > My LUTs > Import). Saved photos and the editor use the exact table with trilinear interpolation and the strength slider; the live preview and video use a least-squares colour-matrix fit of the table. LUTs are kept in app storage and can be deleted from the same tab.

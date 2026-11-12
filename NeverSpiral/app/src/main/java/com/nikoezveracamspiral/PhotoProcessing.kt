@@ -108,6 +108,8 @@ internal fun affineMatrix(scale: Float, offset: Float) = ColorMatrix(floatArrayO
  * saved capture, and the post-capture editor. */
 data class Look(
     val filter: PhotoFilter = PhotoFilter.NATURAL,
+    /** An imported LUT replaces [filter] when set; [strength] then blends the LUT in. */
+    val lut: Lut? = null,
     val strength: Float = 1f,
     val exposure: Float = 0f,
     val contrast: Float = 0f,
@@ -122,8 +124,12 @@ data class Look(
 ) {
     /** The color-matrix-expressible part: filter (scaled by strength) plus exposure, saturation,
      * contrast, warmth and tint. This is exactly what the live preview shows. */
-    fun toColorMatrix(): ColorMatrix {
-        val base = filter.baseMatrix()
+    fun toColorMatrix(useLutFit: Boolean = true): ColorMatrix {
+        val base = when {
+            lut != null && useLutFit -> lut.fit
+            lut != null -> ColorMatrix().array
+            else -> filter.baseMatrix()
+        }
         val identity = ColorMatrix().array
         val blended = FloatArray(20) { identity[it] + (base[it] - identity[it]) * strength }
         val m = ColorMatrix(blended)
@@ -154,7 +160,7 @@ data class Look(
     }
 
     val isNeutral: Boolean
-        get() = (filter == PhotoFilter.NATURAL || strength == 0f) && exposure == 0f && contrast == 0f &&
+        get() = (filter == PhotoFilter.NATURAL || strength == 0f) && (lut == null || strength == 0f) && exposure == 0f && contrast == 0f &&
             saturation == 0f && warmth == 0f && tint == 0f && highlights == 0f && shadows == 0f &&
             vignette == 0f && grain == 0f && sharpness == 0f
 }
@@ -218,9 +224,11 @@ enum class GridStyle(val label: String) { OFF("Off"), THIRDS("Thirds"), GOLDEN("
 object LookProcessor {
     fun apply(pixels: IntArray, w: Int, h: Int, look: Look) {
         if (look.isNeutral) return
-        val m = look.toColorMatrix().array
-        val f = look.filter
+        val m = look.toColorMatrix(useLutFit = false).array
+        val lut = look.lut
+        val f = if (lut != null) PhotoFilter.NATURAL else look.filter
         val s = look.strength
+        val lutOut = FloatArray(3)
         val shR = f.shadowR * s; val shG = f.shadowG * s; val shB = f.shadowB * s
         val hiR = f.highR * s; val hiG = f.highG * s; val hiB = f.highB * s
         val grain = (f.grain * s + look.grain).coerceAtMost(1.2f) * 30f
@@ -239,9 +247,18 @@ object LookProcessor {
                 val r0 = ((p shr 16) and 0xFF).toFloat()
                 val g0 = ((p shr 8) and 0xFF).toFloat()
                 val b0 = (p and 0xFF).toFloat()
-                var r = m[0] * r0 + m[1] * g0 + m[2] * b0 + m[4]
-                var g = m[5] * r0 + m[6] * g0 + m[7] * b0 + m[9]
-                var b = m[10] * r0 + m[11] * g0 + m[12] * b0 + m[14]
+                var ir = r0
+                var ig = g0
+                var ib = b0
+                if (lut != null) {
+                    lut.sample(r0, g0, b0, lutOut)
+                    ir = r0 + (lutOut[0] - r0) * s
+                    ig = g0 + (lutOut[1] - g0) * s
+                    ib = b0 + (lutOut[2] - b0) * s
+                }
+                var r = m[0] * ir + m[1] * ig + m[2] * ib + m[4]
+                var g = m[5] * ir + m[6] * ig + m[7] * ib + m[9]
+                var b = m[10] * ir + m[11] * ig + m[12] * ib + m[14]
                 val l = ((0.299f * r + 0.587f * g + 0.114f * b) / 255f).coerceIn(0f, 1f)
                 val inv = 1f - l
                 val sw = inv * inv

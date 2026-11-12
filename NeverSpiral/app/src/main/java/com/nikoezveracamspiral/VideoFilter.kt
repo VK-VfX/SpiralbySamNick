@@ -30,7 +30,7 @@ import kotlin.coroutines.resumeWithException
  */
 object VideoFilter {
     fun needed(look: Look): Boolean =
-        !(look.filter == PhotoFilter.NATURAL && look.exposure == 0f && look.contrast == 0f &&
+        !(look.filter == PhotoFilter.NATURAL && look.lut == null && look.exposure == 0f && look.contrast == 0f &&
             look.saturation == 0f && look.warmth == 0f && look.tint == 0f)
 
     /** Android's row-major 4x5 colour matrix as a column-major 4x4 for the GPU: the offsets ride

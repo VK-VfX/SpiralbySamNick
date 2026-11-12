@@ -227,7 +227,7 @@ fun EditorScreen(uri: Uri, controller: CameraController, onClose: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             when (tab) {
-                EditorTab.FILTER -> FilterPanel(look, { look = it }, thumb)
+                EditorTab.FILTER -> FilterPanel(look, { look = it }, thumb, controller)
                 EditorTab.ADJUST -> AdjustPanel(look) { look = it }
                 EditorTab.CROP -> CropPanel(transform) { transform = it }
             }

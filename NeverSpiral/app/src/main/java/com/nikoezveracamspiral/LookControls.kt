@@ -1,5 +1,7 @@
 package com.nikoezveracamspiral
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -25,6 +27,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,69 +49,131 @@ internal fun lookSliderColors() = SliderDefaults.colors(
     inactiveTrackColor = CameraTheme.HAIRLINE,
 )
 
-/** Filter picker shared by the camera and the editor: category tabs, a row of live thumbnails
- * (a frame with each look applied), and the filter's own strength slider. Entirely separate from
- * the develop sliders and from HDR. */
 @Composable
-internal fun FilterPanel(look: Look, onLook: (Look) -> Unit, frame: ImageBitmap?) {
-    var category by remember { mutableStateOf<FilterCategory?>(look.filter.category) }
+internal fun rememberLutImporter(controller: CameraController): () -> Unit {
+    val scope = rememberCoroutineScope()
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) scope.launch { controller.importLut(uri) }
+    }
+    return { launcher.launch(arrayOf("*/*")) }
+}
+
+/** Filter picker shared by the camera and the editor: category tabs (including My LUTs for
+ * imported .cube files), a row of live thumbnails, and the look's own strength slider. Entirely
+ * separate from the develop sliders and from HDR. */
+@Composable
+internal fun FilterPanel(look: Look, onLook: (Look) -> Unit, frame: ImageBitmap?, controller: CameraController) {
+    var tab by remember { mutableStateOf(if (look.lut != null) "LUT" else look.filter.category.name) }
+    val importLut = rememberLutImporter(controller)
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            ChipText("All", category == null) { category = null }
-            for (c in FilterCategory.entries) ChipText(c.label, category == c) { category = c }
+            ChipText("All", tab == "ALL") { tab = "ALL" }
+            for (c in FilterCategory.entries) ChipText(c.label, tab == c.name) { tab = c.name }
+            ChipText("My LUTs", tab == "LUT") { tab = "LUT" }
         }
-        val filters = PhotoFilter.entries.filter { category == null || it.category == category }
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            items(filters) { filter ->
-                val selected = filter == look.filter
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.clickable { onLook(look.copy(filter = filter, strength = if (filter == look.filter) look.strength else 1f)) },
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(width = 62.dp, height = 82.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(Color(0xFF303030))
-                            .border(if (selected) 2.dp else 0.dp, if (selected) Color.White else Color.Transparent, RoundedCornerShape(14.dp)),
-                    ) {
-                        frame?.let { bitmap ->
-                            Image(
-                                bitmap = bitmap,
-                                contentDescription = filter.label,
-                                contentScale = ContentScale.Crop,
-                                colorFilter = ColorFilter.colorMatrix(ColorMatrix(Look(filter = filter).toColorMatrix().array)),
-                                modifier = Modifier.fillMaxSize(),
-                            )
+        if (tab == "LUT") {
+            if (controller.luts.isEmpty()) {
+                Text(
+                    "Import a 3D .cube LUT from your files to use it as a filter. It applies to photos and the editor exactly, and to video and the live preview as a close colour match.",
+                    color = CameraTheme.TEXT_SECONDARY,
+                    fontSize = 11.sp,
+                )
+            }
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                item {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { importLut() }) {
+                        Box(
+                            modifier = Modifier
+                                .size(width = 62.dp, height = 82.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(Color(0xFF303030)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text("+", color = Color.White, fontSize = 28.sp)
                         }
+                        Text("Import", color = CameraTheme.TEXT_SECONDARY, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
                     }
-                    Text(
-                        filter.label,
-                        color = if (selected) Color.White else CameraTheme.TEXT_SECONDARY,
-                        fontSize = 11.sp,
-                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                        maxLines = 1,
-                        modifier = Modifier.padding(top = 4.dp).width(66.dp),
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    )
+                }
+                items(controller.luts.toList()) { lut ->
+                    val selected = look.lut?.name == lut.name
+                    FilterThumb(
+                        label = lut.name,
+                        matrix = Look(lut = lut).toColorMatrix(),
+                        selected = selected,
+                        frame = frame,
+                    ) { onLook(look.copy(lut = lut, filter = PhotoFilter.NATURAL, strength = 1f)) }
+                }
+            }
+            if (look.lut != null) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ChipText("Delete ${look.lut.name}", false) {
+                        val current = look.lut
+                        controller.deleteLut(current)
+                        onLook(look.copy(lut = null))
+                    }
+                }
+            }
+        } else {
+            val filters = PhotoFilter.entries.filter { tab == "ALL" || it.category.name == tab }
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                items(filters) { filter ->
+                    FilterThumb(
+                        label = filter.label,
+                        matrix = Look(filter = filter).toColorMatrix(),
+                        selected = look.lut == null && filter == look.filter,
+                        frame = frame,
+                    ) { onLook(look.copy(filter = filter, lut = null, strength = if (filter == look.filter && look.lut == null) look.strength else 1f)) }
                 }
             }
         }
+        val strengthEnabled = look.lut != null || look.filter != PhotoFilter.NATURAL
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Strength", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.width(64.dp))
             Slider(
                 value = look.strength,
                 valueRange = 0f..1f,
                 onValueChange = { onLook(look.copy(strength = it)) },
-                enabled = look.filter != PhotoFilter.NATURAL,
+                enabled = strengthEnabled,
                 colors = lookSliderColors(),
                 modifier = Modifier.weight(1f),
             )
             Text("${(look.strength * 100).toInt()}", color = CameraTheme.TEXT_SECONDARY, fontSize = 13.sp, modifier = Modifier.width(28.dp))
         }
+    }
+}
+
+@Composable
+private fun FilterThumb(label: String, matrix: android.graphics.ColorMatrix, selected: Boolean, frame: ImageBitmap?, onClick: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { onClick() }) {
+        Box(
+            modifier = Modifier
+                .size(width = 62.dp, height = 82.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(Color(0xFF303030))
+                .border(if (selected) 2.dp else 0.dp, if (selected) Color.White else Color.Transparent, RoundedCornerShape(14.dp)),
+        ) {
+            frame?.let { bitmap ->
+                Image(
+                    bitmap = bitmap,
+                    contentDescription = label,
+                    contentScale = ContentScale.Crop,
+                    colorFilter = ColorFilter.colorMatrix(ColorMatrix(matrix.array)),
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
+        Text(
+            label,
+            color = if (selected) Color.White else CameraTheme.TEXT_SECONDARY,
+            fontSize = 11.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            maxLines = 1,
+            modifier = Modifier.padding(top = 4.dp).width(66.dp),
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        )
     }
 }
 
