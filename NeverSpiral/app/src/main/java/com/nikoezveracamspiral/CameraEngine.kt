@@ -306,7 +306,8 @@ class CameraEngine(private val context: Context) {
         val min = minZoomRatio()
         val max = maxZoomRatio()
         val stops = sortedSetOf(1f)
-        if (min < 0.95f) stops.add(Math.round(min * 10f) / 10f)
+        // The widest zoom is the camera's own minimum (0.51x, 0.53x, ...): labelled ".5" in the UI.
+        if (min < 0.95f) stops.add(min)
         val equivalents = physicalLensEquivalents()
         var telephoto: Float? = null
         var lensDataUsable = false
@@ -325,7 +326,9 @@ class CameraEngine(private val context: Context) {
         if (max >= 2f && (telephoto == null || kotlin.math.abs(telephoto - 2f) > 0.4f)) stops.add(2f)
         if (telephoto != null && lensDataUsable) {
             if (telephoto * 2f <= max) stops.add(telephoto * 2f)
-        } else {
+        } else if (equivalents.size < 2) {
+            // Lens data wasn't readable: offer the common stops. (When it was readable and there
+            // is no telephoto, as on a Pixel 8a, only the 2x crop is offered.)
             if (max >= 5f) stops.add(5f)
             if (max >= 10f) stops.add(10f)
         }
@@ -337,6 +340,54 @@ class CameraEngine(private val context: Context) {
     /** "0.5x, 1x, 5x" style summary of this camera's lenses, for the settings sheet and reports. */
     fun lensSummary(): String =
         zoomStops().joinToString(" · ") { if (it == it.toInt().toFloat()) "${it.toInt()}x" else "${it}x" }
+
+    private var macroCache: Pair<String, Boolean>? = null
+    private val lensNameCache = HashMap<String, String>()
+
+    /**
+     * Whether any lens behind this camera can focus really close (about 5 cm or nearer): a Pixel
+     * 9 Pro XL's ultra-wide can; a Pixel 8a's ultra-wide is fixed-focus and its main lens stops at
+     * about 10 cm, so Macro isn't offered there.
+     */
+    fun supportsMacro(): Boolean {
+        val chars = characteristics ?: return false
+        val cached = macroCache
+        if (cached != null && cached.first == currentCameraId) return cached.second
+        var capable = (chars.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE) ?: 0f) >= 20f
+        if (!capable && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            for (id in chars.physicalCameraIds) {
+                try {
+                    val diopters = cameraManager.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE) ?: 0f
+                    if (diopters >= 20f) capable = true
+                } catch (e: Exception) {
+                    // Unreadable lens: ignore.
+                }
+            }
+        }
+        macroCache = currentCameraId to capable
+        return capable
+    }
+
+    /** Which physical lens is taking the picture right now ("Telephoto 17.9 mm"), if the camera says. */
+    fun activeLensLabel(): String? {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.P) return null
+        val id = lastPreviewResult?.get(android.hardware.camera2.CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID) ?: return null
+        lensNameCache[id]?.let { return it }
+        return try {
+            val c = cameraManager.getCameraCharacteristics(id)
+            val focal = c.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.firstOrNull() ?: return null
+            val size = c.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
+            val equivalent = if (size != null) focal * 43.27f / kotlin.math.hypot(size.width, size.height) else focal * 4f
+            val name = when {
+                equivalent < 18f -> "Ultra-wide"
+                equivalent < 45f -> "Main"
+                else -> "Telephoto"
+            }
+            "$name ${String.format(java.util.Locale.US, "%.1f", focal)} mm".also { lensNameCache[id] = it }
+        } catch (e: Exception) {
+            null
+        }
+    }
 
     /** Macro: prefers the camera's close-focus AF mode where it has one. */
     var macroMode: Boolean = false

@@ -500,6 +500,7 @@ private fun Viewfinder(controller: CameraController, showControls: Boolean, stri
             } else {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (controller.mode == CaptureMode.NIGHT) NightDurationPills(controller)
+                    LensLabel(controller)
                     ZoomChips(controller)
                 }
             }
@@ -772,6 +773,29 @@ private fun FlyingCapture(
                 .alpha(1f - 0.4f * p),
         )
     }
+}
+
+/** Small readout of which physical lens is shooting, so it's clear when the telephoto or
+ * ultra-wide takes over from the main lens. */
+@Composable
+private fun LensLabel(controller: CameraController) {
+    var label by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            label = controller.engine.activeLensLabel()
+            delay(400)
+        }
+    }
+    val text = label ?: return
+    Text(
+        text = "$text · ${zoomLabel(controller.zoomRatio)}×",
+        color = Color.White,
+        fontSize = 11.sp,
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color(0x66000000))
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+    )
 }
 
 @Composable
@@ -1057,10 +1081,13 @@ private fun ErrorBanner(message: String, onDismiss: () -> Unit) {
  * is on video, the Video group (Video/Slo-mo). */
 @Composable
 private fun ModeChips(controller: CameraController) {
+    @Suppress("UNUSED_VARIABLE")
+    val epoch = controller.cameraEpoch // refresh when a different camera opens
     val modes = if (controller.mode.isVideo) {
         listOf(CaptureMode.VIDEO)
     } else {
         listOf(CaptureMode.NIGHT, CaptureMode.PHOTO, CaptureMode.PORTRAIT, CaptureMode.MACRO, CaptureMode.PRO)
+            .filter { it != CaptureMode.MACRO || controller.engine.supportsMacro() || controller.mode == CaptureMode.MACRO }
     }
     LazyRow(
         modifier = Modifier.fillMaxWidth(),

@@ -213,3 +213,11 @@ Not built yet (needs on-device testing): a YUV/RAW burst with zero-shutter-lag, 
 - Removed the "Processing N..." pill; the thumbnail's orbiting ring is the only processing cue.
 - Zoom quality: from 2x up, a shot is a 5-frame merged burst with minimal in-camera noise reduction (Settings: Zoom enhance), followed by a wider-radius unsharp mask that grows with the zoom level. Each photo's description now records the zoom and which physical lens captured it, so a telephoto shot can be told from a cropped main-lens one.
 - Predictive-back callback enabled for Android 13+.
+
+## v2.3.1
+
+- Pixel 8a: the widest zoom chip (0.5x) was dropped because it was rounded down below the camera's real minimum (0.53x); the camera's own minimum is now used. With no telephoto, only the 2x crop is offered instead of an extra 5x.
+- Macro is only offered where a lens can focus close (about 5 cm or nearer): the 9 Pro XL's ultra-wide can; the 8a's ultra-wide is fixed-focus.
+- Processing budgets follow the app's real heap limit (about 16 bytes per merged pixel), so a Pixel 8a's smaller heap no longer risks running out of memory in a merge.
+- A lens readout above the zoom chips shows which physical lens is shooting (for example "Telephoto 17.9 mm · 10x").
+- The problem report lists the heap limit.

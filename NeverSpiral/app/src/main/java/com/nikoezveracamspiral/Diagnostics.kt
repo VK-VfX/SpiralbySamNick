@@ -83,7 +83,7 @@ object Diagnostics {
                 appendLine("Niko's Cam ${UpdateManager.installedVersionName(context)} (${UpdateManager.installedVersionCode(context)})")
                 appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
                 val profile = controller.deviceProfile
-                appendLine("Profile: ${profile.label}, ${profile.ramGb} GB, tier ${profile.tier}, burst budget ${profile.burstMaxPixels} px, foldable=${profile.isFoldable}")
+                appendLine("Profile: ${profile.label}, ${profile.ramGb} GB, tier ${profile.tier}, burst budget ${profile.burstMaxPixels} px, heap limit ${profile.heapMb} MB, foldable=${profile.isFoldable}")
                 appendLine("Zoom stops: ${controller.engine.lensSummary()}")
                 val dm = context.resources.displayMetrics
                 appendLine("Display: ${dm.widthPixels}x${dm.heightPixels} px, ${dm.densityDpi} dpi")

@@ -24,6 +24,7 @@ data class DeviceProfile(
     /** Pixel budget (width x height) for the merged burst and for single frames. */
     val burstMaxPixels: Int,
     val singleMaxPixels: Int,
+    val heapMb: Int = 0,
 ) {
     val label: String get() = if (isPixel) model else "$manufacturer $model"
     val ramGb: Int get() = ((totalRamMb + 512) / 1024)
@@ -42,11 +43,12 @@ data class DeviceProfile(
                 ramMb >= 7_000 -> PerformanceTier.MID
                 else -> PerformanceTier.LOW
             }
-            val (burst, single) = when (tier) {
-                PerformanceTier.HIGH -> 17_000_000 to 24_000_000
-                PerformanceTier.MID -> 13_000_000 to 16_800_000
-                PerformanceTier.LOW -> 8_000_000 to 12_000_000
-            }
+            // The budget follows the app's real heap limit, not just the phone's RAM: a merged burst
+            // needs about 16 bytes per pixel and a single frame about 12, and a Pixel 8a's heap
+            // ceiling (about half a 9 Pro XL's) was too small for a 13 MP merge.
+            val heapBytes = Runtime.getRuntime().maxMemory()
+            val burst = (heapBytes * 0.5 / 16.0).toInt().coerceIn(6_000_000, 17_000_000)
+            val single = (heapBytes * 0.55 / 12.0).toInt().coerceIn(8_000_000, 24_000_000)
             return DeviceProfile(
                 manufacturer = Build.MANUFACTURER,
                 model = model,
@@ -57,6 +59,7 @@ data class DeviceProfile(
                 tier = tier,
                 burstMaxPixels = burst,
                 singleMaxPixels = single,
+                heapMb = (heapBytes / (1024 * 1024)).toInt(),
             )
         }
     }
