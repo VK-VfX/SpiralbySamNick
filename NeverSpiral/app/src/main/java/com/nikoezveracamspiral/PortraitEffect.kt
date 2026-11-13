@@ -82,6 +82,26 @@ object PortraitEffect {
         return true
     }
 
+    /**
+     * The live viewfinder version: the blurred background for [style] as an ARGB picture whose alpha
+     * says how much of it to lay over the live view (0 over the subject). [segmentation] is the
+     * person mask at [ww] x [wh] if one is available; otherwise the in-focus area is used.
+     */
+    internal fun overlay(work: IntArray, ww: Int, wh: Int, strength: Float, style: PortraitStyle, segmentation: FloatArray?): IntArray? {
+        val params = paramsFor(style)
+        val lum = FloatArray(ww * wh) { i ->
+            val p = work[i]
+            (0.299f * ((p shr 16) and 0xFF) + 0.587f * ((p shr 8) and 0xFF) + 0.114f * (p and 0xFF)) / 255f
+        }
+        val factor = 0.2f + 0.8f * strength.coerceIn(0f, 1f)
+        val maxRadius = (params.radius * max(ww, wh) * factor * 1.5f).coerceAtLeast(2f)
+        val render = maskRender(work, lum, ww, wh, params, maxRadius, segmentation) ?: return null
+        return IntArray(ww * wh) { i ->
+            val a = (render.weight[i].coerceIn(0f, 1f) * 255f).toInt()
+            (a shl 24) or (render.image[i] and 0xFFFFFF)
+        }
+    }
+
     // ---- AI depth renderer ----
 
     /**
@@ -312,10 +332,10 @@ object PortraitEffect {
 
     // ---- outline renderer (used until the depth model is on the phone) ----
 
-    private fun maskRender(work: IntArray, lum: FloatArray, ww: Int, wh: Int, params: Params, maxRadius: Float): Render? {
+    private fun maskRender(work: IntArray, lum: FloatArray, ww: Int, wh: Int, params: Params, maxRadius: Float, given: FloatArray? = null): Render? {
         val n = ww * wh
         // The subject, snapped to the picture's real edges.
-        val rough = personMask(work, ww, wh) ?: focusMask(lum, ww, wh) ?: return null
+        val rough = given ?: personMask(work, ww, wh) ?: focusMask(lum, ww, wh) ?: return null
         val mask = refine(lum, rough, ww, wh)
         var coverage = 0f
         for (m in mask) if (m > 0.5f) coverage += 1f

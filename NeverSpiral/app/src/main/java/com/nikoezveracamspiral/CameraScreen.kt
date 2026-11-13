@@ -150,6 +150,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
@@ -464,6 +465,47 @@ private fun Viewfinder(controller: CameraController, showControls: Boolean, stri
                 controller.engine.tapToFocus(nx, ny)
             },
         )
+
+        // Portrait's live effect: the chosen style's blurred background laid over the live view.
+        var liveLayer by remember { mutableStateOf<ImageBitmap?>(null) }
+        val liveOn = controller.mode == CaptureMode.PORTRAIT && !controller.isRecording
+        LaunchedEffect(liveOn, controller.portraitStyle, controller.portraitBlurStrength, controller.cameraEpoch) {
+            if (!liveOn) {
+                liveLayer = null
+                PortraitLive.release()
+                return@LaunchedEffect
+            }
+            val style = controller.portraitStyle
+            val strength = controller.portraitBlurStrength
+            try {
+                while (isActive) {
+                    val view = textureRef
+                    val frame = if (view != null && view.isAvailable && view.width > 0 && view.height > 0) {
+                        val lw = 288
+                        val lh = (lw * view.height.toFloat() / view.width).toInt().coerceAtLeast(64)
+                        try { view.getBitmap(lw, lh) } catch (e: Exception) { null }
+                    } else null
+                    if (frame != null) {
+                        val layer = withContext(Dispatchers.Default) { PortraitLive.render(frame, strength, style) }
+                        liveLayer = layer?.asImageBitmap()
+                    }
+                    delay(40)
+                }
+            } finally {
+                PortraitLive.release()
+            }
+        }
+        liveLayer?.let { layer ->
+            if (liveOn) {
+                Image(
+                    bitmap = layer,
+                    contentDescription = null,
+                    contentScale = ContentScale.FillBounds,
+                    filterQuality = androidx.compose.ui.graphics.FilterQuality.High,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
 
         GridOverlay(style = controller.gridStyle, modifier = Modifier.fillMaxSize())
 
