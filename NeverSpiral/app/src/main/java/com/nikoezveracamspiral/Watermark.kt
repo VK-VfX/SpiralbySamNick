@@ -163,6 +163,17 @@ object Watermark {
         }.coerceAtLeast(unit)
         val y0 = h - margin - totalHeight
 
+        // On a bright or busy part of the picture white text washes out: add a soft dark pill behind it.
+        val pad = 1.7f * unit
+        val box = RectF(
+            (x0 - pad).coerceAtLeast(0f), (y0 - pad).coerceAtLeast(0f),
+            (x0 + totalWidth + pad).coerceAtMost(w.toFloat()), (y0 + totalHeight + pad).coerceAtMost(h.toFloat()),
+        )
+        val stats = regionStats(pixels, w, h, box)
+        if (needsBacking(stats.first, stats.second)) {
+            canvas.drawRoundRect(box, 2.2f * unit, 2.2f * unit, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x99101010.toInt() })
+        }
+
         if (logoSize > 0f && logo != null) {
             val top = y0 + (totalHeight - logoSize) / 2f
             canvas.drawBitmap(logo, null, RectF(x0, top, x0 + logoSize, top + logoSize), Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG))
@@ -177,6 +188,36 @@ object Watermark {
         bitmap.recycle()
         return Result(pixels, w, h)
     }
+
+    /** The average brightness (0..255) and how much it varies (standard deviation) in [box] of the picture. */
+    internal fun regionStats(pixels: IntArray, w: Int, h: Int, box: RectF): Pair<Float, Float> {
+        val x0 = box.left.toInt().coerceIn(0, w - 1)
+        val x1 = box.right.toInt().coerceIn(x0 + 1, w)
+        val y0 = box.top.toInt().coerceIn(0, h - 1)
+        val y1 = box.bottom.toInt().coerceIn(y0 + 1, h)
+        var n = 0
+        var sum = 0.0
+        var sum2 = 0.0
+        var y = y0
+        while (y < y1) {
+            var x = x0
+            while (x < x1) {
+                val p = pixels[y * w + x]
+                val l = 0.2126 * ((p shr 16) and 0xFF) + 0.7152 * ((p shr 8) and 0xFF) + 0.0722 * (p and 0xFF)
+                sum += l
+                sum2 += l * l
+                n++
+                x += 2
+            }
+            y += 2
+        }
+        if (n == 0) return Pair(0f, 0f)
+        val mean = sum / n
+        return Pair(mean.toFloat(), kotlin.math.sqrt((sum2 / n - mean * mean).coerceAtLeast(0.0)).toFloat())
+    }
+
+    /** True where white text would be hard to read: a bright area, or a busy one. */
+    internal fun needsBacking(mean: Float, deviation: Float): Boolean = mean > 135f || deviation > 38f
 
     /** A frame bar added under the photo, in the style of the bars on some phone makers' photos. */
     private fun bar(

@@ -1014,6 +1014,9 @@ class CameraController(private val context: Context) {
             }
 
             val first = burst.firstResult
+            // An HDR shot is four deliberately dark frames merged and brightened, so the photo's exposure
+            // numbers are the metered (normal) exposure, not those frames' settings.
+            val metered: Pair<Long, Int>? = if (tone is PhotoProcessor.ToneMode.HdrPlus) base else null
             fun buildMeta(depthNote: String): PhotoMeta {
             val summary = when {
                 night -> "Night Sight, ${exposures.size} frames"
@@ -1023,8 +1026,8 @@ class CameraController(private val context: Context) {
                 else -> "Standard"
             }
             return PhotoMeta(
-                exposureNanos = first?.get(android.hardware.camera2.CaptureResult.SENSOR_EXPOSURE_TIME),
-                iso = first?.get(android.hardware.camera2.CaptureResult.SENSOR_SENSITIVITY),
+                exposureNanos = metered?.first ?: first?.get(android.hardware.camera2.CaptureResult.SENSOR_EXPOSURE_TIME),
+                iso = metered?.second ?: first?.get(android.hardware.camera2.CaptureResult.SENSOR_SENSITIVITY),
                 aperture = first?.get(android.hardware.camera2.CaptureResult.LENS_APERTURE),
                 focalLengthMm = first?.get(android.hardware.camera2.CaptureResult.LENS_FOCAL_LENGTH),
                 software = "Niko's Cam ${UpdateManager.installedVersionName(context)}",

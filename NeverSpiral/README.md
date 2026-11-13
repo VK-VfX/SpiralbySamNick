@@ -214,6 +214,12 @@ Not built yet (needs on-device testing): a YUV/RAW burst with zero-shutter-lag, 
 - Zoom quality: from 2x up, a shot is a 5-frame merged burst with minimal in-camera noise reduction (Settings: Zoom enhance), followed by a wider-radius unsharp mask that grows with the zoom level. Each photo's description now records the zoom and which physical lens captured it, so a telephoto shot can be told from a cropped main-lens one.
 - Predictive-back callback enabled for Android 13+.
 
+## v2.12.0
+
+- **Ultra HDR keeps its boost for highlights only.** The camera's HDR map came from one dark frame of the HDR+ burst, so after the merge it also brightened mid-tones and shadows (a green wall glowed in Google Photos). The boost now applies only to the picture's bright parts, with a smooth fade, so Photos looks like a plain copy except for real highlights. A shot with almost no bright part is saved as a plain JPEG.
+- **Watermark readability:** on a bright or busy part of the photo the text now sits on a soft dark pill; on a calm dark area it stays clean.
+- **Exposure numbers:** an HDR shot's watermark and details now show the metered exposure, not the settings of the four deliberately dark frames.
+
 ## v2.11.0
 
 - **Sensor health** (Settings, Phone): a dark test for the camera sensor's hot pixels. Cover the lens, run it (three long, high-ISO frames), and it lists the bright dots it finds with a small map and a green/yellow/red status. Every run is saved so changes show over time, and **Share report** sends a plain-text report you can give to Google support.

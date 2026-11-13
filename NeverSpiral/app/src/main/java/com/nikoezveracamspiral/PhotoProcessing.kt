@@ -517,8 +517,13 @@ object PhotoProcessor {
             bitmap = Bitmap.createBitmap(pixels, w, h, Bitmap.Config.ARGB_8888)
         }
         val stream = ByteArrayOutputStream(1 shl 20)
-        if (gainmap != null && android.os.Build.VERSION.SDK_INT >= 34) {
-            bitmap.gainmap = gainmap
+        // The HDR boost is kept for the picture's bright parts; a picture with none gets a plain JPEG.
+        val tamed = if (gainmap != null && android.os.Build.VERSION.SDK_INT >= 34) UltraHdr.highlightsOnly(gainmap, pixels, w, h) else null
+        if (gainmap != null && tamed == null && android.os.Build.VERSION.SDK_INT >= 34) {
+            android.util.Log.i("PhotoProcessor", "No bright highlights to boost; saving a plain JPEG")
+        }
+        if (tamed != null && android.os.Build.VERSION.SDK_INT >= 34) {
+            bitmap.gainmap = tamed
             bitmap.compress(Bitmap.CompressFormat.JPEG, quality, stream)
             if (!UltraHdr.isUltraHdr(stream.toByteArray())) {
                 // This Android didn't write the HDR map; save the ordinary JPEG instead.
