@@ -214,6 +214,9 @@ Not built yet (needs on-device testing): a YUV/RAW burst with zero-shutter-lag, 
 - Zoom quality: from 2x up, a shot is a 5-frame merged burst with minimal in-camera noise reduction (Settings: Zoom enhance), followed by a wider-radius unsharp mask that grows with the zoom level. Each photo's description now records the zoom and which physical lens captured it, so a telephoto shot can be told from a cropped main-lens one.
 - Predictive-back callback enabled for Android 13+.
 
+## v2.3.3
+- Fixed the camera freezing after the app was in the background: the camera is now released when the app stops (finishing any recording first) and reopened when you return.
+
 ## v2.3.2
 - Videos are saved the instant recording stops, so they can no longer vanish. With a filter on, the filtered copy is rendered in the background and replaces the original only when it finishes.
 - The thumbnail now opens recordings in a built-in player.

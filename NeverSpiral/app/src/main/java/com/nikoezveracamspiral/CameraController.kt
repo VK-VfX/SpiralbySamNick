@@ -405,7 +405,14 @@ class CameraController(private val context: Context) {
      * [CameraEngine.sensorOrientation] are both known) with the preview size actually chosen,
      * so the caller can scale its TextureView correctly -- and again from [switchCamera], since
      * the front and back cameras can support different preview sizes. */
+    /** True from the moment [start] begins until [stop]; guards against opening twice when both the
+     * surface callback and the lifecycle ask for the camera, and tells the lifecycle when to reopen. */
+    var cameraStarted = false
+        private set
+
     suspend fun start(cameraId: String, texture: SurfaceTexture, applyTransform: (Size) -> Unit) {
+        if (cameraStarted) return
+        cameraStarted = true
         try {
             currentTexture = texture
             this.applyTransform = applyTransform
@@ -421,11 +428,14 @@ class CameraController(private val context: Context) {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            cameraStarted = false
+            try { engine.closeCamera(); engine.stopBackgroundThread() } catch (_: Exception) {}
             fail("Opening camera", e)
         }
     }
 
     fun stop() {
+        cameraStarted = false
         stopSteadyDetection()
         recordingTimerJob?.cancel()
         engine.closeCamera()

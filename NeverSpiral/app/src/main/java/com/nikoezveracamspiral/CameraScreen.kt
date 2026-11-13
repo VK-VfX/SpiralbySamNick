@@ -521,6 +521,32 @@ private fun CameraPreview(
 ) {
     val scope = rememberCoroutineScope()
 
+    // Android takes the camera away when the app is backgrounded, but the TextureView's surface can
+    // survive that, so no "surface available" callback follows on return. Close the camera when the
+    // app stops and reopen it when it comes back.
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    val textureRef = remember { arrayOfNulls<TextureView>(1) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> scope.launch {
+                    if (controller.isRecording) controller.stopVideo()
+                    controller.stop()
+                }
+                androidx.lifecycle.Lifecycle.Event.ON_START -> {
+                    val view = textureRef[0]
+                    val texture = view?.surfaceTexture
+                    if (view != null && view.isAvailable && texture != null && !controller.cameraStarted) {
+                        scope.launch { openForPreview(controller, view, texture) }
+                    }
+                }
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     AndroidView(
         modifier = Modifier
             .fillMaxSize()
@@ -537,6 +563,7 @@ private fun CameraPreview(
             },
         factory = { ctx ->
             TextureView(ctx).apply {
+                textureRef[0] = this
                 onViewReady(this)
                 surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                     override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) {
