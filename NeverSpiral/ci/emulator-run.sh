@@ -6,5 +6,7 @@ mkdir -p ../emulator-results
 ./gradlew connectedDebugAndroidTest -PemulatorAbi=true --stacktrace
 status=$?
 adb logcat -d -t 8000 > ../emulator-results/logcat.txt
-adb pull /sdcard/Android/data/com.nikoezveracamspiral/files/emulator ../emulator-results/files
+mkdir -p ../emulator-results/files
+adb exec-out run-as com.nikoezveracamspiral tar -cf - -C files emulator | tar -xf - -C ../emulator-results/files
+ls -la ../emulator-results/files/emulator || true
 exit $status

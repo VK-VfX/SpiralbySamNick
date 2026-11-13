@@ -88,6 +88,10 @@ import androidx.compose.material.icons.rounded.FlashlightOn
 import androidx.compose.material.icons.rounded.Grid3x3
 import androidx.compose.material.icons.rounded.GridOff
 import androidx.compose.material.icons.rounded.GridOn
+import androidx.compose.material.icons.rounded.SystemUpdate
+import androidx.compose.material.icons.rounded.Send
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Iso
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.ShutterSpeed
@@ -1916,37 +1920,75 @@ private fun SettingsTabs(selected: Int, onSelect: (Int) -> Unit) {
     }
 }
 
-/** Over-the-air updates, shown inside the About page: check, download and install a newer build. */
+/** Over-the-air updates, shown inside the About page as one compact card: check, download and install a newer build. */
 @Composable
-private fun UpdatesBlock(controller: CameraController) {
-    val context = LocalContext.current
+private fun UpdatesCard(controller: CameraController) {
     val scope = rememberCoroutineScope()
     val status = controller.update
-    SheetSection("Updates", "v${UpdateManager.installedVersionName(context)}")
     val message = when (status) {
-        UpdateStatus.Idle -> "Check for a newer build of Niko's Cam."
+        UpdateStatus.Idle -> "Check for a newer build."
         UpdateStatus.Checking -> "Checking..."
         UpdateStatus.UpToDate -> "You're on the latest version."
         is UpdateStatus.Available -> "Version ${status.info.versionName} is available." + if (status.info.notes.isNotBlank()) " ${status.info.notes}" else ""
         is UpdateStatus.Downloading -> "Downloading ${status.info.versionName}: ${(status.progress * 100).toInt()}%"
-        is UpdateStatus.Ready -> "Version ${status.info.versionName} downloaded. Tap Install."
+        is UpdateStatus.Ready -> "Version ${status.info.versionName} downloaded."
         is UpdateStatus.Failed -> status.message
     }
-    Text(message, color = CameraTheme.TEXT_SECONDARY, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 4.dp))
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-        when (status) {
-            is UpdateStatus.Available -> UpdateButton("Download & install", Modifier.weight(1f)) { scope.launch { controller.downloadUpdate() } }
-            is UpdateStatus.Ready -> UpdateButton("Install", Modifier.weight(1f)) { controller.installUpdate() }
-            is UpdateStatus.Downloading, UpdateStatus.Checking -> Unit
-            else -> UpdateButton("Check for updates", Modifier.weight(1f)) { scope.launch { controller.checkForUpdates() } }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(CameraTheme.SURFACE_RAISED)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Updates", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                Text(message, color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp)
+            }
+            when (status) {
+                is UpdateStatus.Available -> CompactButton("Install", Icons.Rounded.SystemUpdate) { scope.launch { controller.downloadUpdate() } }
+                is UpdateStatus.Ready -> CompactButton("Install", Icons.Rounded.SystemUpdate) { controller.installUpdate() }
+                is UpdateStatus.Downloading, UpdateStatus.Checking -> Unit
+                else -> CompactButton("Check", Icons.Rounded.Refresh) { scope.launch { controller.checkForUpdates() } }
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Check at launch", color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp, modifier = Modifier.weight(1f))
+            ChipText("On", controller.autoCheckUpdates) { controller.changeAutoCheckUpdates(true) }
+            ChipText("Off", !controller.autoCheckUpdates) { controller.changeAutoCheckUpdates(false) }
         }
     }
-    SheetSection("Check automatically at launch", if (controller.autoCheckUpdates) "On" else "Off")
-    SegmentRow(
-        options = listOf(true to "On", false to "Off").map { Triple(it.first, it.second, null as ImageVector?) },
-        selected = controller.autoCheckUpdates,
-    ) { controller.changeAutoCheckUpdates(it) }
+}
 
+/** A small, content-width button: white when it is the main action, dark otherwise. */
+@Composable
+private fun CompactButton(label: String, icon: ImageVector?, filled: Boolean = true, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .height(36.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(if (filled) Color.White else CameraTheme.SURFACE_RAISED)
+            .clickable { onClick() }
+            .padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        if (icon != null) Icon(icon, contentDescription = null, tint = if (filled) Color.Black else Color.White, modifier = Modifier.size(16.dp))
+        Text(label, color = if (filled) Color.Black else Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+    }
+}
+
+/** Shares the app's log (with the camera session details) so a problem can be diagnosed. */
+private fun shareLog(context: android.content.Context, scope: kotlinx.coroutines.CoroutineScope, controller: CameraController) {
+    scope.launch {
+        try {
+            Diagnostics.share(context, controller)
+        } catch (e: Exception) {
+            controller.reportError("Couldn't prepare the report: ${e.message ?: e::class.simpleName}")
+        }
+    }
 }
 
 /** This phone and the problem report. */
@@ -1988,69 +2030,58 @@ private fun UpdateSection(controller: CameraController) {
     Spacer(Modifier.height(24.dp))
 }
 
-/** "Something wrong?": shares the app's log (with the camera session details) so a problem can be diagnosed. */
+/** "Something wrong?": one compact button that shares the log, with a one-line explanation. */
 @Composable
 private fun ReportBlock(controller: CameraController) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     SheetSection("Something wrong?", "")
-    Text(
-        "Shares a log with this phone's camera details and what the app was doing, so a problem can be traced.",
-        color = CameraTheme.TEXT_SECONDARY,
-        fontSize = 13.sp,
-        modifier = Modifier.padding(horizontal = 4.dp),
-    )
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-        UpdateButton("Report a problem (share log)", Modifier.weight(1f)) {
-            scope.launch {
-                try {
-                    Diagnostics.share(context, controller)
-                } catch (e: Exception) {
-                    controller.reportError("Couldn't prepare the report: ${e.message ?: e::class.simpleName}")
-                }
-            }
-        }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+        CompactButton("Report a problem", Icons.Rounded.BugReport) { shareLog(context, scope, controller) }
+        Text(
+            "Shares a log of this phone's camera details.",
+            color = CameraTheme.TEXT_SECONDARY,
+            fontSize = 12.sp,
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 
 @Composable
 private fun AboutPage(controller: CameraController) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     Column(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Image(
-            painter = androidx.compose.ui.res.painterResource(R.drawable.dev_avatar),
-            contentDescription = "Nikoezvera",
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.size(112.dp).clip(CircleShape),
-        )
-        Text("Nikoezvera", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-        Text("Developer of Niko's Cam", color = CameraTheme.TEXT_SECONDARY, fontSize = 14.sp)
-        Text(
-            "v${UpdateManager.installedVersionName(context)}",
-            color = CameraTheme.TEXT_SECONDARY,
-            fontSize = 12.sp,
-        )
-        Spacer(Modifier.height(6.dp))
-        SheetSection("Contact", "Telegram")
-        UpdateButton("@xnzvix", Modifier.fillMaxWidth()) {
-            try {
-                context.startActivity(
-                    Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/xnzvix")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                )
-            } catch (e: Exception) {
-                // No app can open the link; nothing more to do.
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.padding(horizontal = 4.dp)) {
+            Image(
+                painter = androidx.compose.ui.res.painterResource(R.drawable.dev_avatar),
+                contentDescription = "Nikoezvera",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.size(72.dp).clip(CircleShape),
+            )
+            Column {
+                Text("Nikoezvera", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
+                Text("Developer of Niko's Cam", color = CameraTheme.TEXT_SECONDARY, fontSize = 13.sp)
+                Text("v${UpdateManager.installedVersionName(context)}", color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp)
             }
         }
-        Spacer(Modifier.height(10.dp))
-        Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            UpdatesBlock(controller)
-            ReportBlock(controller)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(horizontal = 4.dp)) {
+            CompactButton("@xnzvix", Icons.Rounded.Send) {
+                try {
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/xnzvix")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                } catch (e: Exception) {
+                    // No app can open the link; nothing more to do.
+                }
+            }
+            CompactButton("Report a problem", Icons.Rounded.BugReport, filled = false) { shareLog(context, scope, controller) }
         }
-        Spacer(Modifier.height(16.dp))
+        UpdatesCard(controller)
+        Spacer(Modifier.height(8.dp))
     }
 }
 

@@ -9,7 +9,9 @@ import java.io.File
 /** Where the emulator tests leave what they find: a report and a few pictures, pulled out by CI. */
 object TestResults {
     val dir: File by lazy {
-        InstrumentationRegistry.getInstrumentation().targetContext.getExternalFilesDir("emulator")!!.also { it.mkdirs() }
+        // The app's private storage: the CI script reads it back with "adb run-as" (the debug app allows that),
+        // because Android keeps adb out of the shared app-data folders.
+        File(InstrumentationRegistry.getInstrumentation().targetContext.filesDir, "emulator").also { it.mkdirs() }
     }
 
     fun log(line: String) {

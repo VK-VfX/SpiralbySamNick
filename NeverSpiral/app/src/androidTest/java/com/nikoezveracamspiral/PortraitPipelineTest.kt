@@ -35,6 +35,48 @@ class PortraitPipelineTest {
         return out.toByteArray()
     }
 
+    /**
+     * Fills the app's heap with ballast until only [megabytes] of it are left, to behave like a
+     * phone with a smaller memory limit (a Pixel 8a's is about 256 MB). Keep the result referenced
+     * for as long as the squeeze should last.
+     */
+    private fun squeezeHeapTo(megabytes: Int): List<ByteArray> {
+        val runtime = Runtime.getRuntime()
+        System.gc()
+        val chunk = 8 * 1024 * 1024
+        val ballast = ArrayList<ByteArray>()
+        var free = runtime.maxMemory() - (runtime.totalMemory() - runtime.freeMemory())
+        while (free > megabytes.toLong() * 1024 * 1024 + chunk) {
+            ballast.add(ByteArray(chunk))
+            free -= chunk
+        }
+        TestResults.memory("squeezed to about $megabytes MB free (${ballast.size} ballast blocks)")
+        return ballast
+    }
+
+    @Test
+    fun aPortraitOnAHeapTheSizeOfAnEightAs() {
+        val single = (256L * 1024 * 1024 * 0.55 / 12.0).toInt()
+        PhotoProcessor.configure(single, (256L * 1024 * 1024 * 0.5 / 16.0).toInt())
+        DepthModel.init(target)
+        if (!DepthModel.isReady()) runBlocking { DepthModel.download { } }
+        val bytes = testPhoto()
+        val ballast = squeezeHeapTo(256)
+        val workSize = PortraitEffect.workSizeFor(256L * 1024 * 1024)
+        TestResults.log("Small heap: working size $workSize px")
+        val kept = arrayOfNulls<Pair<ByteArray, PortraitAnalysis>>(1)
+        val started = SystemClock.elapsedRealtime()
+        val out = PhotoProcessor.processShots(
+            listOf(bytes), PhotoProcessor.ToneMode.None, Look(), AspectOption.R4_3, false, 95, 0.5f,
+            1f, 1f, false, PortraitStyle.NATURAL, null, null, workSize,
+            portraitSink = { before, analysis -> kept[0] = before to analysis },
+        )
+        TestResults.log("Small heap, Natural: ${SystemClock.elapsedRealtime() - started} ms, result ${out.size / 1024} KB, kept data: ${kept[0] != null}, ballast ${ballast.size} blocks")
+        TestResults.memory("small heap, after")
+        assertNotNull("a portrait should still be made on a small heap", kept[0])
+        TestResults.saveJpeg("portrait_small_heap.jpg", out)
+    }
+
     @Test
     fun everyStyleOnAPhotoThenEditingIt() {
         val profile = DeviceProfile.detect(target)

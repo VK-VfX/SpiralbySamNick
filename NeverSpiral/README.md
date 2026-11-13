@@ -219,6 +219,7 @@ Not built yet (needs on-device testing): a YUV/RAW burst with zero-shutter-lag, 
 - **Portrait has one look now.** The six styles are gone; the **Blur** slider (in the viewfinder and in the editor's Portrait tab) is the control. Photos taken as another style before still open and edit fine.
 - **No more sharp patch of background next to the subject.** The sharp region may take in things nearer than the subject (fingers) but only a little of what is farther (a seat back behind a hand), and for something that isn't a person it can grow less far.
 - **No more pale glow around the subject.** The widest blur layer underneath used to include the subject's own colours, which smeared outward as a glow; it is now made from the background only, and the edge-colour clean-up can darken an edge but only lighten it a little.
+- **A more compact About page** (Settings, the gear inside the gear). The three long bars (Telegram profile, update check, problem report) are now small buttons: your photo and name at the top, "@xnzvix" and "Report a problem" side by side, and the updates in one small card with a single Check or Install button and an On/Off for checking at launch.
 - Tests: the watermark's wording and the saved-Portrait record (including records from 2.7.0) are covered by unit tests, and the emulator job draws every watermark style with the real logo.
 
 ## v2.7.0
