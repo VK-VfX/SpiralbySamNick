@@ -472,6 +472,8 @@ private fun Viewfinder(controller: CameraController, showControls: Boolean, stri
                 sliderKey += 1
                 var nx = (offset.x / size.width).coerceIn(0f, 1f)
                 var ny = (offset.y / size.height).coerceIn(0f, 1f)
+                // In Portrait the tap also sets the subject (sharp, in focus), wherever it is.
+                if (controller.mode == CaptureMode.PORTRAIT) controller.portraitSubject = Pair(nx, ny)
                 // The viewfinder crops the sensor image to the chosen ratio, so map the tap back
                 // into the full sensor frame.
                 val contentWH = 1f / controller.engine.captureAspect()
@@ -556,6 +558,9 @@ private fun Viewfinder(controller: CameraController, showControls: Boolean, stri
                 InfoPill(if (controller.mode.isVideo) "Slo-mo in progress: recording normal video" else "${controller.mode.label} in progress: taking a standard photo")
             }
             if (controller.mode == CaptureMode.MACRO) MacroPill(controller)
+            if (controller.mode == CaptureMode.PORTRAIT && controller.portraitSubject == null && !controller.isRecording) {
+                InfoPill("Tap the subject to set focus and blur")
+            }
             if (controller.aeAfLocked) InfoPill("AE/AF locked: long-press to unlock")
             if (controller.mode == CaptureMode.NIGHT && controller.tripod && controller.holdStillMs == 0L) {
                 InfoPill("Steady: using longer exposures")

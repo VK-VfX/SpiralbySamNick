@@ -216,6 +216,7 @@ Not built yet (needs on-device testing): a YUV/RAW burst with zero-shutter-lag, 
 
 ## v2.5.5
 - **Two-lens stereo now actually runs on the Pixel 9 Pro XL.** The phone lists its main lens under two ids (2 and 5, both 6.9 mm), and the app threw away the ultra-wide frame whenever the camera reported the other id. Lenses are now compared by focal length. The log (Report a problem) says why stereo was skipped, if it still is: wrong lens, no frame in time, focal ratio, or not enough texture.
+- **Tap to set the subject (Portrait).** Tapping the viewfinder sets focus as before and now also picks the subject: the person under your finger, or else the in-focus object around that spot (a patch around the touch if nothing stands out). That subject stays sharp and sets the focus plane; everything else is blurred around it. A hint pill shows until you tap; changing mode or zoom clears the tap.
 - **Lower memory use in Portrait:** the working picture is capped at 1024 pixels on the long side (was 1280), which cuts the garbage-collection stalls seen in the log.
 
 ## v2.5.4

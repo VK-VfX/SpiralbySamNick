@@ -83,6 +83,8 @@ class CameraController(private val context: Context) {
     var portraitBlurStrength by mutableStateOf(0.5f)
     /** How Portrait mode treats the background (Natural, Studio, Soft, Bokeh, Stage, Mono). */
     var portraitStyle by mutableStateOf(PortraitStyle.NATURAL)
+    /** Where the user tapped the viewfinder in Portrait (0..1 across and down): that spot sets the subject. */
+    var portraitSubject by mutableStateOf<Pair<Float, Float>?>(null)
     /** Night Sight: roughly how long to expose, 3 or 6 seconds. */
     var nightSeconds by mutableIntStateOf(3)
     var videoConfig by mutableStateOf(VideoConfig())
@@ -405,6 +407,7 @@ class CameraController(private val context: Context) {
         if (isRecording || newMode == mode) return
         val previous = mode
         mode = newMode
+        portraitSubject = null
         pushProSettings()
         engine.macroMode = newMode == CaptureMode.MACRO
         if (newMode == CaptureMode.MACRO) {
@@ -504,8 +507,11 @@ class CameraController(private val context: Context) {
     fun setZoom(ratio: Float) {
         val wasBelowOne = zoomRatio < 0.99f
         val wasStereoRange = zoomRatio in 0.99f..1.05f
+        val zoomBefore = zoomRatio
         zoomRatio = ratio.coerceIn(engine.minZoomRatio(), engine.maxZoomRatio().coerceAtLeast(1f))
         engine.setZoom(zoomRatio)
+        // A different zoom is a different picture, so a tapped subject no longer points at it.
+        if (kotlin.math.abs(zoomRatio - zoomBefore) > 0.02f) portraitSubject = null
         // RAW below 1x comes from the ultra-wide lens itself, which needs its own stream, so the
         // session is rebuilt when zoom crosses 1x with RAW on.
         val rawChange = wasBelowOne != (zoomRatio < 0.99f) && isRawEnabled
@@ -907,6 +913,7 @@ class CameraController(private val context: Context) {
                 stamp = stamp,
                 meta = jobMeta,
                 depth = depthCapture,
+                subjectTap = if (mode == CaptureMode.PORTRAIT) portraitSubject else null,
                 noiseScale = sqrt((meta.iso ?: 400) / 400f).coerceIn(0.8f, 2.2f),
                 zoomRatio = zoomRatio,
                 keepUltraHdr = engine.ultraHdrActive,
@@ -1015,13 +1022,14 @@ class CameraController(private val context: Context) {
         val zoomRatio: Float,
         val keepUltraHdr: Boolean,
         val depth: DepthCapture? = null,
+        val subjectTap: Pair<Float, Float>? = null,
     )
 
     private suspend fun runPhotoJob(job: PhotoJob) {
         try {
             // On any failure the camera's own JPEG, already saved, simply stays as the photo.
             val jpeg = try {
-                PhotoProcessor.processShots(job.frames, job.tone, job.look, job.ratio, job.mirror, job.quality, job.portraitBlur, job.noiseScale, job.zoomRatio, job.keepUltraHdr, job.portraitStyle, job.depth)
+                PhotoProcessor.processShots(job.frames, job.tone, job.look, job.ratio, job.mirror, job.quality, job.portraitBlur, job.noiseScale, job.zoomRatio, job.keepUltraHdr, job.portraitStyle, job.depth, job.subjectTap)
             } catch (e: Exception) {
                 Log.e(TAG, "Processing failed; keeping the camera's own JPEG", e)
                 null

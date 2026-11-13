@@ -59,7 +59,7 @@ object PortraitEffect {
     private class Render(val image: IntArray, val weight: FloatArray)
 
     /** Returns true if a subject was found and the background was blurred. [strength] is 0..1. */
-    fun apply(pixels: IntArray, w: Int, h: Int, strength: Float, style: PortraitStyle = PortraitStyle.NATURAL, cues: DepthCues? = null): Boolean {
+    fun apply(pixels: IntArray, w: Int, h: Int, strength: Float, style: PortraitStyle = PortraitStyle.NATURAL, cues: DepthCues? = null, tap: Pair<Float, Float>? = null): Boolean {
         val params = paramsFor(style)
         val longSide = max(w, h)
         val scale = min(1f, 1024f / longSide)
@@ -76,8 +76,8 @@ object PortraitEffect {
 
         // Depth from the camera's own measurements plus the subject's outline; the plain
         // outline blur is the last resort.
-        val render = depthRender(work, lum, ww, wh, params, maxRadius, cues)
-            ?: maskRender(work, lum, ww, wh, params, maxRadius)
+        val render = depthRender(work, lum, ww, wh, params, maxRadius, cues, tap)
+            ?: maskRender(work, lum, ww, wh, params, maxRadius, tap)
             ?: return false
         composite(pixels, w, h, render, ww, wh, params.subjectLift)
         return true
@@ -110,13 +110,11 @@ object PortraitEffect {
      * own, and the layers are stacked far to near. A sharp subject therefore can't bleed into the
      * blur behind it (no halo), and a blurred foreground can soften what is behind it.
      */
-    private fun depthRender(work: IntArray, lum: FloatArray, ww: Int, wh: Int, params: Params, maxRadius: Float, cues: DepthCues?): Render? {
+    private fun depthRender(work: IntArray, lum: FloatArray, ww: Int, wh: Int, params: Params, maxRadius: Float, cues: DepthCues?, tap: Pair<Float, Float>? = null): Render? {
         val n = ww * wh
 
         // The subject: a person if the model finds one, otherwise whatever is in focus.
-        val person = personMask(work, ww, wh)?.let { cleanMask(it, ww, wh) }?.let { refine(lum, it, ww, wh) }
-        val subject = (person ?: focusMask(lum, ww, wh)?.let { cleanMask(it, ww, wh) }?.let { refine(lum, it, ww, wh) })
-            ?.let { cleanMask(it, ww, wh) }
+        val subject = findSubject(work, lum, ww, wh, tap)
 
         // The outline cue: depth falls away smoothly with distance from the subject's edge.
         val ramp = FloatArray(n) { 1f }
@@ -404,6 +402,76 @@ object PortraitEffect {
         return Render(image, weight)
     }
 
+    /**
+     * The subject as a soft mask, or null if none can be found. With no [tap] it is a person if the
+     * model finds one, otherwise the in-focus area of the frame. With a [tap] (normalised 0..1, where
+     * the user touched the viewfinder) it is the person under the finger, or else the in-focus object
+     * around that spot.
+     */
+    private fun findSubject(work: IntArray, lum: FloatArray, ww: Int, wh: Int, tap: Pair<Float, Float>?): FloatArray? {
+        val tx = tap?.let { (it.first * (ww - 1)).roundToInt().coerceIn(0, ww - 1) } ?: 0
+        val ty = tap?.let { (it.second * (wh - 1)).roundToInt().coerceIn(0, wh - 1) } ?: 0
+        val reach = max(3, (0.03f * max(ww, wh)).roundToInt())
+        val person = personMask(work, ww, wh)?.let { cleanMask(it, ww, wh) }
+        if (person != null) {
+            val onPerson = tap == null || componentAt(person, ww, wh, tx, ty, reach) != null
+            if (onPerson) return cleanMask(refine(lum, person, ww, wh), ww, wh)
+        }
+        val focus = if (tap != null) focusMask(lum, ww, wh, tap.first, tap.second) else focusMask(lum, ww, wh)
+        val rough = when {
+            focus == null -> null
+            tap != null -> componentAt(focus, ww, wh, tx, ty, reach)
+            else -> cleanMask(focus, ww, wh)
+        }
+        val chosen = rough ?: if (tap != null) {
+            // Nothing stands out there: take a small patch around the touch so the tap still sets the subject.
+            val radius = 0.05f * max(ww, wh)
+            FloatArray(ww * wh) { i ->
+                val dx = (i % ww) - tx
+                val dy = (i / ww) - ty
+                if (dx * dx + dy * dy <= radius * radius) 1f else 0f
+            }
+        } else null
+        return chosen?.let { cleanMask(refine(lum, it, ww, wh), ww, wh) }
+    }
+
+    /** The piece of [mask] (above 0.5) that touches the point (x, y) or lies within [reach] pixels of it, or null if there is none. */
+    private fun componentAt(mask: FloatArray, w: Int, h: Int, x: Int, y: Int, reach: Int): FloatArray? {
+        var start = -1
+        var best = Int.MAX_VALUE
+        for (yy in max(0, y - reach)..min(h - 1, y + reach)) {
+            for (xx in max(0, x - reach)..min(w - 1, x + reach)) {
+                if (mask[yy * w + xx] > 0.5f) {
+                    val d = (xx - x) * (xx - x) + (yy - y) * (yy - y)
+                    if (d < best) { best = d; start = yy * w + xx }
+                }
+            }
+        }
+        if (start < 0) return null
+        val out = FloatArray(w * h)
+        val queue = IntArray(w * h)
+        var head = 0
+        var tail = 0
+        queue[tail++] = start
+        out[start] = mask[start]
+        while (head < tail) {
+            val i = queue[head++]
+            val cx = i % w
+            val cy = i / w
+            fun visit(j: Int) {
+                if (out[j] == 0f && mask[j] > 0.5f) {
+                    out[j] = mask[j]
+                    queue[tail++] = j
+                }
+            }
+            if (cx > 0) visit(i - 1)
+            if (cx < w - 1) visit(i + 1)
+            if (cy > 0) visit(i - w)
+            if (cy < h - 1) visit(i + w)
+        }
+        return out
+    }
+
     /** A depth cue resized to the working size and spread over 0..1 (first = value, second = confidence), or null if it is too weak to use. */
     private fun normalisedCue(plane: DepthPlane, ww: Int, wh: Int): Pair<FloatArray, FloatArray>? {
         val n = ww * wh
@@ -425,11 +493,10 @@ object PortraitEffect {
 
     // ---- outline renderer (the last resort when no depth can be built) ----
 
-    private fun maskRender(work: IntArray, lum: FloatArray, ww: Int, wh: Int, params: Params, maxRadius: Float): Render? {
+    private fun maskRender(work: IntArray, lum: FloatArray, ww: Int, wh: Int, params: Params, maxRadius: Float, tap: Pair<Float, Float>? = null): Render? {
         val n = ww * wh
         // The subject, snapped to the picture's real edges.
-        val rough = personMask(work, ww, wh) ?: focusMask(lum, ww, wh) ?: return null
-        val mask = refine(lum, rough, ww, wh)
+        val mask = findSubject(work, lum, ww, wh, tap) ?: return null
         var coverage = 0f
         for (m in mask) if (m > 0.5f) coverage += 1f
         coverage /= n
@@ -558,7 +625,7 @@ object PortraitEffect {
      * much fine detail each area has, favouring the middle of the frame and filled in so a plain
      * surface inside the subject isn't left out. Null when nothing stands out.
      */
-    internal fun focusMask(lum: FloatArray, ww: Int, wh: Int): FloatArray? {
+    internal fun focusMask(lum: FloatArray, ww: Int, wh: Int, centreX: Float = 0.5f, centreY: Float = 0.5f): FloatArray? {
         val n = ww * wh
         val tmp = FloatArray(n)
         val energy = FloatArray(n)
@@ -578,8 +645,8 @@ object PortraitEffect {
         // How much detail the middle of the frame has is the yardstick for "in focus".
         var centre = 0f
         var count = 0
-        for (y in (wh * 0.3f).toInt() until (wh * 0.7f).toInt()) {
-            for (x in (ww * 0.3f).toInt() until (ww * 0.7f).toInt()) {
+        for (y in ((centreY - 0.2f) * wh).toInt().coerceAtLeast(0) until ((centreY + 0.2f) * wh).toInt().coerceAtMost(wh)) {
+            for (x in ((centreX - 0.2f) * ww).toInt().coerceAtLeast(0) until ((centreX + 0.2f) * ww).toInt().coerceAtMost(ww)) {
                 centre += energy[y * ww + x]
                 count++
             }
@@ -590,9 +657,9 @@ object PortraitEffect {
 
         val conf = FloatArray(n)
         parallelFor(wh) { y ->
-            val dy = (y - wh / 2f) / (wh / 2f)
+            val dy = (y - centreY * wh) / (wh / 2f)
             for (x in 0 until ww) {
-                val dx = (x - ww / 2f) / (ww / 2f)
+                val dx = (x - centreX * ww) / (ww / 2f)
                 val prior = (1f - 0.45f * (dx * dx + dy * dy) / 2f).coerceIn(0.5f, 1f)
                 val e = energy[y * ww + x] * prior
                 conf[y * ww + x] = smooth(((e - 0.35f * reference) / (0.5f * reference)).coerceIn(0f, 1f))

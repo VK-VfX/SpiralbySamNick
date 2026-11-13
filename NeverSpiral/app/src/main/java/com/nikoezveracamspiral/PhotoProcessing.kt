@@ -512,6 +512,7 @@ object PhotoProcessor {
         keepUltraHdr: Boolean = false,
         portraitStyle: PortraitStyle = PortraitStyle.NATURAL,
         depth: DepthCapture? = null,
+        subjectTap: Pair<Float, Float>? = null,
     ): ByteArray {
         val refIndex = frames.size / 2
         val maxPixels = if (frames.size > 1) burstMaxPixels else singleMaxPixels
@@ -539,7 +540,7 @@ object PhotoProcessor {
             try {
                 // The measured depth cues are made before anything touches the pixels.
                 val cues = depth?.let { PortraitDepth.cues(it, pixels, w, h, ratio, mirror) }
-                PortraitEffect.apply(pixels, w, h, portraitBlur, portraitStyle, cues)
+                PortraitEffect.apply(pixels, w, h, portraitBlur, portraitStyle, cues, subjectTap)
             } catch (e: Exception) {
                 android.util.Log.w("PhotoProcessor", "Portrait blur failed; keeping the unblurred photo", e)
             }
