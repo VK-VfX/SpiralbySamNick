@@ -82,6 +82,9 @@ object UltraHdr {
         }
         val flip = Matrix().apply { if (mirror) postScale(-1f, 1f) }
         val result = Bitmap.createBitmap(contents, cx, cy, cw, ch, flip, true)
-        return android.graphics.Gainmap(original, result)
+        // Reuse the camera's own gain map (it carries the brightness range and curve settings) and
+        // swap in the contents turned and cropped to match the finished picture.
+        original.gainmapContents = result
+        return original
     }
 }

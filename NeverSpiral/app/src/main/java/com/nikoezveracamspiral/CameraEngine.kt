@@ -622,7 +622,13 @@ class CameraEngine(private val context: Context) {
                     val configs = ArrayList<OutputConfiguration>()
                     configs.add(OutputConfiguration(previewSurface))
                     val still = OutputConfiguration(reader.surface)
-                    if (plan.p3 && Build.VERSION.SDK_INT >= 34) still.setColorSpace(ColorSpace.Named.DISPLAY_P3)
+                    if (plan.p3 && Build.VERSION.SDK_INT >= 34) {
+                        // Looked up at run time: the call isn't in the SDK this app is compiled against.
+                        // If the phone lacks it the exception drops P3 and the next plan is tried.
+                        OutputConfiguration::class.java
+                            .getMethod("setColorSpace", ColorSpace.Named::class.java)
+                            .invoke(still, ColorSpace.Named.DISPLAY_P3)
+                    }
                     configs.add(still)
                     rawSurface?.let { surface ->
                         val rawConfig = OutputConfiguration(surface)
