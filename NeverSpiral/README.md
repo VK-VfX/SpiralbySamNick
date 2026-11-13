@@ -218,6 +218,7 @@ Not built yet (needs on-device testing): a YUV/RAW burst with zero-shutter-lag, 
 
 - **Pixel looks.** A new **Pixel** tab in Filters with Pixel's four base styles (Original, Natural, Shadows, Vanilla) and six creative presets (Editorial, Velvet, Classic, Digi, Black Tie, Minimal). They apply to photos, the editor, Night Sight (Google engine too) and video. Red/green/blue-specific colour (Editorial's washed blues, Velvet's rich blues and reds with cool greens) is applied on the saved photo; the live preview shows the overall colour and tone. Minimal adds no extra sharpening.
 - **Fine-tuning** in Adjust now reads in Pixel's units: Warmth -10..+10, Sharpness 0..15, Grain None/Weak/Moderate/Strong, plus a new Vibrance slider (lifts muted colours more than strong ones). Contrast, Highlights, Shadows and Tint were already there.
+- **Flash fix.** Auto and On never fired on Pixels: the shot skipped the auto-exposure precapture (pre-flash) step the camera needs first. The shutter now runs it (up to 2.5 s) before a flash photo.
 - **Always use selected look** (Photo settings): on keeps the look every launch, off starts plain.
 
 ## v2.8.0

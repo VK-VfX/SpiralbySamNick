@@ -853,6 +853,10 @@ class CameraController(private val context: Context) {
                 }
             }
 
+            if (flashActive && !manualExposure && engine.hasFlash) {
+                // Pixels only fire the flash when the shot follows an auto-exposure precapture.
+                engine.runFlashPrecapture()
+            }
             val rawIndices: Set<Int>? = if (isRawEnabled && engine.rawActive) rawIndicesFor(exposures.size) else null
             val burst = withTimeout(25_000) {
                 engine.captureBurst(rotationDegrees, exposures, rawIndices, withStereo = mode == CaptureMode.PORTRAIT && engine.stereoActive)

@@ -868,8 +868,13 @@ class CameraEngine(private val context: Context) {
     private val captureCallback = object : CameraCaptureSession.CaptureCallback() {
         override fun onCaptureCompleted(session: CameraCaptureSession, request: CaptureRequest, result: TotalCaptureResult) {
             lastPreviewResult = result
+            aeStateWatcher?.invoke(result.get(CaptureResult.CONTROL_AE_STATE))
         }
     }
+
+    /** Told the auto-exposure state of every viewfinder frame while a flash precapture waits on it. */
+    @Volatile
+    private var aeStateWatcher: ((Int?) -> Unit)? = null
 
     /** The exposure (nanoseconds, ISO) auto-exposure has currently settled on, read from the
      * latest preview frame: the starting point an HDR bracket is built around. */
@@ -1082,6 +1087,53 @@ class CameraEngine(private val context: Context) {
     fun setFlashMode(mode: FlashMode) {
         flashMode = mode
         startRepeatingPreview()
+    }
+
+    /** True when the open camera has a flash unit (most front cameras don't). */
+    val hasFlash: Boolean
+        get() = characteristics?.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+
+    /**
+     * Camera2's pre-flash step. A still taken with the flash set to Auto or On has to be preceded by
+     * an auto-exposure precapture sequence (the phone meters the flash, fires its pre-flash and
+     * settles); without it Pixels take the picture with no flash at all. Returns once the sequence
+     * finishes or after [timeoutMs], so a camera that never reports it can't hold the shutter.
+     */
+    suspend fun runFlashPrecapture(timeoutMs: Long = 2500L) {
+        if (flashMode != FlashMode.ON && flashMode != FlashMode.AUTO) return
+        if (!hasFlash || extensionSession != null) return
+        val device = cameraDevice ?: return
+        val session = captureSession ?: return
+        val surface = previewSurface ?: return
+        suspendCancellableCoroutine<Unit> { cont ->
+            var finished = false
+            var sawPrecapture = false
+            val handler = backgroundHandler
+            fun done() {
+                if (finished) return
+                finished = true
+                aeStateWatcher = null
+                if (cont.isActive) cont.resume(Unit)
+            }
+            try {
+                val builder = device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
+                builder.addTarget(surface)
+                applyControls(builder, preview = true)
+                builder.set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER, CameraMetadata.CONTROL_AE_PRECAPTURE_TRIGGER_START)
+                // The trigger frame is one-off; the sequence's progress shows in the viewfinder frames after it.
+                aeStateWatcher = { state ->
+                    if (state == CaptureResult.CONTROL_AE_STATE_PRECAPTURE) sawPrecapture = true
+                    else if (sawPrecapture) done()
+                }
+                session.capture(builder.build(), captureCallback, handler)
+                // Flash-less results, or a camera that never enters precapture: don't wait forever.
+                handler?.postDelayed({ done() }, timeoutMs) ?: done()
+            } catch (ex: Exception) {
+                android.util.Log.w("CameraEngine", "Flash precapture failed: ${ex.message}")
+                done()
+            }
+            cont.invokeOnCancellation { aeStateWatcher = null }
+        }
     }
 
     /** Rotates a normalized (0..1, 0..1) tap point from on-screen preview space into sensor
