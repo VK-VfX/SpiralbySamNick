@@ -65,6 +65,7 @@ class CameraEngine(private val context: Context) {
     private var previewSurface: Surface? = null
     private var jpegReader: ImageReader? = null
     private var rawReader: ImageReader? = null
+    private var stereoReader: ImageReader? = null
     private var extensionSession: CameraExtensionSession? = null
     private var extensionJpegReader: ImageReader? = null
     private var extensionZoomSupported = false
@@ -192,6 +193,9 @@ class CameraEngine(private val context: Context) {
         jpegReader = null
         rawReader?.close()
         rawReader = null
+        stereoReader?.close()
+        stereoReader = null
+        stereoPhysicalId = null
         // previewSurface is kept: it is tied to the SurfaceTexture, and creating a second Surface
         // for a texture whose first one is still connected is what the log flagged as
         // "createEvilTwin". It is released in closeCamera().
@@ -469,7 +473,55 @@ class CameraEngine(private val context: Context) {
     var rawIsFromWideLens: Boolean = false
         private set
 
-    private data class SessionPlan(val ultraHdr: Boolean, val p3: Boolean, val physicalRaw: String?, val raw: Boolean)
+    /** Portrait asks for the second lens's view with every shot (depth from two lenses). */
+    var stereoWanted: Boolean = false
+
+    /** The second lens delivering a view with each Portrait shot, or null when there isn't one. */
+    var stereoPhysicalId: String? = null
+        private set
+    private var stereoMainId: String? = null
+
+    val stereoActive: Boolean
+        get() = stereoReader != null && stereoPhysicalId != null
+
+    private data class SessionPlan(
+        val ultraHdr: Boolean, val p3: Boolean, val physicalRaw: String?, val raw: Boolean, val stereo: String? = null,
+    )
+
+    /** (main lens, wider lens) of a multi-lens camera, or null if it hasn't a clearly wider second lens. */
+    @SuppressLint("NewApi")
+    private fun stereoPair(chars: CameraCharacteristics): Pair<String, String>? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return null
+        val ids = chars.physicalCameraIds
+        if (ids.size < 2) return null
+        fun focalNorm(id: String): Float? = try {
+            val c = cameraManager.getCameraCharacteristics(id)
+            val f = c.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.firstOrNull()
+            val size = c.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
+            if (f == null || size == null) null else f / max(size.width, size.height)
+        } catch (e: Exception) {
+            null
+        }
+        val logical = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.firstOrNull()
+        val logicalSize = chars.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
+        val mainNorm = if (logical != null && logicalSize != null) logical / max(logicalSize.width, logicalSize.height) else null
+        val norms = ids.mapNotNull { id -> focalNorm(id)?.let { id to it } }
+        if (norms.size < 2) return null
+        val main = (if (mainNorm != null) norms.minByOrNull { abs(it.second - mainNorm) } else null) ?: return null
+        val wide = norms.filter { it.first != main.first }.minByOrNull { it.second } ?: return null
+        // Only a clearly wider lens can see everything the main lens does.
+        return if (wide.second < main.second * 0.8f && wide.second > main.second * 0.25f) Pair(main.first, wide.first) else null
+    }
+
+    private fun chooseStereoSize(wideChars: CameraCharacteristics): Size? {
+        val map = wideChars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return null
+        val sizes = map.getOutputSizes(ImageFormat.YUV_420_888) ?: return null
+        val active = wideChars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE) ?: return null
+        val aspect = active.width().toFloat() / active.height()
+        val matching = sizes.filter { abs(it.width.toFloat() / it.height - aspect) < 0.02f && max(it.width, it.height) <= 2400 }
+        return matching.filter { max(it.width, it.height) >= 1280 }.minByOrNull { it.width.toLong() * it.height }
+            ?: matching.maxByOrNull { it.width.toLong() * it.height }
+    }
 
     @SuppressLint("NewApi")
     private fun jpegRSupported(chars: CameraCharacteristics): Boolean =
@@ -530,7 +582,15 @@ class CameraEngine(private val context: Context) {
         val p3WithUltra = ultra && p3Supported(chars, ImageFormat.JPEG_R)
         val p3Plain = p3Supported(chars, ImageFormat.JPEG)
 
+        // Portrait at 1x also takes the ultra-wide lens's view with every shot, for depth.
+        val stereo = if (stereoWanted && !belowOne && zoomRatio <= 1.05f) stereoPair(chars) else null
+        stereoMainId = stereo?.first
+
         val plans = LinkedHashSet<SessionPlan>()
+        if (stereo != null) {
+            plans.add(SessionPlan(ultra, if (ultra) p3WithUltra else p3Plain, null, wantRaw, stereo.second))
+            plans.add(SessionPlan(false, false, null, wantRaw, stereo.second))
+        }
         plans.add(SessionPlan(ultra, if (ultra) p3WithUltra else p3Plain, wide, wantRaw))
         if (ultra) plans.add(SessionPlan(true, false, wide, wantRaw))
         if (ultra) plans.add(SessionPlan(false, p3Plain, wide, wantRaw))
@@ -545,6 +605,7 @@ class CameraEngine(private val context: Context) {
                 sessionSummary = buildString {
                     append(if (plan.ultraHdr) "Ultra HDR" else "JPEG")
                     append(if (plan.p3) ", Display P3" else ", sRGB")
+                    if (plan.stereo != null) append(", stereo from lens ${plan.stereo}")
                     append(
                         when {
                             !plan.raw -> if (rawRequested) ", RAW off (not available here)" else ", RAW not requested"
@@ -585,6 +646,21 @@ class CameraEngine(private val context: Context) {
             p3Active = plan.p3
             rawPhysicalId = null
             rawCharacteristics = null
+            stereoPhysicalId = null
+
+            var stereoSurface: Surface? = null
+            if (plan.stereo != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val wideChars = try { cameraManager.getCameraCharacteristics(plan.stereo) } catch (e: Exception) { null }
+                val size = wideChars?.let { chooseStereoSize(it) }
+                if (size == null) {
+                    cont.resumeWithException(IllegalStateException("No usable size for the second lens"))
+                    return@suspendCancellableCoroutine
+                }
+                val sr = ImageReader.newInstance(size.width, size.height, ImageFormat.YUV_420_888, 3)
+                stereoReader = sr
+                stereoSurface = sr.surface
+                stereoPhysicalId = plan.stereo
+            }
 
             var rawSurface: Surface? = null
             if (plan.raw) {
@@ -634,6 +710,11 @@ class CameraEngine(private val context: Context) {
                         val rawConfig = OutputConfiguration(surface)
                         plan.physicalRaw?.let { rawConfig.setPhysicalCameraId(it) }
                         configs.add(rawConfig)
+                    }
+                    stereoSurface?.let { surface ->
+                        val stereoConfig = OutputConfiguration(surface)
+                        plan.stereo?.let { stereoConfig.setPhysicalCameraId(it) }
+                        configs.add(stereoConfig)
                     }
                     val executor = Executor { task -> backgroundHandler?.post(task) }
                     device.createCaptureSession(
@@ -955,7 +1036,11 @@ class CameraEngine(private val context: Context) {
             if (controlsLocked) builder.set(CaptureRequest.CONTROL_AE_LOCK, true)
         }
 
-        if (proSettings.manualFocusEnabled) {
+        val sweepDistance = focusOverride
+        if (sweepDistance != null) {
+            builder.set(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_OFF)
+            builder.set(CaptureRequest.LENS_FOCUS_DISTANCE, sweepDistance)
+        } else if (proSettings.manualFocusEnabled) {
             builder.set(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_OFF)
             builder.set(CaptureRequest.LENS_FOCUS_DISTANCE, proSettings.focusDistance)
         } else {
@@ -1096,6 +1181,8 @@ class CameraEngine(private val context: Context) {
         val rawCharacteristics: CameraCharacteristics,
         val characteristics: CameraCharacteristics,
         val firstResult: TotalCaptureResult? = null,
+        /** The second lens's view of the reference frame, when Portrait asked for it and it arrived. */
+        val stereo: StereoFrame? = null,
     )
 
     /**
@@ -1104,7 +1191,7 @@ class CameraEngine(private val context: Context) {
      * afterwards, in the background). A null exposure means automatic. RAW (if on) rides along on
      * the requests listed in [rawIndices].
      */
-    suspend fun captureBurst(deviceRotationDegrees: Int, exposures: List<Pair<Long, Int>?>, rawIndices: Set<Int>?): BurstResult =
+    suspend fun captureBurst(deviceRotationDegrees: Int, exposures: List<Pair<Long, Int>?>, rawIndices: Set<Int>?, withStereo: Boolean = false): BurstResult =
         suspendCancellableCoroutine { cont ->
             val device = cameraDevice
             val session = captureSession
@@ -1120,6 +1207,16 @@ class CameraEngine(private val context: Context) {
             val physicalId = rawPhysicalId
             val rawChars = rawCharacteristics ?: chars
             val total = exposures.size
+            val stereoReaderNow = stereoReader
+            val wantsStereo = withStereo && stereoReaderNow != null && stereoPhysicalId != null
+            val stereoIndex = total / 2
+
+            if (stereoReaderNow != null) {
+                while (true) {
+                    val stale = try { stereoReaderNow.acquireNextImage() } catch (e: IllegalStateException) { null } ?: break
+                    stale.close()
+                }
+            }
 
             // Anything left over from an earlier shot would be mistaken for this burst's frames.
             if (raw != null) {
@@ -1134,6 +1231,7 @@ class CameraEngine(private val context: Context) {
                 builder.addTarget(jpeg.surface)
                 val carriesRaw = wantsRaw && i in rawSet
                 if (carriesRaw) builder.addTarget(raw!!.surface)
+                if (wantsStereo && i == stereoIndex) builder.addTarget(stereoReaderNow!!.surface)
                 applyControls(builder)
                 if (carriesRaw) {
                     // The DNG needs the lens shading map to correct the colour/brightness falloff of
@@ -1161,12 +1259,28 @@ class CameraEngine(private val context: Context) {
             var failed = 0
             var firstResult: TotalCaptureResult? = null
             var finished = false
+            var stereoLuma: ByteArray? = null
+            var stereoW = 0
+            var stereoH = 0
+            var stereoGiveUp = false
+            var stereoWaiting = false
 
             fun maybeFinish() {
                 if (finished) return
                 if (completed + failed < total) return
                 if (jpegs.size < completed) return
                 if (wantsRaw && rawImages.size < rawResultsByIndex.size) return
+                if (wantsStereo && stereoLuma == null && !stereoGiveUp) {
+                    // The second lens's frame normally lands with the others; if it never does, go on without it.
+                    if (!stereoWaiting) {
+                        stereoWaiting = true
+                        backgroundHandler?.postDelayed({
+                            stereoGiveUp = true
+                            maybeFinish()
+                        }, 700)
+                    }
+                    return
+                }
                 finished = true
                 if (jpegs.isEmpty()) {
                     rawImages.forEach { try { it.close() } catch (_: Exception) { } }
@@ -1177,7 +1291,8 @@ class CameraEngine(private val context: Context) {
                     while (rawImages.size > results.size) {
                         try { rawImages.removeAt(rawImages.size - 1).close() } catch (_: Exception) { }
                     }
-                    cont.resume(BurstResult(jpegs.toList(), rawImages.toList(), results, rawChars, chars, firstResult))
+                    val stereoFrame = stereoLuma?.let { buildStereoFrame(it, stereoW, stereoH, deviceRotationDegrees, firstResult) }
+                    cont.resume(BurstResult(jpegs.toList(), rawImages.toList(), results, rawChars, chars, firstResult, stereoFrame))
                 }
             }
 
@@ -1207,6 +1322,33 @@ class CameraEngine(private val context: Context) {
                 }, backgroundHandler)
             }
 
+            if (wantsStereo) {
+                stereoReaderNow!!.setOnImageAvailableListener({ reader ->
+                    while (true) {
+                        val image = try { reader.acquireNextImage() } catch (e: IllegalStateException) { null } ?: break
+                        try {
+                            val plane = image.planes[0]
+                            val w = image.width
+                            val h = image.height
+                            val bytes = ByteArray(w * h)
+                            val buffer = plane.buffer
+                            for (row in 0 until h) {
+                                buffer.position(row * plane.rowStride)
+                                buffer.get(bytes, row * w, w)
+                            }
+                            stereoLuma = bytes
+                            stereoW = w
+                            stereoH = h
+                        } catch (e: Exception) {
+                            android.util.Log.w("CameraEngine", "Couldn't read the second lens's frame", e)
+                        } finally {
+                            image.close()
+                        }
+                    }
+                    maybeFinish()
+                }, backgroundHandler)
+            }
+
             session.captureBurst(requests, object : CameraCaptureSession.CaptureCallback() {
                 override fun onCaptureCompleted(session: CameraCaptureSession, request: CaptureRequest, result: TotalCaptureResult) {
                     completed += 1
@@ -1226,6 +1368,56 @@ class CameraEngine(private val context: Context) {
                 }
             }, backgroundHandler)
         }
+
+    /** What the stereo step needs to line the second lens's frame up with the main picture. */
+    @SuppressLint("NewApi")
+    private fun buildStereoFrame(luma: ByteArray, w: Int, h: Int, deviceRotationDegrees: Int, result: TotalCaptureResult?): StereoFrame? {
+        val wideId = stereoPhysicalId ?: return null
+        val mainId = stereoMainId ?: return null
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return null
+        val active = result?.get(CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID)
+        // If the camera had switched to another lens for this shot, the two views don't line up.
+        if (active != null && active != mainId) return null
+        val wideChars = try { cameraManager.getCameraCharacteristics(wideId) } catch (e: Exception) { return null }
+        val mainChars = try { cameraManager.getCameraCharacteristics(mainId) } catch (e: Exception) { characteristics ?: return null }
+        fun focalNorm(c: CameraCharacteristics): Float? {
+            val f = c.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.firstOrNull()
+            val size = c.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
+            return if (f == null || size == null) null else f / max(size.width, size.height)
+        }
+        val wideNorm = focalNorm(wideChars) ?: return null
+        val mainNorm = focalNorm(mainChars) ?: return null
+        val d = if (deviceRotationDegrees < 0) 0 else ((deviceRotationDegrees + 45) / 90 * 90) % 360
+        val wideOrientation = wideChars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
+        val rotation = (wideOrientation + d) % 360
+        val tw = wideChars.get(CameraCharacteristics.LENS_POSE_TRANSLATION)
+        val tm = mainChars.get(CameraCharacteristics.LENS_POSE_TRANSLATION)
+        val bx = if (tw != null && tm != null) tw[0] - tm[0] else 1f
+        val by = if (tw != null && tm != null) tw[1] - tm[1] else 0f
+        var horizontal = abs(bx) >= abs(by)
+        if (d == 90 || d == 270) horizontal = !horizontal
+        return StereoFrame(luma, w, h, rotation, wideNorm, mainNorm, horizontal)
+    }
+
+    // ---- depth from focus: stepping the lens from far to near while Portrait is open ----
+
+    @Volatile
+    private var focusOverride: Float? = null
+
+    /** The focus distances (diopters; 0 = far) to step through, or null if this lens can't be focused by hand. */
+    fun focusSweepDiopters(): FloatArray? {
+        val chars = characteristics ?: return null
+        val nearest = chars.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE) ?: 0f
+        if (nearest < 2f) return null
+        val steps = floatArrayOf(0f, 0.4f, 0.9f, 1.8f, 3.5f).filter { it <= nearest * 0.9f }
+        return if (steps.size >= 3) steps.toFloatArray() else null
+    }
+
+    /** Holds the lens at [diopters] (null gives focus back to the camera). */
+    fun setFocusOverride(diopters: Float?) {
+        focusOverride = diopters
+        startRepeatingPreview()
+    }
 
     /** Asks the camera's own ISP for its best still-capture processing wherever the device
      * advertises support, plus near-lossless JPEG encoding. */

@@ -76,6 +76,9 @@ class CameraController(private val context: Context) {
         private set
     /** While Night Sight is exposing: how long the user should hold still, in ms. */
     var holdStillMs by mutableLongStateOf(0L)
+    /** Set by the viewfinder: a small copy of the live picture at the given width (for Portrait's depth from focus). */
+    @Volatile
+    var previewGrabber: ((Int) -> android.graphics.Bitmap?)? = null
         private set
     var portraitBlurStrength by mutableStateOf(0.5f)
     /** How Portrait mode treats the background (Natural, Studio, Soft, Bokeh, Stage, Mono). */
@@ -90,9 +93,6 @@ class CameraController(private val context: Context) {
     var ultraHdrEnabled by mutableStateOf(true)
     /** Night mode uses Google's own Night Sight (the system extension) rather than this app's. */
     var nightGoogle by mutableStateOf(false)
-    /** Where the portrait depth model stands (downloaded once, then kept). */
-    var depthStatus by mutableStateOf<DepthStatus>(DepthStatus.Missing)
-        private set
     /** Whether the open camera offers Google's Night extension. */
     var googleNightAvailable by mutableStateOf(false)
         private set
@@ -231,8 +231,6 @@ class CameraController(private val context: Context) {
     }
 
     init {
-        DepthModel.init(context)
-        depthStatus = DepthModel.status()
         try {
             luts.addAll(LutStore.load(context))
         } catch (e: Exception) {
@@ -420,7 +418,11 @@ class CameraController(private val context: Context) {
             setZoom(1f)
         }
         engine.nightPreviewBoost = newMode == CaptureMode.NIGHT
-        if (newMode == CaptureMode.PORTRAIT) fetchDepthModel(userAsked = false)
+        if (newMode == CaptureMode.PORTRAIT || previous == CaptureMode.PORTRAIT) {
+            // Portrait takes the ultra-wide lens's view with each shot, which needs its own stream.
+            engine.stereoWanted = newMode == CaptureMode.PORTRAIT
+            if (!engine.extensionActive) restartStillSession()
+        }
         if (newMode == CaptureMode.NIGHT) startSteadyDetection() else stopSteadyDetection()
         engine.startRepeatingPreview()
         if (newMode == CaptureMode.NIGHT || previous == CaptureMode.NIGHT) applyNightEngine()
@@ -501,11 +503,15 @@ class CameraController(private val context: Context) {
 
     fun setZoom(ratio: Float) {
         val wasBelowOne = zoomRatio < 0.99f
+        val wasStereoRange = zoomRatio in 0.99f..1.05f
         zoomRatio = ratio.coerceIn(engine.minZoomRatio(), engine.maxZoomRatio().coerceAtLeast(1f))
         engine.setZoom(zoomRatio)
         // RAW below 1x comes from the ultra-wide lens itself, which needs its own stream, so the
         // session is rebuilt when zoom crosses 1x with RAW on.
-        if (wasBelowOne != (zoomRatio < 0.99f) && isRawEnabled && !engine.extensionActive && !isRecording) {
+        val rawChange = wasBelowOne != (zoomRatio < 0.99f) && isRawEnabled
+        // Portrait's two-lens depth only works at 1x, where the main lens is the one in use.
+        val stereoChange = mode == CaptureMode.PORTRAIT && wasStereoRange != (zoomRatio in 0.99f..1.05f)
+        if ((rawChange || stereoChange) && !engine.extensionActive && !isRecording) {
             restartStillSession()
         }
     }
@@ -586,38 +592,6 @@ class CameraController(private val context: Context) {
     fun setExposureIndex(index: Int) {
         val range = engine.exposureCompensationRange ?: return
         updateProSettings { it.copy(exposureCompensation = index.coerceIn(range.lower, range.upper)) }
-    }
-
-    // ---- portrait depth model ----
-
-    private var depthJob: Job? = null
-
-    /** Downloads the portrait depth model. Automatic only on an unmetered (Wi-Fi) connection; on
-     * mobile data it waits for the user to ask, since the file is 63 MB. */
-    fun fetchDepthModel(userAsked: Boolean) {
-        if (DepthModel.isReady()) {
-            depthStatus = DepthStatus.Ready
-            return
-        }
-        if (depthJob?.isActive == true) return
-        if (!userAsked) {
-            val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
-            val metered = manager?.isActiveNetworkMetered ?: true
-            if (metered || depthStatus is DepthStatus.Failed) return
-        }
-        depthStatus = DepthStatus.Downloading(0f)
-        depthJob = controllerScope.launch {
-            try {
-                DepthModel.download { progress -> depthStatus = DepthStatus.Downloading(progress) }
-                depthStatus = DepthStatus.Ready
-                lastError = "Portrait depth model ready: portraits now use AI depth"
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.w(TAG, "Depth model download failed", e)
-                depthStatus = DepthStatus.Failed(e.message ?: e::class.simpleName ?: "unknown error")
-            }
-        }
     }
 
     // ---- Google's own Night Sight (system extension) ----
@@ -812,7 +786,7 @@ class CameraController(private val context: Context) {
 
             val rawIndices: Set<Int>? = if (isRawEnabled && engine.rawActive) rawIndicesFor(exposures.size) else null
             val burst = withTimeout(25_000) {
-                engine.captureBurst(rotationDegrees, exposures, rawIndices)
+                engine.captureBurst(rotationDegrees, exposures, rawIndices, withStereo = mode == CaptureMode.PORTRAIT && engine.stereoActive)
             }
             strayRaw = burst.rawImages
             val stamp = CaptureStore.newStamp()
@@ -874,14 +848,15 @@ class CameraController(private val context: Context) {
             }
 
             val first = burst.firstResult
+            fun buildMeta(depthNote: String): PhotoMeta {
             val summary = when {
                 night -> "Night Sight, ${exposures.size} frames"
                 tone is PhotoProcessor.ToneMode.HdrPlus -> "HDR+, ${exposures.size} frames"
-                mode == CaptureMode.PORTRAIT -> "Portrait, ${portraitStyle.label} (${if (DepthModel.isReady()) "AI depth" else "subject outline"})"
+                mode == CaptureMode.PORTRAIT -> "Portrait, ${portraitStyle.label} ($depthNote)"
                 mode == CaptureMode.MACRO -> "Macro"
                 else -> "Standard"
             }
-            val meta = PhotoMeta(
+            return PhotoMeta(
                 exposureNanos = first?.get(android.hardware.camera2.CaptureResult.SENSOR_EXPOSURE_TIME),
                 iso = first?.get(android.hardware.camera2.CaptureResult.SENSOR_SENSITIVITY),
                 aperture = first?.get(android.hardware.camera2.CaptureResult.LENS_APERTURE),
@@ -892,6 +867,8 @@ class CameraController(private val context: Context) {
                     (if (engine.ultraHdrActive) "; Ultra HDR" else "") + (if (engine.p3Active) "; Display P3" else "") +
                     (if (rawImages.size >= 2) "; RAW merged from ${rawImages.size} frames" else ""),
             )
+            }
+            val meta = buildMeta(if (burst.stereo != null) "subject outline + two-lens stereo" else "subject outline")
             val ratioNow = aspectRatio
             val mirrorNow = mirrorSelfies && engine.lensFacing == CameraCharacteristics.LENS_FACING_FRONT
             val blurNow = if (mode == CaptureMode.PORTRAIT) portraitBlurStrength else 0f
@@ -910,6 +887,13 @@ class CameraController(private val context: Context) {
                 mergeRaw?.invoke()
                 return
             }
+            // Portrait also steps the lens from far to near for depth from focus. The photo is
+            // already saved, so nothing is lost if this is slow or fails.
+            val focusStack = if (blurNow > 0f && mode == CaptureMode.PORTRAIT) captureFocusStack() else null
+            val depthCapture = if (burst.stereo != null || focusStack != null) DepthCapture(burst.stereo, focusStack) else null
+            val jobMeta = if (focusStack != null) {
+                buildMeta(if (burst.stereo != null) "subject outline + two-lens stereo + focus sweep" else "subject outline + focus sweep")
+            } else meta
             val job = PhotoJob(
                 uri = instant,
                 frames = burst.jpegs,
@@ -921,7 +905,8 @@ class CameraController(private val context: Context) {
                 portraitBlur = blurNow,
                 portraitStyle = portraitStyle,
                 stamp = stamp,
-                meta = meta,
+                meta = jobMeta,
+                depth = depthCapture,
                 noiseScale = sqrt((meta.iso ?: 400) / 400f).coerceIn(0.8f, 2.2f),
                 zoomRatio = zoomRatio,
                 keepUltraHdr = engine.ultraHdrActive,
@@ -941,6 +926,46 @@ class CameraController(private val context: Context) {
             countdownRemaining = 0
             holdStillMs = 0L
         }
+    }
+
+    /** Portrait: steps the lens from far to near, grabbing a small viewfinder frame at each step, so
+     * how sharp each area looks says how far away it is. Null if the lens can't be stepped. */
+    private suspend fun captureFocusStack(): FocusStack? {
+        val grab = previewGrabber ?: return null
+        if (engine.extensionActive || proSettings.manualFocusEnabled) return null
+        val diopters = engine.focusSweepDiopters() ?: return null
+        holdStillMs = diopters.size * 340L + 300L
+        val frames = ArrayList<ByteArray>()
+        var width = 0
+        var height = 0
+        try {
+            for (d in diopters) {
+                engine.setFocusOverride(d)
+                delay(300)
+                val bitmap = withContext(Dispatchers.Main) { grab(320) } ?: return null
+                val w = bitmap.width
+                val h = bitmap.height
+                val pixels = IntArray(w * h)
+                bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
+                bitmap.recycle()
+                if (width != 0 && (w != width || h != height)) return null
+                width = w
+                height = h
+                frames.add(ByteArray(w * h) { i ->
+                    val p = pixels[i]
+                    ((0.299f * ((p shr 16) and 0xFF) + 0.587f * ((p shr 8) and 0xFF) + 0.114f * (p and 0xFF))).toInt().coerceIn(0, 255).toByte()
+                })
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Focus sweep failed", e)
+            return null
+        } finally {
+            engine.setFocusOverride(null)
+            holdStillMs = 0L
+        }
+        return FocusStack(width, height, diopters, frames)
     }
 
     /** Which requests of a burst of [frames] carry a RAW frame: the middle one alone, or an even
@@ -989,13 +1014,14 @@ class CameraController(private val context: Context) {
         val noiseScale: Float,
         val zoomRatio: Float,
         val keepUltraHdr: Boolean,
+        val depth: DepthCapture? = null,
     )
 
     private suspend fun runPhotoJob(job: PhotoJob) {
         try {
             // On any failure the camera's own JPEG, already saved, simply stays as the photo.
             val jpeg = try {
-                PhotoProcessor.processShots(job.frames, job.tone, job.look, job.ratio, job.mirror, job.quality, job.portraitBlur, job.noiseScale, job.zoomRatio, job.keepUltraHdr, job.portraitStyle)
+                PhotoProcessor.processShots(job.frames, job.tone, job.look, job.ratio, job.mirror, job.quality, job.portraitBlur, job.noiseScale, job.zoomRatio, job.keepUltraHdr, job.portraitStyle, job.depth)
             } catch (e: Exception) {
                 Log.e(TAG, "Processing failed; keeping the camera's own JPEG", e)
                 null

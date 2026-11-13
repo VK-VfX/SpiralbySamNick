@@ -214,8 +214,19 @@ Not built yet (needs on-device testing): a YUV/RAW burst with zero-shutter-lag, 
 - Zoom quality: from 2x up, a shot is a 5-frame merged burst with minimal in-camera noise reduction (Settings: Zoom enhance), followed by a wider-radius unsharp mask that grows with the zoom level. Each photo's description now records the zoom and which physical lens captured it, so a telephoto shot can be told from a cropped main-lens one.
 - Predictive-back callback enabled for Android 13+.
 
+## v2.5.3
+- **Portrait without a downloaded AI model.** The 63 MB depth model is gone (the app is smaller and nothing is downloaded). Depth now comes from what the phone can measure itself:
+  - **Subject outline plus distance ramp:** the person model (or the in-focus area for objects) is snapped to the picture's real edges and the blur deepens smoothly with distance from it.
+  - **Stereo from two lenses (1x, back camera):** each Portrait shot also takes the ultra-wide lens's view. It is cropped and enlarged to the main lens's field of view and matched pixel by pixel along the line between the lenses; nearer things shift more.
+  - **Depth from focus:** after the shot the lens steps from far to near (about 1.5 s, "Hold still") and the step at which each area looks sharpest says how far away it is.
+  The cues are used only where the picture has enough detail to trust; everywhere else the outline ramp decides. The photo's description in Details says which cues were used.
+- **Whole subject kept sharp:** the sharp region grows from the subject across connected pixels at the same measured depth (fingers, a held object), and is snapped to real edges.
+- **Google/Apple-style blur:** everything behind the subject gets a clear minimum blur that deepens with distance; things in front are blurred far less.
+- **Live preview:** each Portrait style (and the blur slider) shows in the viewfinder, using the person model on small frames about 10 times a second.
+- **Update button back in About:** Settings, the gear inside the gear: updates and the auto-check live there, and the update pill opens it.
+
 ## v2.5.2
-- **Portrait with real depth.** An AI model (Intel's MiDaS, 63 MB, downloaded once and kept) turns the photo into a depth map. Portrait then simulates a large-aperture lens: every pixel is blurred by how far it is from the focus plane, in front of it or behind it; the picture is split into layers by blur size and stacked far to near, so a sharp subject can't bleed into the blur and a blurred foreground softens what is behind it. The depth map is snapped to the photo's real edges. The model downloads on Wi-Fi when you open Portrait (or when you tap to allow it on mobile data); until then the subject-outline blur from 2.5.1 is used.
+- **Portrait with real depth.** (Replaced in 2.5.3 by the on-phone cues above.) An AI model (Intel's MiDaS, 63 MB, downloaded once and kept) turns the photo into a depth map. Portrait then simulates a large-aperture lens: every pixel is blurred by how far it is from the focus plane, in front of it or behind it; the picture is split into layers by blur size and stacked far to near, so a sharp subject can't bleed into the blur and a blurred foreground softens what is behind it. The depth map is snapped to the photo's real edges. The model downloads on Wi-Fi when you open Portrait (or when you tap to allow it on mobile data); until then the subject-outline blur from 2.5.1 is used.
 
 ## v2.5.1
 - **Portrait rebuilt.** The subject outline is snapped to the picture's real edges (guided filter) instead of floating next to them, and leans slightly outward so hair and fine edges stay sharp. The blur uses background colours only, so the glow around the subject is gone, and it grows with distance from the subject like a real lens. Grain is put back into the blur so it doesn't look plastic.
