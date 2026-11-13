@@ -29,6 +29,7 @@
         android:theme="@style/Theme.NeverSpiral"
         android:supportsRtl="true"
         android:largeHeap="true"
+        android:enableOnBackInvokedCallback="true"
         android:requestLegacyExternalStorage="true">
 
         <activity
