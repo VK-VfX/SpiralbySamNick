@@ -214,6 +214,11 @@ Not built yet (needs on-device testing): a YUV/RAW burst with zero-shutter-lag, 
 - Zoom quality: from 2x up, a shot is a 5-frame merged burst with minimal in-camera noise reduction (Settings: Zoom enhance), followed by a wider-radius unsharp mask that grows with the zoom level. Each photo's description now records the zoom and which physical lens captured it, so a telephoto shot can be told from a cropped main-lens one.
 - Predictive-back callback enabled for Android 13+.
 
+## v2.5.1
+- **Portrait rebuilt.** The subject outline is snapped to the picture's real edges (guided filter) instead of floating next to them, and leans slightly outward so hair and fine edges stay sharp. The blur uses background colours only, so the glow around the subject is gone, and it grows with distance from the subject like a real lens. Grain is put back into the blur so it doesn't look plastic.
+- **Works on objects too:** when no person is found, the part of the frame that is in focus becomes the subject.
+- **Looks:** Natural, Studio, Soft, Bokeh, Stage (dark backdrop) and Mono (black-and-white backdrop), chosen above the shutter in Portrait mode. The blur strength control stays, and the default is subtler.
+
 ## v2.5.0
 - **RAW at 0.5x:** with RAW on, the ultra-wide shot now takes its RAW from the ultra-wide lens itself (it used to quietly come from the main lens). If the phone refuses that setup the shot falls back to JPEG only, with a note.
 - **Display P3:** photos are captured, processed and saved in the wider Display P3 colour range where the camera supports it.

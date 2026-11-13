@@ -510,6 +510,7 @@ object PhotoProcessor {
         noiseScale: Float = 1f,
         zoomRatio: Float = 1f,
         keepUltraHdr: Boolean = false,
+        portraitStyle: PortraitStyle = PortraitStyle.NATURAL,
     ): ByteArray {
         val refIndex = frames.size / 2
         val maxPixels = if (frames.size > 1) burstMaxPixels else singleMaxPixels
@@ -535,7 +536,7 @@ object PhotoProcessor {
 
         if (portraitBlur > 0f) {
             try {
-                PortraitEffect.apply(pixels, w, h, portraitBlur)
+                PortraitEffect.apply(pixels, w, h, portraitBlur, portraitStyle)
             } catch (e: Exception) {
                 android.util.Log.w("PhotoProcessor", "Portrait blur failed; keeping the unblurred photo", e)
             }

@@ -77,7 +77,9 @@ class CameraController(private val context: Context) {
     /** While Night Sight is exposing: how long the user should hold still, in ms. */
     var holdStillMs by mutableLongStateOf(0L)
         private set
-    var portraitBlurStrength by mutableStateOf(0.7f)
+    var portraitBlurStrength by mutableStateOf(0.5f)
+    /** How Portrait mode treats the background (Natural, Studio, Soft, Bokeh, Stage, Mono). */
+    var portraitStyle by mutableStateOf(PortraitStyle.NATURAL)
     /** Night Sight: roughly how long to expose, 3 or 6 seconds. */
     var nightSeconds by mutableIntStateOf(3)
     var videoConfig by mutableStateOf(VideoConfig())
@@ -252,7 +254,7 @@ class CameraController(private val context: Context) {
         val timer: Int, val grid: Int, val ratio: Int, val quality: Int, val mirror: Boolean,
         val hdr: Boolean, val hdrStrength: Int, val night: Int, val blur: Float, val raw: Boolean,
         val histogram: Boolean, val zoomEnhance: Boolean, val videoRes: Int, val videoFps: Int, val hevc: Boolean,
-        val ultraHdr: Boolean, val nightGoogle: Boolean,
+        val ultraHdr: Boolean, val nightGoogle: Boolean, val portraitStyle: Int,
         val look: Look,
     )
 
@@ -260,7 +262,7 @@ class CameraController(private val context: Context) {
         timerSeconds, gridStyle.ordinal, aspectRatio.ordinal, jpegQuality, mirrorSelfies,
         hdrEnabled, hdrStrength, nightSeconds, portraitBlurStrength, isRawEnabled,
         histogramEnabled, zoomEnhance, videoConfig.res.ordinal, videoConfig.fps, videoConfig.hevc,
-        ultraHdrEnabled, nightGoogle, look,
+        ultraHdrEnabled, nightGoogle, portraitStyle.ordinal, look,
     )
 
     private fun saveSettings(s: Persisted) {
@@ -271,7 +273,7 @@ class CameraController(private val context: Context) {
             .putInt("night", s.night).putFloat("blur", s.blur).putBoolean("raw", s.raw)
             .putBoolean("histogram", s.histogram).putBoolean("zoomEnhance", s.zoomEnhance)
             .putInt("videoRes", s.videoRes).putInt("videoFps", s.videoFps).putBoolean("hevc", s.hevc)
-            .putBoolean("ultraHdr", s.ultraHdr).putBoolean("nightGoogle", s.nightGoogle)
+            .putBoolean("ultraHdr", s.ultraHdr).putBoolean("nightGoogle", s.nightGoogle).putInt("portraitStyle", s.portraitStyle)
             .putString("filter", l.filter.name).putString("lut", l.lut?.name ?: "").putFloat("strength", l.strength)
             .putFloat("exposure", l.exposure).putFloat("contrast", l.contrast).putFloat("saturation", l.saturation)
             .putFloat("warmth", l.warmth).putFloat("tint", l.tint).putFloat("highlights", l.highlights)
@@ -290,7 +292,8 @@ class CameraController(private val context: Context) {
         hdrEnabled = p.getBoolean("hdr", true)
         hdrStrength = p.getInt("hdrStrength", 4).coerceIn(1, 5)
         nightSeconds = p.getInt("night", 3)
-        portraitBlurStrength = p.getFloat("blur", 0.7f)
+        portraitBlurStrength = p.getFloat("blur", 0.5f)
+        portraitStyle = PortraitStyle.entries.getOrElse(p.getInt("portraitStyle", 0)) { PortraitStyle.NATURAL }
         isRawEnabled = p.getBoolean("raw", false)
         histogramEnabled = p.getBoolean("histogram", false)
         zoomEnhance = p.getBoolean("zoomEnhance", true)
@@ -836,7 +839,7 @@ class CameraController(private val context: Context) {
             val summary = when {
                 night -> "Night Sight, ${exposures.size} frames"
                 tone is PhotoProcessor.ToneMode.HdrPlus -> "HDR+, ${exposures.size} frames"
-                mode == CaptureMode.PORTRAIT -> "Portrait"
+                mode == CaptureMode.PORTRAIT -> "Portrait, ${portraitStyle.label}"
                 mode == CaptureMode.MACRO -> "Macro"
                 else -> "Standard"
             }
@@ -878,6 +881,7 @@ class CameraController(private val context: Context) {
                 mirror = mirrorNow,
                 quality = jpegQuality,
                 portraitBlur = blurNow,
+                portraitStyle = portraitStyle,
                 stamp = stamp,
                 meta = meta,
                 noiseScale = sqrt((meta.iso ?: 400) / 400f).coerceIn(0.8f, 2.2f),
@@ -941,6 +945,7 @@ class CameraController(private val context: Context) {
         val mirror: Boolean,
         val quality: Int,
         val portraitBlur: Float,
+        val portraitStyle: PortraitStyle,
         val stamp: String,
         val meta: PhotoMeta,
         val noiseScale: Float,
@@ -952,7 +957,7 @@ class CameraController(private val context: Context) {
         try {
             // On any failure the camera's own JPEG, already saved, simply stays as the photo.
             val jpeg = try {
-                PhotoProcessor.processShots(job.frames, job.tone, job.look, job.ratio, job.mirror, job.quality, job.portraitBlur, job.noiseScale, job.zoomRatio, job.keepUltraHdr)
+                PhotoProcessor.processShots(job.frames, job.tone, job.look, job.ratio, job.mirror, job.quality, job.portraitBlur, job.noiseScale, job.zoomRatio, job.keepUltraHdr, job.portraitStyle)
             } catch (e: Exception) {
                 Log.e(TAG, "Processing failed; keeping the camera's own JPEG", e)
                 null

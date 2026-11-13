@@ -568,6 +568,7 @@ private fun Viewfinder(controller: CameraController, showControls: Boolean, stri
             } else {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (controller.mode == CaptureMode.NIGHT) NightDurationPills(controller)
+                    if (controller.mode == CaptureMode.PORTRAIT) PortraitStylePills(controller)
                     if (dialOpen) {
                         ZoomDial(controller, onClose = { dialOpen = false })
                     } else {
@@ -1080,6 +1081,34 @@ private fun LensLabel(controller: CameraController) {
             .background(Color(0x66000000))
             .padding(horizontal = 8.dp, vertical = 3.dp),
     )
+}
+
+/** Portrait looks: how the background (and for Studio, the subject) is treated. */
+@Composable
+private fun PortraitStylePills(controller: CameraController) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(OVERLAY_BUTTON_COLOR)
+            .horizontalScroll(rememberScrollState())
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        for (style in PortraitStyle.entries) {
+            val selected = controller.portraitStyle == style
+            Text(
+                text = style.label,
+                color = if (selected) Color.Black else Color.White,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(if (selected) Color.White else Color.Transparent)
+                    .clickable { controller.portraitStyle = style }
+                    .padding(horizontal = 14.dp, vertical = 9.dp),
+            )
+        }
+    }
 }
 
 @Composable
@@ -2112,7 +2141,7 @@ private fun ControlsContent(controller: CameraController, strip: StripItem, snap
                     steps = 18,
                     format = { "${(it * 100).roundToInt()}" },
                 ) { controller.portraitBlurStrength = it }
-                Text("Blurs the background behind people. If nobody is found, the photo is left as is.", color = CameraTheme.TEXT_SECONDARY, fontSize = 11.sp)
+                Text("How strong the background blur is. The look (Natural, Studio, Soft, Bokeh, Stage, Mono) is chosen above the shutter. Works on people and on objects that are in focus; if no subject is found the photo is left as is.", color = CameraTheme.TEXT_SECONDARY, fontSize = 11.sp)
             }
             StripItem.ZOOM -> {
                 val maxZoom = controller.engine.maxZoomRatio().coerceAtLeast(1f)
