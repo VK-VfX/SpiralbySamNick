@@ -741,10 +741,17 @@ object PortraitEffect {
         val keepLabel = BooleanArray(next + 1)
         for (k in 0 until next) keepLabel[k + 1] = sizes[k] >= biggest * 0.15f
         if (keepLabel.count { it } == next) return mask
-        // Everything within a margin of a dropped piece is cleared; the rest is untouched.
-        val dropped = FloatArray(n) { i -> if (label[i] != 0 && !keepLabel[label[i]]) 1f else 0f }
+        // Small pieces that sit right against a kept piece are part of it (strands of hair, fingertips),
+        // so only pieces that float well away from the subject are dropped.
         val tmp = FloatArray(n)
-        boxBlurF(dropped, tmp, w, h, max(3, max(w, h) / 120))
+        val near = FloatArray(n) { i -> if (label[i] != 0 && keepLabel[label[i]]) 1f else 0f }
+        boxBlurF(near, tmp, w, h, max(4, max(w, h) / 50))
+        val touches = BooleanArray(next + 1)
+        for (i in 0 until n) if (label[i] != 0 && near[i] > 0.001f) touches[label[i]] = true
+        val dropped = FloatArray(n) { i -> if (label[i] != 0 && !keepLabel[label[i]] && !touches[label[i]]) 1f else 0f }
+        if (dropped.none { it > 0f }) return mask
+        // Clear each dropped piece with only a thin rim, so no square notches are cut into the subject.
+        boxBlurF(dropped, tmp, w, h, 1)
         return FloatArray(n) { i -> if (dropped[i] > 0.001f) 0f else mask[i] }
     }
 

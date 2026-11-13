@@ -214,6 +214,9 @@ Not built yet (needs on-device testing): a YUV/RAW burst with zero-shutter-lag, 
 - Zoom quality: from 2x up, a shot is a 5-frame merged burst with minimal in-camera noise reduction (Settings: Zoom enhance), followed by a wider-radius unsharp mask that grows with the zoom level. Each photo's description now records the zoom and which physical lens captured it, so a telephoto shot can be told from a cropped main-lens one.
 - Predictive-back callback enabled for Android 13+.
 
+## v2.6.1
+- **No more square notches at the edge of hair.** When the subject mask had small separate pieces (strands of hair, fringe), cleaning them up cleared a square margin around each, which cut rectangular bites out of the hair and shoulders. Pieces that sit against the subject are now kept, only pieces floating well away are dropped, and only with a thin rim.
+
 ## v2.6.0
 - **Pixel-level Portrait on every phone.** Portrait now uses the same method everywhere: a learned depth map (MiDaS small, the same kind of network Pixel's Portrait relies on, 63 MB, downloaded once on Wi-Fi when you open Portrait and kept across updates) gives clean, smooth depth; the person model (or the object around your tap) sets the subject; the blur size follows the distance from the subject's depth; the background is blurred in layers, in linear light, and composited back over the sharp photo. The two-lens and focus-sweep cues now only refine the learned depth on phones that have them, and Portrait still works without the model (outline blur) until it has downloaded.
 - **Stronger, smoother background blur** by default (radii about 2.4x the old ones), sized to look like Pixel's.
