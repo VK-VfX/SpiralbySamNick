@@ -41,7 +41,9 @@ object HotPixels {
                     for (dx in -2..2) {
                         if (dx == 0 && dy == 0) continue
                         val n = luma[r2 + dx].toInt() and 0xFF
-                        if (n > v || (n == v && (dy < 0 || (dy == 0 && dx < 0)))) {
+                        // The brightest point of its 5x5 neighbourhood, and clearly brighter than the points
+                        // touching it: a real speck is one pixel (a little smeared), an object's corner is not.
+                        if (n > v || (n == v && (dy < 0 || (dy == 0 && dx < 0))) || (abs(dx) <= 1 && abs(dy) <= 1 && n * 10 >= v * 9)) {
                             isMax = false
                             break@loop
                         }
