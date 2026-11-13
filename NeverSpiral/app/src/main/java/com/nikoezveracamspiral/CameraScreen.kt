@@ -232,6 +232,8 @@ fun CameraScreen(controller: CameraController) {
 private fun CameraContent(controller: CameraController, deviceRotation: Int, onOpenEditor: (Uri) -> Unit, onOpenVideo: (Uri) -> Unit) {
     val cameraEpoch = controller.cameraEpoch
     var panel by remember { mutableStateOf(SidePanel.NONE) }
+    // The update pill opens Settings straight on the About page, where updates live.
+    var settingsOnAbout by remember { mutableStateOf(false) }
     var strip by remember { mutableStateOf(StripItem.FILTER) }
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
@@ -296,7 +298,7 @@ private fun CameraContent(controller: CameraController, deviceRotation: Int, onO
                 strip = strip,
                 width = viewfinderWidth,
                 height = viewfinderHeight,
-                onOpenSettings = { panel = SidePanel.SETTINGS },
+                onOpenSettings = { settingsOnAbout = true; panel = SidePanel.SETTINGS },
                 onDismissPanel = { panel = SidePanel.NONE },
                 onViewReady = { previewView = it },
                 onPositioned = { viewfinderRect = it },
@@ -355,6 +357,7 @@ private fun CameraContent(controller: CameraController, deviceRotation: Int, onO
                         background = CameraTheme.SURFACE,
                         highlighted = panel == SidePanel.SETTINGS,
                     ) {
+                        settingsOnAbout = false
                         panel = if (panel == SidePanel.SETTINGS) SidePanel.NONE else SidePanel.SETTINGS
                     }
                     PhotoVideoToggle(controller)
@@ -385,7 +388,7 @@ private fun CameraContent(controller: CameraController, deviceRotation: Int, onO
                         .align(Alignment.BottomCenter)
                         .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { },
                 ) {
-                    SettingsSheet(controller)
+                    SettingsSheet(controller, startOnAbout = settingsOnAbout)
                 }
             }
         }
@@ -1691,7 +1694,7 @@ private fun ShutterButton(isVideoMode: Boolean, isRecording: Boolean, isBusy: Bo
 /** The settings bottom sheet: capture options as icon-segment rows, then output quality and
  * over-the-air updates. Scrolls when taller than the screen allows. */
 @Composable
-private fun SettingsSheet(controller: CameraController) {
+private fun SettingsSheet(controller: CameraController, startOnAbout: Boolean = false) {
     val scope = rememberCoroutineScope()
     val rawSupported = controller.engine.isRawSupported
     Column(
@@ -1708,7 +1711,7 @@ private fun SettingsSheet(controller: CameraController) {
             modifier = Modifier.align(Alignment.CenterHorizontally).width(40.dp).height(4.dp)
                 .clip(RoundedCornerShape(2.dp)).background(Color(0x66FFFFFF)),
         )
-        var aboutOpen by remember { mutableStateOf(false) }
+        var aboutOpen by remember { mutableStateOf(startOnAbout) }
         Row(
             modifier = Modifier.fillMaxWidth().padding(start = 4.dp, top = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -1735,7 +1738,7 @@ private fun SettingsSheet(controller: CameraController) {
             }
         }
         if (aboutOpen) {
-            AboutPage()
+            AboutPage(controller)
             return@Column
         }
 
@@ -1904,12 +1907,44 @@ private fun SettingsTabs(selected: Int, onSelect: (Int) -> Unit) {
     }
 }
 
-/** Over-the-air updates: check, download and install a newer build from inside the app. */
+/** Over-the-air updates, shown inside the About page: check, download and install a newer build. */
+@Composable
+private fun UpdatesBlock(controller: CameraController) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val status = controller.update
+    SheetSection("Updates", "v${UpdateManager.installedVersionName(context)}")
+    val message = when (status) {
+        UpdateStatus.Idle -> "Check for a newer build of Niko's Cam."
+        UpdateStatus.Checking -> "Checking..."
+        UpdateStatus.UpToDate -> "You're on the latest version."
+        is UpdateStatus.Available -> "Version ${status.info.versionName} is available." + if (status.info.notes.isNotBlank()) " ${status.info.notes}" else ""
+        is UpdateStatus.Downloading -> "Downloading ${status.info.versionName}: ${(status.progress * 100).toInt()}%"
+        is UpdateStatus.Ready -> "Version ${status.info.versionName} downloaded. Tap Install."
+        is UpdateStatus.Failed -> status.message
+    }
+    Text(message, color = CameraTheme.TEXT_SECONDARY, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 4.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        when (status) {
+            is UpdateStatus.Available -> UpdateButton("Download & install", Modifier.weight(1f)) { scope.launch { controller.downloadUpdate() } }
+            is UpdateStatus.Ready -> UpdateButton("Install", Modifier.weight(1f)) { controller.installUpdate() }
+            is UpdateStatus.Downloading, UpdateStatus.Checking -> Unit
+            else -> UpdateButton("Check for updates", Modifier.weight(1f)) { scope.launch { controller.checkForUpdates() } }
+        }
+    }
+    SheetSection("Check automatically at launch", if (controller.autoCheckUpdates) "On" else "Off")
+    SegmentRow(
+        options = listOf(true to "On", false to "Off").map { Triple(it.first, it.second, null as ImageVector?) },
+        selected = controller.autoCheckUpdates,
+    ) { controller.changeAutoCheckUpdates(it) }
+
+}
+
+/** This phone, the portrait depth model, and the problem report. */
 @Composable
 private fun UpdateSection(controller: CameraController) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val status = controller.update
     val profile = controller.deviceProfile
     SheetSection("This phone", profile.label)
     Text(
@@ -1940,25 +1975,6 @@ private fun UpdateSection(controller: CameraController) {
     if (controller.depthStatus is DepthStatus.Missing || controller.depthStatus is DepthStatus.Failed) {
         UpdateButton("Download depth model (63 MB)", Modifier.fillMaxWidth()) { controller.fetchDepthModel(userAsked = true) }
     }
-    SheetSection("Updates", "v${UpdateManager.installedVersionName(context)}")
-    val message = when (status) {
-        UpdateStatus.Idle -> "Check for a newer build of Niko's Cam."
-        UpdateStatus.Checking -> "Checking..."
-        UpdateStatus.UpToDate -> "You're on the latest version."
-        is UpdateStatus.Available -> "Version ${status.info.versionName} is available." + if (status.info.notes.isNotBlank()) " ${status.info.notes}" else ""
-        is UpdateStatus.Downloading -> "Downloading ${status.info.versionName}: ${(status.progress * 100).toInt()}%"
-        is UpdateStatus.Ready -> "Version ${status.info.versionName} downloaded. Tap Install."
-        is UpdateStatus.Failed -> status.message
-    }
-    Text(message, color = CameraTheme.TEXT_SECONDARY, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 4.dp))
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-        when (status) {
-            is UpdateStatus.Available -> UpdateButton("Download & install", Modifier.weight(1f)) { scope.launch { controller.downloadUpdate() } }
-            is UpdateStatus.Ready -> UpdateButton("Install", Modifier.weight(1f)) { controller.installUpdate() }
-            is UpdateStatus.Downloading, UpdateStatus.Checking -> Unit
-            else -> UpdateButton("Check for updates", Modifier.weight(1f)) { scope.launch { controller.checkForUpdates() } }
-        }
-    }
     SheetSection("Something wrong?", "")
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
         UpdateButton("Report a problem (share log)", Modifier.weight(1f)) {
@@ -1971,17 +1987,11 @@ private fun UpdateSection(controller: CameraController) {
             }
         }
     }
-    SheetSection("Check automatically at launch", if (controller.autoCheckUpdates) "On" else "Off")
-    SegmentRow(
-        options = listOf(true to "On", false to "Off").map { Triple(it.first, it.second, null as ImageVector?) },
-        selected = controller.autoCheckUpdates,
-    ) { controller.changeAutoCheckUpdates(it) }
-
     Spacer(Modifier.height(24.dp))
 }
 
 @Composable
-private fun AboutPage() {
+private fun AboutPage(controller: CameraController) {
     val context = LocalContext.current
     Column(
         modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
@@ -2011,6 +2021,10 @@ private fun AboutPage() {
             } catch (e: Exception) {
                 // No app can open the link; nothing more to do.
             }
+        }
+        Spacer(Modifier.height(10.dp))
+        Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            UpdatesBlock(controller)
         }
         Spacer(Modifier.height(16.dp))
     }
