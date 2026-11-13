@@ -214,10 +214,17 @@ Not built yet (needs on-device testing): a YUV/RAW burst with zero-shutter-lag, 
 - Zoom quality: from 2x up, a shot is a 5-frame merged burst with minimal in-camera noise reduction (Settings: Zoom enhance), followed by a wider-radius unsharp mask that grows with the zoom level. Each photo's description now records the zoom and which physical lens captured it, so a telephoto shot can be told from a cropped main-lens one.
 - Predictive-back callback enabled for Android 13+.
 
+## v2.11.0
+
+- **Sensor health** (Settings, Phone): a dark test for the camera sensor's hot pixels. Cover the lens, run it (three long, high-ISO frames), and it lists the bright dots it finds with a small map and a green/yellow/red status. Every run is saved so changes show over time, and **Share report** sends a plain-text report you can give to Google support.
+- **Spots tab in the editor:** tap a bright dot to paint it out (the tap snaps to the brightest point nearby), tap its circle again to put it back, or use **Auto-find** to mark isolated specks in dark areas for you to check. Applied on Save copy.
+- **Dark-scene guard** (Settings, Phone): Off, Warn, or Cap ISO. Warn shows a note when the scene pushes the ISO above your limit (800, 1600 or 3200); Cap keeps the ISO at the limit with a longer shutter (never slower than 1/15 s).
+- The developer's name is now spelled Nikezvera.
+
 ## v2.10.0
 
 - **Location tagging** (Settings, Phone): off by default. Turning it on asks for location permission (foreground only, no background location) and saves where each photo was taken in its JPEG and DNG metadata. Uses the latest GPS/network fix so the shutter never waits.
-- **New About Niko's Cam page:** big profile card (Nikoezvera, Developer of Niko's Cam), Telegram card with @xnzvix, in-app updates, log catcher, and a plain-words "How it's made" (Kotlin, Compose, Camera2, on-phone AI model, vibe coding with Claude Code).
+- **New About Niko's Cam page:** big profile card (Nikezvera, Developer of Niko's Cam), Telegram card with @xnzvix, in-app updates, log catcher, and a plain-words "How it's made" (Kotlin, Compose, Camera2, on-phone AI model, vibe coding with Claude Code).
 
 ## v2.9.0
 
@@ -306,14 +313,14 @@ Not built yet (needs on-device testing): a YUV/RAW burst with zero-shutter-lag, 
 
 ## v2.4.1
 - Fixed the JPEG / RAW switch in the viewfinder's format pill doing nothing: the popup closed the moment it was tapped and cancelled the switch half way. It now runs on the camera's own scope.
-- Settings has a small gear in its header that opens an About page: developer photo, Nikoezvera, version and the Telegram contact (@xnzvix).
+- Settings has a small gear in its header that opens an About page: developer photo, Nikezvera, version and the Telegram contact (@xnzvix).
 - The DNG preview thumbnail is now sized within the 256 px limit, so it is actually written.
 
 ## v2.4.0
 - New app icon and splash: the N + camera glyph, white on black.
 - Removed the QR scanner (and its barcode model) from the viewfinder and Settings.
 - RAW: DNG files now carry the capture's rotation (they used to open sideways), request the lens shading map (fixes the colour cast on the ultrawide) and embed a preview thumbnail.
-- Settings, reachable from every mode, now ends with an About section: developer Nikoezvera, Telegram @xnzvix.
+- Settings, reachable from every mode, now ends with an About section: developer Nikezvera, Telegram @xnzvix.
 
 ## v2.3.3
 - Fixed the camera freezing after the app was in the background: the camera is now released when the app stops (finishing any recording first) and reopened when you return.

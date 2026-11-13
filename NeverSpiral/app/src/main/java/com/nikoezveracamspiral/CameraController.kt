@@ -1,6 +1,7 @@
 package com.nikoezveracamspiral
 
 import android.content.Context
+import android.os.Build
 import android.media.Image
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.CameraCharacteristics
@@ -102,6 +103,16 @@ class CameraController(private val context: Context) {
 
     /** Tag photos with where they were taken. Off until the user turns it on (which asks for the permission). */
     var geotag by mutableStateOf(false)
+
+    /** Dark-scene guard (protects against the sensor's hot pixel showing): 0 off, 1 warn, 2 cap the ISO. */
+    var guardMode by mutableStateOf(0)
+
+    /** The ISO at which the guard warns or starts capping. */
+    var guardIso by mutableStateOf(1600)
+
+    /** The sensor test: state, and every saved run. */
+    var sensorCheck by mutableStateOf<SensorCheckState>(SensorCheckState.Idle)
+    var sensorRuns by mutableStateOf<List<SensorRun>>(emptyList())
     /** The "Shot on Niko's Cam" watermark put on saved photos (Settings, Display). */
     var watermark by mutableStateOf(WatermarkSettings())
     /** Photos keep an HDR gain map (Ultra HDR) where the camera offers it. */
@@ -276,13 +287,14 @@ class CameraController(private val context: Context) {
         val histogram: Boolean, val zoomEnhance: Boolean, val videoRes: Int, val videoFps: Int, val hevc: Boolean,
         val ultraHdr: Boolean, val nightGoogle: Boolean, val portraitStyle: Int, val saveOriginals: Boolean,
         val watermark: WatermarkSettings, val look: Look, val keepLook: Boolean, val geotag: Boolean,
+        val guardMode: Int, val guardIso: Int,
     )
 
     private fun settingsSnapshot() = Persisted(
         timerSeconds, gridStyle.ordinal, aspectRatio.ordinal, jpegQuality, mirrorSelfies,
         hdrEnabled, hdrStrength, nightSeconds, portraitBlurStrength, isRawEnabled,
         histogramEnabled, zoomEnhance, videoConfig.res.ordinal, videoConfig.fps, videoConfig.hevc,
-        ultraHdrEnabled, nightGoogle, portraitStyle.ordinal, saveOriginals, watermark, look, keepLook, geotag,
+        ultraHdrEnabled, nightGoogle, portraitStyle.ordinal, saveOriginals, watermark, look, keepLook, geotag, guardMode, guardIso,
     )
 
     private fun saveSettings(s: Persisted) {
@@ -301,7 +313,7 @@ class CameraController(private val context: Context) {
             .putFloat("exposure", l.exposure).putFloat("contrast", l.contrast).putFloat("saturation", l.saturation)
             .putFloat("warmth", l.warmth).putFloat("tint", l.tint).putFloat("highlights", l.highlights)
             .putFloat("shadows", l.shadows).putFloat("vignette", l.vignette).putFloat("grain", l.grain)
-            .putFloat("sharpness", l.sharpness).putFloat("vibrance", l.vibrance).putBoolean("keepLook", s.keepLook).putBoolean("geotag", s.geotag)
+            .putFloat("sharpness", l.sharpness).putFloat("vibrance", l.vibrance).putBoolean("keepLook", s.keepLook).putBoolean("geotag", s.geotag).putInt("guardMode", s.guardMode).putInt("guardIso", s.guardIso)
             .apply()
     }
 
@@ -352,6 +364,9 @@ class CameraController(private val context: Context) {
             vibrance = p.getFloat("vibrance", 0f),
         )
         keepLook = p.getBoolean("keepLook", true)
+        guardMode = p.getInt("guardMode", 0).coerceIn(0, 2)
+        guardIso = p.getInt("guardIso", 1600).coerceIn(400, 6400)
+        sensorRuns = SensorHealth.load(context)
         geotag = p.getBoolean("geotag", false) && LocationTagger.hasPermission(context)
         if (!keepLook) look = Look()
     }
@@ -398,6 +413,59 @@ class CameraController(private val context: Context) {
         geotag = on
         if (on) LocationTagger.start(context) else LocationTagger.stop(context)
     }
+
+    /** The same brightness at no more than [maxIso]: a longer shutter takes the place of the gain, up to 1/15 s. */
+    private fun capIso(base: Pair<Long, Int>, maxIso: Int): Pair<Long, Int> {
+        val (time, iso) = base
+        if (iso <= maxIso) return base
+        val longest = 66_666_667L
+        val wantedTime = (time.toDouble() * iso / maxIso).toLong()
+        val newTime = maxOf(time, minOf(wantedTime, longest))
+        val newIso = (iso.toDouble() * time / newTime).toInt().coerceAtLeast(maxIso)
+        return newTime to newIso
+    }
+
+    /** Runs the sensor test: three dark frames with the lens covered, then looks for hot pixels in them. */
+    suspend fun runSensorCheck() {
+        if (sensorCheck is SensorCheckState.Running) return
+        if (!cameraStarted || mode.isVideo || engine.extensionActive || isRecording) {
+            sensorCheck = SensorCheckState.Failed("Open the camera in Photo mode first, then run the test again.")
+            return
+        }
+        if (kotlin.math.abs(zoomRatio - 1f) > 0.05f) {
+            sensorCheck = SensorCheckState.Failed("Set the zoom to 1x first so the test uses the main lens.")
+            return
+        }
+        sensorCheck = SensorCheckState.Running
+        try {
+            val (time, iso) = engine.darkTestExposure()
+            val burst = withTimeout(25_000) { engine.captureBurst(0, List(3) { time to iso }, null) }
+            val analysis = withContext(Dispatchers.Default) { SensorHealth.analyse(burst.jpegs) }
+            if (analysis == null) {
+                sensorCheck = SensorCheckState.Failed("Couldn't read the test frames.")
+            } else if (!SensorHealth.lensWasCovered(analysis)) {
+                sensorCheck = SensorCheckState.Failed("The lens wasn't fully covered, so the test frames weren't dark. Cover it completely with a finger or a dark cloth and try again.")
+            } else {
+                val facing = if (engine.lensFacing == CameraCharacteristics.LENS_FACING_FRONT) "Front camera" else "Rear camera (main)"
+                val run = SensorRun(System.currentTimeMillis(), facing, analysis.width, analysis.height, iso, (time / 1_000_000L).toInt(), analysis.spots)
+                sensorRuns = (sensorRuns + run).takeLast(12)
+                SensorHealth.save(context, sensorRuns)
+                sensorCheck = SensorCheckState.Done(run)
+            }
+        } catch (e: CancellationException) {
+            sensorCheck = SensorCheckState.Idle
+            throw e
+        } catch (e: Exception) {
+            sensorCheck = SensorCheckState.Failed("The test failed: ${e.message ?: e::class.simpleName}")
+        } catch (e: OutOfMemoryError) {
+            sensorCheck = SensorCheckState.Failed("Not enough memory for the test. Close other apps and try again.")
+        }
+    }
+
+    fun sensorReport(): String = SensorHealth.report(
+        "${Build.MANUFACTURER} ${Build.MODEL}", "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
+        UpdateManager.installedVersionName(context), sensorRuns,
+    )
 
     fun toggleAeAfLock() {
         aeAfLocked = !aeAfLocked
@@ -828,7 +896,15 @@ class CameraController(private val context: Context) {
             val manualExposure = mode == CaptureMode.PRO && proSettings.manualExposureEnabled
             val flashActive = flashMode != FlashMode.OFF && !night
             val geoNow = if (geotag) LocationTagger.current(context) else null
-            val base = engine.currentAutoExposure()
+            val rawBase = engine.currentAutoExposure()
+            // Dark-scene guard: the sensor's hot pixel shows at high ISO, so warn, or keep the ISO down
+            // with a longer shutter (no slower than 1/15 s, so a handheld shot stays sharp).
+            val guardOn = guardMode != 0 && !manualExposure && !flashActive && rawBase != null && rawBase.second > guardIso
+            if (guardOn && guardMode == 1) {
+                Toast.makeText(context, "Dark scene (ISO ${rawBase!!.second}): the sensor's hot pixel may show", Toast.LENGTH_SHORT).show()
+            }
+            val capped = guardOn && guardMode == 2
+            val base = if (capped) capIso(rawBase!!, guardIso) else rawBase
             val strength = hdrStrength / 5f
             val underEv = -(0.5f + 0.15f * hdrStrength)
             val exposures: List<Pair<Long, Int>?>
@@ -861,11 +937,11 @@ class CameraController(private val context: Context) {
                 }
                 zoomEnhance && zoomRatio >= 2f && !manualExposure && !flashActive && !mode.isVideo -> {
                     // Zoomed in: several normal frames merged for detail instead of one soft one.
-                    exposures = List(5) { null }
+                    exposures = List(5) { if (capped) base else null }
                     tone = PhotoProcessor.ToneMode.Stack
                 }
                 else -> {
-                    exposures = listOf(null)
+                    exposures = listOf(if (capped) base else null)
                     tone = PhotoProcessor.ToneMode.None
                 }
             }

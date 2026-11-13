@@ -729,11 +729,61 @@ object PhotoProcessor {
         return out
     }
 
+    /** A copy of [src] with the hot-pixel [spots] (0..1 positions) painted out. */
+    fun healSpots(src: Bitmap, spots: List<Pair<Float, Float>>): Bitmap {
+        val w = src.width
+        val h = src.height
+        val pixels = pixelsOf(src)
+        SpotHeal.heal(pixels, w, h, spots)
+        return Bitmap.createBitmap(pixels, w, h, Bitmap.Config.ARGB_8888)
+    }
+
+    /** Moves a tap on [bmp] to the brightest point right next to it. */
+    fun snapSpot(bmp: Bitmap, nx: Float, ny: Float): Pair<Float, Float> {
+        val w = bmp.width
+        val h = bmp.height
+        val reach = maxOf(4, (maxOf(w, h) * 0.012f).toInt())
+        val x0 = ((nx * (w - 1)).toInt() - reach).coerceAtLeast(0)
+        val y0 = ((ny * (h - 1)).toInt() - reach).coerceAtLeast(0)
+        val x1 = ((nx * (w - 1)).toInt() + reach).coerceAtMost(w - 1)
+        val y1 = ((ny * (h - 1)).toInt() + reach).coerceAtMost(h - 1)
+        val ww = x1 - x0 + 1
+        val hh = y1 - y0 + 1
+        if (ww < 2 || hh < 2) return Pair(nx, ny)
+        val window = IntArray(ww * hh)
+        bmp.getPixels(window, 0, ww, x0, y0, ww, hh)
+        val local = SpotHeal.snap(window, ww, hh, (nx * (w - 1) - x0) / (ww - 1).coerceAtLeast(1), (ny * (h - 1) - y0) / (hh - 1).coerceAtLeast(1))
+        return Pair((x0 + local.first * (ww - 1)) / (w - 1), (y0 + local.second * (hh - 1)) / (h - 1))
+    }
+
+    /** Isolated bright specks in the dark parts of a photo (hot pixels, mostly), as 0..1 positions; at most [limit]. */
+    fun findSpecks(bytes: ByteArray, limit: Int = 8): List<Pair<Float, Float>> {
+        val bmp = decodeUpright(bytes, singleMaxPixels) ?: return emptyList()
+        try {
+            val w = bmp.width
+            val h = bmp.height
+            val luma = ByteArray(w * h)
+            val row = IntArray(w)
+            for (y in 0 until h) {
+                bmp.getPixels(row, 0, w, 0, y, w, 1)
+                for (x in 0 until w) {
+                    val c = row[x]
+                    luma[y * w + x] = ((((c shr 16) and 0xFF) * 77 + ((c shr 8) and 0xFF) * 150 + (c and 0xFF) * 29) shr 8).toByte()
+                }
+            }
+            return HotPixels.find(luma, w, h, minPeak = 60, minContrast = 40, maxRing = 45, limit = limit).map { Pair(it.x, it.y) }
+        } finally {
+            bmp.recycle()
+        }
+    }
+
     /** Re-renders a saved photo at full resolution with the editor's transform and look. */
-    fun processEdit(bytes: ByteArray, look: Look, t: Transform, quality: Int): ByteArray? {
+    fun processEdit(bytes: ByteArray, look: Look, t: Transform, quality: Int, spots: List<Pair<Float, Float>> = emptyList()): ByteArray? {
         val upright = decodeUpright(bytes, singleMaxPixels) ?: return null
-        val transformed = transform(upright, t)
-        if (transformed !== upright) upright.recycle()
+        val healedFrame = if (spots.isEmpty()) upright else healSpots(upright, spots).also { upright.recycle() }
+        val transformed = transform(healedFrame, t)
+        if (transformed !== healedFrame && healedFrame !== upright) healedFrame.recycle()
+        if (transformed !== upright && transformed !== healedFrame) upright.recycle()
         val w = transformed.width
         val h = transformed.height
         val pixels = pixelsOf(transformed)

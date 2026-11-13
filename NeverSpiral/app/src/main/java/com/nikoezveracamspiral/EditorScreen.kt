@@ -29,6 +29,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.material.icons.rounded.BlurOn
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Healing
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.material.icons.rounded.Redo
@@ -75,6 +76,7 @@ private enum class EditorTab(val label: String, val icon: ImageVector) {
     ADJUST("Adjust", Icons.Rounded.AutoFixHigh),
     CROP("Crop", Icons.Rounded.Crop),
     PORTRAIT("Portrait", Icons.Rounded.BlurOn),
+    SPOTS("Spots", Icons.Rounded.Healing),
     DETAILS("Details", Icons.Rounded.Info),
 }
 
@@ -98,6 +100,10 @@ fun EditorScreen(uri: Uri, controller: CameraController, onClose: () -> Unit) {
     var showOriginal by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
+
+    // Hot-pixel spots to paint out, as 0..1 positions on the photo (placed with the Spots tab).
+    var spots by remember { mutableStateOf<List<Pair<Float, Float>>>(emptyList()) }
+    var spotBusy by remember { mutableStateOf(false) }
 
     // Portrait photos keep the picture from before the blur and what was found out about it, so
     // the blur can be changed here: its strength, its style and which thing is the subject.
@@ -166,13 +172,15 @@ fun EditorScreen(uri: Uri, controller: CameraController, onClose: () -> Unit) {
         }
     }
 
-    val rendered by produceState<ImageBitmap?>(initialValue = null, source, look, transform, showOriginal) {
+    val rendered by produceState<ImageBitmap?>(initialValue = null, source, look, transform, showOriginal, spots) {
         val src = source ?: return@produceState
         delay(40)
         value = withContext(Dispatchers.Default) {
-            val transformed = PhotoProcessor.transform(src, transform)
+            val healed = if (spots.isEmpty() || showOriginal) src else PhotoProcessor.healSpots(src, spots)
+            val transformed = PhotoProcessor.transform(healed, transform)
             val out = if (showOriginal) transformed else LookProcessor.render(transformed, look)
             if (transformed !== src && out !== transformed) transformed.recycle()
+            if (healed !== src && healed !== transformed) healed.recycle()
             out.asImageBitmap()
         }
     }
@@ -236,7 +244,7 @@ fun EditorScreen(uri: Uri, controller: CameraController, onClose: () -> Unit) {
                                 val bytes = pApplied ?: withContext(Dispatchers.IO) { readBytes(context, uri) }
                                     ?: throw IllegalStateException("Couldn't read the original")
                                 val out = withContext(Dispatchers.Default) {
-                                    PhotoProcessor.processEdit(bytes, look, transform, controller.jpegQuality)
+                                    PhotoProcessor.processEdit(bytes, look, transform, controller.jpegQuality, spots)
                                 } ?: throw IllegalStateException("Couldn't decode the original")
                                 val saved = withContext(Dispatchers.IO) { CaptureStore.saveJpeg(context, out, meta = PhotoMeta(software = "Niko's Cam ${UpdateManager.installedVersionName(context)}", description = "Quality ${controller.jpegQuality}; Edited; ${look.lut?.name ?: look.filter.label}")) }
                                 if (saved != null) {
@@ -271,7 +279,7 @@ fun EditorScreen(uri: Uri, controller: CameraController, onClose: () -> Unit) {
                     detectTapGestures(
                         onPress = {
                             // Holding shows the original, except on the Portrait tab, where a tap picks the subject.
-                            if (tab != EditorTab.PORTRAIT) {
+                            if (tab != EditorTab.PORTRAIT && tab != EditorTab.SPOTS) {
                                 showOriginal = true
                                 tryAwaitRelease()
                                 showOriginal = false
@@ -279,7 +287,23 @@ fun EditorScreen(uri: Uri, controller: CameraController, onClose: () -> Unit) {
                         },
                         onTap = { tapAt ->
                             val bmp = source
-                            if (tab == EditorTab.PORTRAIT && portrait != null && bmp != null) {
+                            if (tab == EditorTab.SPOTS && bmp != null) {
+                                if (transform != PhotoProcessor.Transform()) {
+                                    message = "Reset rotate and crop first to place spots"
+                                } else {
+                                    val pad = 8.dp.toPx()
+                                    val availW = size.width - 2 * pad
+                                    val fit = minOf(availW / bmp.width, size.height.toFloat() / bmp.height)
+                                    val shownW = bmp.width * fit
+                                    val shownH = bmp.height * fit
+                                    val nx = (tapAt.x - (size.width - shownW) / 2f) / shownW
+                                    val ny = (tapAt.y - (size.height - shownH) / 2f) / shownH
+                                    if (nx in 0f..1f && ny in 0f..1f) {
+                                        val near = spots.indexOfFirst { kotlin.math.abs(it.first - nx) < 0.02f && kotlin.math.abs(it.second - ny) < 0.02f }
+                                        spots = if (near >= 0) spots.filterIndexed { i, _ -> i != near } else spots + PhotoProcessor.snapSpot(bmp, nx, ny)
+                                    }
+                                }
+                            } else if (tab == EditorTab.PORTRAIT && portrait != null && bmp != null) {
                                 if (transform != PhotoProcessor.Transform()) {
                                     message = "Reset rotate and crop first to pick a new subject"
                                 } else {
@@ -307,6 +331,24 @@ fun EditorScreen(uri: Uri, controller: CameraController, onClose: () -> Unit) {
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
                 )
+                if (tab == EditorTab.SPOTS && spots.isNotEmpty()) {
+                    androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+                        val pad = 8.dp.toPx()
+                        val fit = minOf((size.width - 2 * pad) / image.width, size.height / image.height)
+                        val shownW = image.width * fit
+                        val shownH = image.height * fit
+                        val left = (size.width - shownW) / 2f
+                        val top = (size.height - shownH) / 2f
+                        for ((nx, ny) in spots) {
+                            drawCircle(
+                                color = Color(0xFFFFD54F),
+                                radius = 14.dp.toPx(),
+                                center = androidx.compose.ui.geometry.Offset(left + nx * shownW, top + ny * shownH),
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()),
+                            )
+                        }
+                    }
+                }
             } else {
                 Text(loadError ?: "Loading...", color = CameraTheme.TEXT_SECONDARY, fontSize = 14.sp)
             }
@@ -374,6 +416,37 @@ fun EditorScreen(uri: Uri, controller: CameraController, onClose: () -> Unit) {
                         }
                     },
                 )
+                EditorTab.SPOTS -> SpotsPanel(
+                    count = spots.size, busy = spotBusy,
+                    onAuto = {
+                        if (transform != PhotoProcessor.Transform()) {
+                            message = "Reset rotate and crop first to place spots"
+                        } else if (!spotBusy) {
+                            scope.launch {
+                                spotBusy = true
+                                try {
+                                    val found = withContext(Dispatchers.Default) {
+                                        val bytes = pApplied ?: readBytes(context, uri)
+                                        bytes?.let { PhotoProcessor.findSpecks(it) } ?: emptyList()
+                                    }
+                                    val fresh = found.filter { f -> spots.none { kotlin.math.abs(it.first - f.first) < 0.01f && kotlin.math.abs(it.second - f.second) < 0.01f } }
+                                    spots = spots + fresh
+                                    message = if (found.isEmpty()) "No isolated bright specks found" else "Found ${found.size}. Tap a circle to remove it."
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    message = "Couldn't search the photo: ${e.message ?: e::class.simpleName}"
+                                } catch (e: OutOfMemoryError) {
+                                    message = "Couldn't search the photo: not enough memory"
+                                } finally {
+                                    spotBusy = false
+                                }
+                            }
+                        }
+                    },
+                    onUndo = { spots = spots.dropLast(1) },
+                    onClear = { spots = emptyList() },
+                )
                 EditorTab.DETAILS -> DetailsPanel(uri)
             }
         }
@@ -396,6 +469,24 @@ fun EditorScreen(uri: Uri, controller: CameraController, onClose: () -> Unit) {
                     Text(entry.label, color = if (selected) Color.Black else Color.White, fontSize = 11.sp)
                 }
             }
+        }
+    }
+}
+
+/** Paint out hot pixels: tap a bright dot on the photo (the tap snaps to the brightest point nearby), or let the app look for them. */
+@Composable
+private fun SpotsPanel(count: Int, busy: Boolean, onAuto: () -> Unit, onUndo: () -> Unit, onClear: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            "Tap a bright dot on the photo to paint it out; tap its circle again to put it back. Auto-find marks isolated bright specks in the dark parts for you to check (it can also mark real things like stars).",
+            color = CameraTheme.TEXT_SECONDARY,
+            fontSize = 12.sp,
+        )
+        Text(if (count == 0) "No spots marked" else "$count spot${if (count == 1) "" else "s"} marked", color = Color.White, fontSize = 14.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState())) {
+            ChipText(if (busy) "Searching..." else "Auto-find", false) { if (!busy) onAuto() }
+            ChipText("Undo last", false) { if (count > 0) onUndo() }
+            ChipText("Clear", false) { if (count > 0) onClear() }
         }
     }
 }

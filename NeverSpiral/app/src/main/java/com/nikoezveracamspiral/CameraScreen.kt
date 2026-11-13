@@ -2050,6 +2050,8 @@ private fun UpdateSection(controller: CameraController) {
     val scope = rememberCoroutineScope()
     val profile = controller.deviceProfile
     LocationSection(controller)
+    SensorHealthSection(controller)
+    GuardSection(controller)
     SheetSection("This phone", profile.label)
     Text(
         "${profile.ramGb} GB memory · ${profile.tier.label} performance · lenses ${controller.engine.lensSummary()}",
@@ -2081,6 +2083,115 @@ private fun UpdateSection(controller: CameraController) {
     }
     ReportBlock(controller)
     Spacer(Modifier.height(24.dp))
+}
+
+/** Settings, Phone: a dark test that finds the sensor's hot pixels, remembers each run, and shares a report. */
+@Composable
+private fun SensorHealthSection(controller: CameraController) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val state = controller.sensorCheck
+    val runs = controller.sensorRuns
+    val latest = (state as? SensorCheckState.Done)?.run ?: runs.lastOrNull()
+    SheetSection("Sensor health", latest?.let { SensorHealth.status(it.spots).label } ?: "Not checked yet")
+    Text(
+        "Finds your camera sensor's hot pixels (single dots that glow in dark, high-ISO photos). Cover the rear lens completely with a finger or a dark cloth, keep the camera in Photo mode at 1x, then run the test. It takes a few seconds. Each run is saved so you can see whether anything changes over time.",
+        color = CameraTheme.TEXT_SECONDARY,
+        fontSize = 12.sp,
+        modifier = Modifier.padding(horizontal = 4.dp),
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+        PillButton(if (state is SensorCheckState.Running) "Testing..." else "Run dark test") {
+            if (state !is SensorCheckState.Running) scope.launch { controller.runSensorCheck() }
+        }
+        if (runs.isNotEmpty()) {
+            PillButton("Share report", filled = false) {
+                try {
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_SUBJECT, "Camera sensor check")
+                        putExtra(Intent.EXTRA_TEXT, controller.sensorReport())
+                    }
+                    context.startActivity(Intent.createChooser(send, "Share sensor report").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                } catch (e: Exception) {
+                    controller.reportError("Couldn't share the report: ${e.message ?: e::class.simpleName}")
+                }
+            }
+        }
+    }
+    if (state is SensorCheckState.Failed) {
+        Text(state.message, color = Color(0xFFFF8A80), fontSize = 13.sp, modifier = Modifier.padding(horizontal = 4.dp))
+    }
+    if (latest != null) {
+        val status = SensorHealth.status(latest.spots)
+        val dot = when (status) {
+            SensorStatus.HEALTHY -> Color(0xFF66BB6A)
+            SensorStatus.MINOR -> Color(0xFFFFCA28)
+            SensorStatus.ATTENTION -> Color(0xFFEF5350)
+        }
+        // A tiny map of the frame with the hot pixels marked.
+        androidx.compose.foundation.Canvas(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(150.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(Color(0xFF101010)),
+        ) {
+            val aspect = latest.width.toFloat() / latest.height.coerceAtLeast(1)
+            var w = size.width * 0.5f
+            var h = w / aspect
+            if (h > size.height - 16.dp.toPx()) {
+                h = size.height - 16.dp.toPx()
+                w = h * aspect
+            }
+            val left = (size.width - w) / 2f
+            val top = (size.height - h) / 2f
+            drawRect(Color(0xFF2A2A2A), topLeft = androidx.compose.ui.geometry.Offset(left, top), size = androidx.compose.ui.geometry.Size(w, h), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx()))
+            for (spot in latest.spots) {
+                drawCircle(dot, radius = 5.dp.toPx(), center = androidx.compose.ui.geometry.Offset(left + spot.x * w, top + spot.y * h))
+            }
+        }
+        Text(
+            "${latest.camera}, checked ${java.text.SimpleDateFormat("d MMM yyyy, HH:mm", java.util.Locale.US).format(java.util.Date(latest.timeMillis))}",
+            color = CameraTheme.TEXT_SECONDARY,
+            fontSize = 12.sp,
+            modifier = Modifier.padding(horizontal = 4.dp),
+        )
+        for ((i, spot) in latest.spots.take(6).withIndex()) {
+            Text("${i + 1}. ${SensorHealth.describe(spot)}", color = Color.White, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 4.dp))
+        }
+        if (latest.spots.size > 6) Text("and ${latest.spots.size - 6} more", color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 4.dp))
+        SensorHealth.trend(runs, latest)?.let {
+            Text(it, color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 4.dp))
+        }
+    }
+}
+
+/** Settings, Phone: warn about, or keep down, the ISO at which the sensor's hot pixel starts to show. */
+@Composable
+private fun GuardSection(controller: CameraController) {
+    SheetSection("Dark-scene guard", listOf("Off", "Warn", "Cap ISO")[controller.guardMode])
+    SegmentRow(
+        options = listOf(0 to "Off", 1 to "Warn", 2 to "Cap ISO").map { Triple(it.first, it.second, null as ImageVector?) },
+        selected = controller.guardMode,
+    ) { controller.guardMode = it }
+    if (controller.guardMode != 0) {
+        SheetSection("ISO limit", "${controller.guardIso}")
+        SegmentRow(
+            options = listOf(800, 1600, 3200).map { Triple(it, "$it", null as ImageVector?) },
+            selected = controller.guardIso,
+        ) { controller.guardIso = it }
+    }
+    Text(
+        when (controller.guardMode) {
+            1 -> "Shows a short note when the scene is dark enough that the camera goes above this ISO, where a hot pixel can show."
+            2 -> "Keeps the ISO at or below the limit by using a longer shutter (never slower than 1/15 s), so the hot pixel stays hidden. Hold steady; very dark scenes can still go above the limit."
+            else -> "Hot pixels show up in dark scenes at high ISO. Warn tells you; Cap ISO keeps the ISO down with a longer shutter."
+        },
+        color = CameraTheme.TEXT_SECONDARY,
+        fontSize = 12.sp,
+        modifier = Modifier.padding(horizontal = 4.dp),
+    )
 }
 
 /** Settings, Phone: tag photos with where they were taken. Off until turned on; turning it on asks for the permission. */
@@ -2144,12 +2255,12 @@ private fun AboutPage(controller: CameraController) {
             Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Image(
                     painter = androidx.compose.ui.res.painterResource(R.drawable.dev_avatar),
-                    contentDescription = "Nikoezvera",
+                    contentDescription = "Nikezvera",
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.size(112.dp).clip(CircleShape),
                 )
                 Spacer(Modifier.height(8.dp))
-                Text("Nikoezvera", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                Text("Nikezvera", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
                 Text("Developer of Niko's Cam", color = CameraTheme.TEXT_SECONDARY, fontSize = 15.sp)
                 Spacer(Modifier.height(6.dp))
                 Text(
@@ -2221,7 +2332,7 @@ private fun AboutPage(controller: CameraController) {
             }
             Text(
                 "Vibe coding means building software by describing what you want in everyday words instead of typing every line of code. " +
-                    "Nikoezvera shares the ideas, tests each version on real phones and sends back photos and logs. Claude Code, Anthropic's AI coding assistant, writes the code and fixes what the tests find.",
+                    "Nikezvera shares the ideas, tests each version on real phones and sends back photos and logs. Claude Code, Anthropic's AI coding assistant, writes the code and fixes what the tests find.",
                 color = CameraTheme.TEXT_SECONDARY,
                 fontSize = 14.sp,
             )

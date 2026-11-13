@@ -1084,6 +1084,13 @@ class CameraEngine(private val context: Context) {
         zoomRatio = 1f
     }
 
+    /** The exposure the sensor test uses: long and high-gain, which is when hot pixels show up. */
+    fun darkTestExposure(): Pair<Long, Int> {
+        val time = exposureTimeRange?.let { minOf(300_000_000L, it.upper).coerceAtLeast(it.lower) } ?: 100_000_000L
+        val iso = isoRange?.let { minOf(3200, it.upper).coerceAtLeast(it.lower) } ?: 1600
+        return time to iso
+    }
+
     fun setFlashMode(mode: FlashMode) {
         flashMode = mode
         startRepeatingPreview()
