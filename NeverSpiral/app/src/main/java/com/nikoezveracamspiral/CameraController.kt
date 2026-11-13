@@ -99,6 +99,9 @@ class CameraController(private val context: Context) {
 
     /** Keep the chosen look (filter and sliders) the next time the camera opens; off starts every launch plain. */
     var keepLook by mutableStateOf(true)
+
+    /** Tag photos with where they were taken. Off until the user turns it on (which asks for the permission). */
+    var geotag by mutableStateOf(false)
     /** The "Shot on Niko's Cam" watermark put on saved photos (Settings, Display). */
     var watermark by mutableStateOf(WatermarkSettings())
     /** Photos keep an HDR gain map (Ultra HDR) where the camera offers it. */
@@ -272,14 +275,14 @@ class CameraController(private val context: Context) {
         val hdr: Boolean, val hdrStrength: Int, val night: Int, val blur: Float, val raw: Boolean,
         val histogram: Boolean, val zoomEnhance: Boolean, val videoRes: Int, val videoFps: Int, val hevc: Boolean,
         val ultraHdr: Boolean, val nightGoogle: Boolean, val portraitStyle: Int, val saveOriginals: Boolean,
-        val watermark: WatermarkSettings, val look: Look, val keepLook: Boolean,
+        val watermark: WatermarkSettings, val look: Look, val keepLook: Boolean, val geotag: Boolean,
     )
 
     private fun settingsSnapshot() = Persisted(
         timerSeconds, gridStyle.ordinal, aspectRatio.ordinal, jpegQuality, mirrorSelfies,
         hdrEnabled, hdrStrength, nightSeconds, portraitBlurStrength, isRawEnabled,
         histogramEnabled, zoomEnhance, videoConfig.res.ordinal, videoConfig.fps, videoConfig.hevc,
-        ultraHdrEnabled, nightGoogle, portraitStyle.ordinal, saveOriginals, watermark, look, keepLook,
+        ultraHdrEnabled, nightGoogle, portraitStyle.ordinal, saveOriginals, watermark, look, keepLook, geotag,
     )
 
     private fun saveSettings(s: Persisted) {
@@ -298,7 +301,7 @@ class CameraController(private val context: Context) {
             .putFloat("exposure", l.exposure).putFloat("contrast", l.contrast).putFloat("saturation", l.saturation)
             .putFloat("warmth", l.warmth).putFloat("tint", l.tint).putFloat("highlights", l.highlights)
             .putFloat("shadows", l.shadows).putFloat("vignette", l.vignette).putFloat("grain", l.grain)
-            .putFloat("sharpness", l.sharpness).putFloat("vibrance", l.vibrance).putBoolean("keepLook", s.keepLook)
+            .putFloat("sharpness", l.sharpness).putFloat("vibrance", l.vibrance).putBoolean("keepLook", s.keepLook).putBoolean("geotag", s.geotag)
             .apply()
     }
 
@@ -349,6 +352,7 @@ class CameraController(private val context: Context) {
             vibrance = p.getFloat("vibrance", 0f),
         )
         keepLook = p.getBoolean("keepLook", true)
+        geotag = p.getBoolean("geotag", false) && LocationTagger.hasPermission(context)
         if (!keepLook) look = Look()
     }
 
@@ -383,6 +387,16 @@ class CameraController(private val context: Context) {
         (context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager)?.unregisterListener(listener)
         steadyListener = null
         tripod = false
+    }
+
+    /** Turns location tagging on or off. Turning it on needs the permission already granted (the screen asks first). */
+    fun setLocationTagging(on: Boolean) {
+        if (on && !LocationTagger.hasPermission(context)) {
+            geotag = false
+            return
+        }
+        geotag = on
+        if (on) LocationTagger.start(context) else LocationTagger.stop(context)
     }
 
     fun toggleAeAfLock() {
@@ -487,6 +501,7 @@ class CameraController(private val context: Context) {
             engine.startPreviewSession(texture, previewSize, isRawEnabled)
             afterSessionStarted()
             engine.setFlashMode(flashMode)
+            if (geotag) LocationTagger.start(context)
             pushProSettings()
             cameraEpoch += 1
             applyNightEngine()
@@ -501,6 +516,7 @@ class CameraController(private val context: Context) {
 
     fun stop() {
         cameraStarted = false
+        LocationTagger.stop(context)
         stopSteadyDetection()
         recordingTimerJob?.cancel()
         engine.closeCamera()
@@ -811,6 +827,7 @@ class CameraController(private val context: Context) {
             val night = mode == CaptureMode.NIGHT
             val manualExposure = mode == CaptureMode.PRO && proSettings.manualExposureEnabled
             val flashActive = flashMode != FlashMode.OFF && !night
+            val geoNow = if (geotag) LocationTagger.current(context) else null
             val base = engine.currentAutoExposure()
             val strength = hdrStrength / 5f
             val underEv = -(0.5f + 0.15f * hdrStrength)
@@ -890,12 +907,12 @@ class CameraController(private val context: Context) {
                             if (merged != null) {
                                 CaptureStore.saveDng(
                                     context, null, burst.rawCharacteristics, burst.rawResults[refIndex], stamp,
-                                    orientationDegrees = dngOrientation, thumbnailJpeg = dngThumbnail, merged = merged,
+                                    orientationDegrees = dngOrientation, thumbnailJpeg = dngThumbnail, merged = merged, location = geoNow,
                                 )
                             } else {
                                 CaptureStore.saveDng(
                                     context, rawImages[refIndex], burst.rawCharacteristics, burst.rawResults[refIndex], stamp,
-                                    orientationDegrees = dngOrientation, thumbnailJpeg = dngThumbnail,
+                                    orientationDegrees = dngOrientation, thumbnailJpeg = dngThumbnail, location = geoNow,
                                 )
                             }
                         } catch (e: Exception) {
@@ -915,7 +932,7 @@ class CameraController(private val context: Context) {
                 withContext(Dispatchers.IO) {
                     CaptureStore.saveDng(
                         context, rawImages[index], burst.rawCharacteristics, burst.rawResults[index], stamp,
-                        orientationDegrees = dngOrientation, thumbnailJpeg = dngThumbnail,
+                        orientationDegrees = dngOrientation, thumbnailJpeg = dngThumbnail, location = geoNow,
                     )
                 }
             }
@@ -935,6 +952,7 @@ class CameraController(private val context: Context) {
                 aperture = first?.get(android.hardware.camera2.CaptureResult.LENS_APERTURE),
                 focalLengthMm = first?.get(android.hardware.camera2.CaptureResult.LENS_FOCAL_LENGTH),
                 software = "Niko's Cam ${UpdateManager.installedVersionName(context)}",
+                location = geoNow,
                 description = "Quality ${jpegQuality}; $summary; ${look.lut?.name ?: look.filter.label}; " +
                     "zoom ${String.format(java.util.Locale.US, "%.1f", zoomRatio)}x; lens ${first?.get(android.hardware.camera2.CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID) ?: "-"}" +
                     (if (engine.ultraHdrActive) "; Ultra HDR" else "") + (if (engine.p3Active) "; Display P3" else "") +
@@ -1079,6 +1097,7 @@ class CameraController(private val context: Context) {
         val stamp = CaptureStore.newStamp()
         val meta = PhotoMeta(
             software = "Niko's Cam ${UpdateManager.installedVersionName(context)}",
+            location = if (geotag) LocationTagger.current(context) else null,
             description = "Quality 98; Night Sight (Google); ${look.filter.label}; zoom ${String.format(java.util.Locale.US, "%.1f", zoomRatio)}x",
         )
         // The system's Night engine hands back a finished JPEG, so the watermark goes on it here.
@@ -1160,6 +1179,7 @@ class CameraController(private val context: Context) {
                                 exposureNanos = job.meta.exposureNanos, iso = job.meta.iso, aperture = job.meta.aperture,
                                 focalLengthMm = job.meta.focalLengthMm, software = job.meta.software,
                                 description = "Original, before the Portrait blur; ${job.meta.description}",
+                                location = job.meta.location,
                             )
                             CaptureStore.saveJpeg(context, before, job.stamp, suffix = "_original", meta = original)
                         }

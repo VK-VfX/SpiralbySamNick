@@ -214,6 +214,11 @@ Not built yet (needs on-device testing): a YUV/RAW burst with zero-shutter-lag, 
 - Zoom quality: from 2x up, a shot is a 5-frame merged burst with minimal in-camera noise reduction (Settings: Zoom enhance), followed by a wider-radius unsharp mask that grows with the zoom level. Each photo's description now records the zoom and which physical lens captured it, so a telephoto shot can be told from a cropped main-lens one.
 - Predictive-back callback enabled for Android 13+.
 
+## v2.10.0
+
+- **Location tagging** (Settings, Phone): off by default. Turning it on asks for location permission (foreground only, no background location) and saves where each photo was taken in its JPEG and DNG metadata. Uses the latest GPS/network fix so the shutter never waits.
+- **New About Niko's Cam page:** big profile card (Nikoezvera, Developer of Niko's Cam), Telegram card with @xnzvix, in-app updates, log catcher, and a plain-words "How it's made" (Kotlin, Compose, Camera2, on-phone AI model, vibe coding with Claude Code).
+
 ## v2.9.0
 
 - **Pixel looks.** A new **Pixel** tab in Filters with Pixel's four base styles (Original, Natural, Shadows, Vanilla) and six creative presets (Editorial, Velvet, Classic, Digi, Black Tie, Minimal). They apply to photos, the editor, Night Sight (Google engine too) and video. Red/green/blue-specific colour (Editorial's washed blues, Velvet's rich blues and reds with cool greens) is applied on the saved photo; the live preview shows the overall colour and tone. Minimal adds no extra sharpening.

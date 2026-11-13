@@ -90,6 +90,10 @@ import androidx.compose.material.icons.rounded.GridOff
 import androidx.compose.material.icons.rounded.GridOn
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Send
+import androidx.compose.material.icons.rounded.Code
+import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.LocationOn
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Iso
@@ -1717,7 +1721,7 @@ private fun SettingsSheet(controller: CameraController, startOnAbout: Boolean = 
         ) {
             if (aboutOpen) {
                 Text(
-                    "‹  About",
+                    "‹  About Niko's Cam",
                     color = Color.White,
                     fontSize = 22.sp,
                     modifier = Modifier.weight(1f).clickable { aboutOpen = false },
@@ -1932,7 +1936,48 @@ private fun SettingsTabs(selected: Int, onSelect: (Int) -> Unit) {
     }
 }
 
-/** Over-the-air updates, shown inside the About page as one compact card: check, download and install a newer build. */
+/** A big rounded tile with an icon, the visual anchor of each About card. */
+@Composable
+private fun IconTile(icon: ImageVector, background: Color, tint: Color = Color.White, size: androidx.compose.ui.unit.Dp = 52.dp) {
+    Box(
+        modifier = Modifier.size(size).clip(RoundedCornerShape(16.dp)).background(background),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(size * 0.54f))
+    }
+}
+
+/** A roomy rounded card used for every About section. */
+@Composable
+private fun AboutCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, content: @Composable () -> Unit) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(24.dp))
+            .background(CameraTheme.SURFACE_RAISED)
+            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) { content() }
+}
+
+/** A pill-shaped action button, big enough to hit easily. */
+@Composable
+private fun PillButton(label: String, filled: Boolean = true, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .height(44.dp)
+            .clip(RoundedCornerShape(22.dp))
+            .background(if (filled) Color.White else Color(0xFF3A3A3A))
+            .clickable { onClick() }
+            .padding(horizontal = 20.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, color = if (filled) Color.Black else Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+    }
+}
+
+/** Over-the-air updates, shown inside the About page: check, download and install a newer build. */
 @Composable
 private fun UpdatesCard(controller: CameraController) {
     val scope = rememberCoroutineScope()
@@ -1946,28 +1991,23 @@ private fun UpdatesCard(controller: CameraController) {
         is UpdateStatus.Ready -> "Version ${status.info.versionName} downloaded."
         is UpdateStatus.Failed -> status.message
     }
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(CameraTheme.SURFACE_RAISED)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+    AboutCard {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            IconTile(Icons.Rounded.SystemUpdate, Color(0xFF2E7D32))
             Column(modifier = Modifier.weight(1f)) {
-                Text("Updates", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                Text(message, color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp)
-            }
-            when (status) {
-                is UpdateStatus.Available -> CompactButton("Install", Icons.Rounded.SystemUpdate) { scope.launch { controller.downloadUpdate() } }
-                is UpdateStatus.Ready -> CompactButton("Install", Icons.Rounded.SystemUpdate) { controller.installUpdate() }
-                is UpdateStatus.Downloading, UpdateStatus.Checking -> Unit
-                else -> CompactButton("Check", Icons.Rounded.Refresh) { scope.launch { controller.checkForUpdates() } }
+                Text("In-app updates", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                Text(message, color = CameraTheme.TEXT_SECONDARY, fontSize = 13.sp)
             }
         }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("Check at launch", color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp, modifier = Modifier.weight(1f))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            when (status) {
+                is UpdateStatus.Available -> PillButton("Download") { scope.launch { controller.downloadUpdate() } }
+                is UpdateStatus.Ready -> PillButton("Install") { controller.installUpdate() }
+                is UpdateStatus.Downloading, UpdateStatus.Checking -> Unit
+                else -> PillButton("Check for updates") { scope.launch { controller.checkForUpdates() } }
+            }
+            Spacer(Modifier.weight(1f))
+            Text("At launch", color = CameraTheme.TEXT_SECONDARY, fontSize = 13.sp)
             ChipText("On", controller.autoCheckUpdates) { controller.changeAutoCheckUpdates(true) }
             ChipText("Off", !controller.autoCheckUpdates) { controller.changeAutoCheckUpdates(false) }
         }
@@ -2009,6 +2049,7 @@ private fun UpdateSection(controller: CameraController) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val profile = controller.deviceProfile
+    LocationSection(controller)
     SheetSection("This phone", profile.label)
     Text(
         "${profile.ramGb} GB memory · ${profile.tier.label} performance · lenses ${controller.engine.lensSummary()}",
@@ -2042,6 +2083,37 @@ private fun UpdateSection(controller: CameraController) {
     Spacer(Modifier.height(24.dp))
 }
 
+/** Settings, Phone: tag photos with where they were taken. Off until turned on; turning it on asks for the permission. */
+@Composable
+private fun LocationSection(controller: CameraController) {
+    val context = LocalContext.current
+    val launcher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions(),
+    ) { results ->
+        if (results.values.any { it } || LocationTagger.hasPermission(context)) {
+            controller.setLocationTagging(true)
+        } else {
+            controller.setLocationTagging(false)
+            android.widget.Toast.makeText(context, "Location permission wasn't allowed, so photos aren't tagged.", android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
+    SheetSection("Location tagging", if (controller.geotag) "On" else "Off")
+    SegmentRow(
+        options = listOf(true to "On", false to "Off").map { Triple(it.first, it.second, if (it.first) Icons.Rounded.LocationOn else null as ImageVector?) },
+        selected = controller.geotag,
+    ) { on ->
+        if (!on) controller.setLocationTagging(false)
+        else if (LocationTagger.hasPermission(context)) controller.setLocationTagging(true)
+        else launcher.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))
+    }
+    Text(
+        "Saves where each photo was taken inside the photo file (JPEG and RAW). Only used while the camera is open, never in the background, and never sent anywhere. Anyone you share a tagged photo with can see the place.",
+        color = CameraTheme.TEXT_SECONDARY,
+        fontSize = 12.sp,
+        modifier = Modifier.padding(horizontal = 4.dp),
+    )
+}
+
 /** "Something wrong?": one compact button that shares the log, with a one-line explanation. */
 @Composable
 private fun ReportBlock(controller: CameraController) {
@@ -2067,32 +2139,93 @@ private fun AboutPage(controller: CameraController) {
         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.padding(horizontal = 4.dp)) {
-            Image(
-                painter = androidx.compose.ui.res.painterResource(R.drawable.dev_avatar),
-                contentDescription = "Nikoezvera",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.size(72.dp).clip(CircleShape),
-            )
-            Column {
-                Text("Nikoezvera", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
-                Text("Developer of Niko's Cam", color = CameraTheme.TEXT_SECONDARY, fontSize = 13.sp)
-                Text("v${UpdateManager.installedVersionName(context)}", color = CameraTheme.TEXT_SECONDARY, fontSize = 12.sp)
+        // The developer: a big profile picture, name and role.
+        AboutCard {
+            Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Image(
+                    painter = androidx.compose.ui.res.painterResource(R.drawable.dev_avatar),
+                    contentDescription = "Nikoezvera",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.size(112.dp).clip(CircleShape),
+                )
+                Spacer(Modifier.height(8.dp))
+                Text("Nikoezvera", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                Text("Developer of Niko's Cam", color = CameraTheme.TEXT_SECONDARY, fontSize = 15.sp)
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Version ${UpdateManager.installedVersionName(context)}",
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    modifier = Modifier.clip(RoundedCornerShape(50)).background(Color(0xFF3A3A3A)).padding(horizontal = 12.dp, vertical = 5.dp),
+                )
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(horizontal = 4.dp)) {
-            CompactButton("@xnzvix", Icons.Rounded.Send) {
-                try {
-                    context.startActivity(
-                        Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/xnzvix")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                    )
-                } catch (e: Exception) {
-                    // No app can open the link; nothing more to do.
+
+        // Telegram: the paper-plane on Telegram's blue, with the username.
+        AboutCard(onClick = {
+            try {
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/xnzvix")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            } catch (e: Exception) {
+                // No app can open the link; nothing more to do.
+            }
+        }) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                Box(
+                    modifier = Modifier.size(52.dp).clip(CircleShape).background(Color(0xFF229ED9)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Rounded.Send, contentDescription = null, tint = Color.White, modifier = Modifier.size(28.dp))
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Telegram", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                    Text("@xnzvix", color = Color(0xFF6CC4F0), fontSize = 14.sp)
+                }
+                Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = CameraTheme.TEXT_SECONDARY, modifier = Modifier.size(28.dp))
+            }
+        }
+
+        UpdatesCard(controller)
+
+        // Log catcher: shares what's needed to find a problem.
+        AboutCard {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                IconTile(Icons.Rounded.BugReport, Color(0xFFC62828))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Log catcher", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Something not working? Share a log of what the camera was doing.", color = CameraTheme.TEXT_SECONDARY, fontSize = 13.sp)
                 }
             }
-            CompactButton("Report a problem", Icons.Rounded.BugReport, filled = false) { shareLog(context, scope, controller) }
+            PillButton("Share the log") { shareLog(context, scope, controller) }
         }
-        UpdatesCard(controller)
+
+        // How it was made, in plain words.
+        AboutCard {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                IconTile(Icons.Rounded.Code, Color(0xFF6A4FD6))
+                Text("How it's made", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            }
+            Text(
+                "Niko's Cam is written in Kotlin, the language most modern Android apps are built with. " +
+                    "The screens use Jetpack Compose, Google's toolkit for drawing app screens, and the camera itself is driven through Android's Camera2 system, the same one other camera apps use.",
+                color = CameraTheme.TEXT_SECONDARY,
+                fontSize = 14.sp,
+            )
+            Text(
+                "Portrait blur uses a small AI model (TensorFlow Lite) that runs on the phone to judge how far things are. Colours, HDR and Night Sight are built from plain image maths, not a cloud service.",
+                color = CameraTheme.TEXT_SECONDARY,
+                fontSize = 14.sp,
+            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                IconTile(Icons.Rounded.AutoAwesome, Color(0xFFD9822B))
+                Text("Vibe coding with Claude Code", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            }
+            Text(
+                "Vibe coding means building software by describing what you want in everyday words instead of typing every line of code. " +
+                    "Nikoezvera shares the ideas, tests each version on real phones and sends back photos and logs. Claude Code, Anthropic's AI coding assistant, writes the code and fixes what the tests find.",
+                color = CameraTheme.TEXT_SECONDARY,
+                fontSize = 14.sp,
+            )
+        }
         Spacer(Modifier.height(8.dp))
     }
 }

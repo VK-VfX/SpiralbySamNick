@@ -33,6 +33,8 @@ class PhotoMeta(
     val focalLengthMm: Float? = null,
     val software: String = "",
     val description: String = "",
+    /** Where the photo was taken, when Location tagging is on. */
+    val location: android.location.Location? = null,
 )
 
 object CaptureStore {
@@ -115,6 +117,7 @@ object CaptureStore {
                 meta.aperture?.let { exif.setAttribute(ExifInterface.TAG_F_NUMBER, it.toString()) }
                 meta.focalLengthMm?.let { exif.setAttribute(ExifInterface.TAG_FOCAL_LENGTH, "${(it * 1000).toInt()}/1000") }
                 if (meta.description.isNotEmpty()) exif.setAttribute(ExifInterface.TAG_IMAGE_DESCRIPTION, meta.description)
+                meta.location?.let { exif.setGpsInfo(it) }
                 exif.saveAttributes()
             }
         } catch (e: Exception) {
@@ -134,6 +137,7 @@ object CaptureStore {
         orientationDegrees: Int = 0,
         thumbnailJpeg: ByteArray? = null,
         merged: RawMerge.Merged? = null,
+        location: android.location.Location? = null,
     ): Uri? {
         val resolver = context.contentResolver
         val values = ContentValues().apply {
@@ -151,6 +155,7 @@ object CaptureStore {
         }
         try {
             DngCreator(characteristics, captureResult).use { dngCreator ->
+                if (location != null) dngCreator.setLocation(location)
                 // Without this the file opens sideways: the DNG holds raw sensor rows, so the same
                 // rotation the JPEG gets has to be recorded as its orientation tag.
                 dngCreator.setOrientation(
