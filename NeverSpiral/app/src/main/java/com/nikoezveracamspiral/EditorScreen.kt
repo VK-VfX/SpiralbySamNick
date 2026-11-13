@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoFixHigh
+import androidx.compose.material.icons.rounded.BlurOn
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -45,6 +46,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -71,6 +74,7 @@ private enum class EditorTab(val label: String, val icon: ImageVector) {
     FILTER("Filters", Icons.Rounded.Palette),
     ADJUST("Adjust", Icons.Rounded.AutoFixHigh),
     CROP("Crop", Icons.Rounded.Crop),
+    PORTRAIT("Portrait", Icons.Rounded.BlurOn),
     DETAILS("Details", Icons.Rounded.Info),
 }
 
@@ -94,6 +98,27 @@ fun EditorScreen(uri: Uri, controller: CameraController, onClose: () -> Unit) {
     var showOriginal by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
+
+    // Portrait photos keep the picture from before the blur and what was found out about it, so
+    // the blur can be changed here: its strength, its style and which thing is the subject.
+    val stamp = remember(uri) { CaptureStore.stampOf(context, uri) }
+    val portrait by produceState<PortraitStore.Saved?>(initialValue = null, uri) {
+        value = withContext(Dispatchers.IO) { PortraitStore.load(context, stamp) }
+    }
+    val portraitBytes by produceState<ByteArray?>(initialValue = null, portrait) {
+        value = portrait?.let { saved -> withContext(Dispatchers.IO) { try { saved.preBlur.readBytes() } catch (e: Exception) { null } } }
+    }
+    var pStyle by remember { mutableStateOf(PortraitStyle.NATURAL) }
+    var pStrength by remember { mutableStateOf(0.5f) }
+    var pTap by remember { mutableStateOf<Pair<Float, Float>?>(null) }
+    var pApplied by remember { mutableStateOf<ByteArray?>(null) }
+    var pBusy by remember { mutableStateOf(false) }
+    LaunchedEffect(portrait) {
+        portrait?.let {
+            pStyle = it.style
+            pStrength = it.strength
+        }
+    }
 
     // Undo/redo: a new history entry is committed once the edit settles (the wheels change
     // continuously, so each tick isn't its own step).
@@ -153,6 +178,28 @@ fun EditorScreen(uri: Uri, controller: CameraController, onClose: () -> Unit) {
         }
     }
 
+    // A live preview of the re-done blur while the Portrait tab is open (at a reduced size, so it is quick).
+    val portraitPreview by produceState<ImageBitmap?>(initialValue = null, portrait, portraitBytes, pStyle, pStrength, pTap, tab) {
+        val saved = portrait
+        val bytes = portraitBytes
+        if (tab != EditorTab.PORTRAIT || saved == null || bytes == null) {
+            value = null
+            return@produceState
+        }
+        delay(250)
+        value = try {
+            withContext(Dispatchers.Default) {
+                PhotoProcessor.portraitPreview(bytes, saved.analysis, pStyle, pStrength, pTap, 900_000)?.asImageBitmap()
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        } catch (e: OutOfMemoryError) {
+            null
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -187,7 +234,7 @@ fun EditorScreen(uri: Uri, controller: CameraController, onClose: () -> Unit) {
                         scope.launch {
                             saving = true
                             try {
-                                val bytes = withContext(Dispatchers.IO) { readBytes(context, uri) }
+                                val bytes = pApplied ?: withContext(Dispatchers.IO) { readBytes(context, uri) }
                                     ?: throw IllegalStateException("Couldn't read the original")
                                 val out = withContext(Dispatchers.Default) {
                                     PhotoProcessor.processEdit(bytes, look, transform, controller.jpegQuality)
@@ -221,16 +268,39 @@ fun EditorScreen(uri: Uri, controller: CameraController, onClose: () -> Unit) {
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .pointerInput(Unit) {
-                    detectTapGestures(onPress = {
-                        showOriginal = true
-                        tryAwaitRelease()
-                        showOriginal = false
-                    })
+                .pointerInput(tab, source, transform) {
+                    detectTapGestures(
+                        onPress = {
+                            // Holding shows the original, except on the Portrait tab, where a tap picks the subject.
+                            if (tab != EditorTab.PORTRAIT) {
+                                showOriginal = true
+                                tryAwaitRelease()
+                                showOriginal = false
+                            }
+                        },
+                        onTap = { tapAt ->
+                            val bmp = source
+                            if (tab == EditorTab.PORTRAIT && portrait != null && bmp != null) {
+                                if (transform != PhotoProcessor.Transform()) {
+                                    message = "Reset rotate and crop first to pick a new subject"
+                                } else {
+                                    // Where the picture sits inside the box (it is fitted, with 8 dp at each side).
+                                    val pad = 8.dp.toPx()
+                                    val availW = size.width - 2 * pad
+                                    val fit = minOf(availW / bmp.width, size.height.toFloat() / bmp.height)
+                                    val shownW = bmp.width * fit
+                                    val shownH = bmp.height * fit
+                                    val nx = (tapAt.x - (size.width - shownW) / 2f) / shownW
+                                    val ny = (tapAt.y - (size.height - shownH) / 2f) / shownH
+                                    if (nx in 0f..1f && ny in 0f..1f) pTap = Pair(nx, ny)
+                                }
+                            }
+                        },
+                    )
                 },
             contentAlignment = Alignment.Center,
         ) {
-            val image = rendered
+            val image = if (tab == EditorTab.PORTRAIT && portraitPreview != null) portraitPreview else rendered
             if (image != null) {
                 Image(
                     bitmap = image,
@@ -270,6 +340,39 @@ fun EditorScreen(uri: Uri, controller: CameraController, onClose: () -> Unit) {
                 EditorTab.FILTER -> FilterPanel(look, { look = it }, thumb, controller)
                 EditorTab.ADJUST -> AdjustPanel(look) { look = it }
                 EditorTab.CROP -> CropPanel(transform) { transform = it }
+                EditorTab.PORTRAIT -> PortraitPanel(
+                    style = pStyle, onStyle = { pStyle = it },
+                    strength = pStrength, onStrength = { pStrength = it },
+                    refocused = pTap != null, onResetFocus = { pTap = null },
+                    busy = pBusy, previewing = portraitPreview != null,
+                    onApply = {
+                        val saved = portrait
+                        val bytes = portraitBytes
+                        if (saved != null && bytes != null && !pBusy) {
+                            scope.launch {
+                                pBusy = true
+                                try {
+                                    val out = withContext(Dispatchers.Default) {
+                                        PhotoProcessor.portraitRerender(bytes, saved.analysis, pStyle, pStrength, pTap, controller.jpegQuality)
+                                    } ?: throw IllegalStateException("there is nothing to blur with this subject")
+                                    val decoded = withContext(Dispatchers.Default) { PhotoProcessor.decodeUpright(out, 2_500_000) }
+                                        ?: throw IllegalStateException("couldn't read the result")
+                                    pApplied = out
+                                    source = decoded
+                                    message = "Blur updated. Save copy keeps it."
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    message = "Couldn't change the blur: ${e.message ?: e::class.simpleName}"
+                                } catch (e: OutOfMemoryError) {
+                                    message = "Couldn't change the blur: not enough memory for this photo"
+                                } finally {
+                                    pBusy = false
+                                }
+                            }
+                        }
+                    },
+                )
                 EditorTab.DETAILS -> DetailsPanel(uri)
             }
         }
@@ -278,20 +381,70 @@ fun EditorScreen(uri: Uri, controller: CameraController, onClose: () -> Unit) {
             modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
         ) {
-            for (entry in EditorTab.entries) {
+            for (entry in EditorTab.entries.filter { it != EditorTab.PORTRAIT || portrait != null }) {
                 val selected = entry == tab
                 Column(
                     modifier = Modifier
                         .clip(RoundedCornerShape(22.dp))
                         .background(if (selected) Color.White else Color.Transparent)
                         .clickable { tab = entry }
-                        .padding(horizontal = 22.dp, vertical = 8.dp),
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Icon(entry.icon, contentDescription = null, tint = if (selected) Color.Black else Color.White, modifier = Modifier.size(24.dp))
                     Text(entry.label, color = if (selected) Color.Black else Color.White, fontSize = 11.sp)
                 }
             }
+        }
+    }
+}
+
+/** Change a Portrait's blur after the shot: its style and strength, and tap the photo to pick another subject. */
+@Composable
+private fun PortraitPanel(
+    style: PortraitStyle,
+    onStyle: (PortraitStyle) -> Unit,
+    strength: Float,
+    onStrength: (Float) -> Unit,
+    refocused: Boolean,
+    onResetFocus: () -> Unit,
+    busy: Boolean,
+    previewing: Boolean,
+    onApply: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            for (option in PortraitStyle.entries) ChipText(option.label, option == style) { onStyle(option) }
+        }
+        FloatWheelRow(
+            label = "Blur",
+            value = strength,
+            min = 0f,
+            max = 1f,
+            steps = 20,
+            format = { "${(it * 100).toInt()}" },
+        ) { onStrength(it) }
+        Text(
+            if (refocused) "New subject picked. Tap the photo to pick another." else "Tap the photo to pick a different subject.",
+            color = CameraTheme.TEXT_SECONDARY,
+            fontSize = 12.sp,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .height(40.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(if (busy || !previewing) Color(0xFF555555) else Color.White)
+                    .clickable(enabled = !busy && previewing) { onApply() }
+                    .padding(horizontal = 18.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(if (busy) "Applying..." else "Apply blur", color = Color.Black, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            }
+            if (refocused) ChipText("Original subject", false) { onResetFocus() }
         }
     }
 }

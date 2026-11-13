@@ -58,16 +58,16 @@ object PortraitEffect {
 
     /** What a renderer hands to [composite]: the blurred picture at working size, and for every
      * pixel how much of it to use (0 = keep the sharp original, 1 = fully the blurred one). */
-    private class Render(val image: IntArray, val weight: FloatArray)
+    private class Render(val image: IntArray, val weight: FloatArray, val foreground: IntArray? = null)
 
     /** Returns true if a subject was found and the background was blurred. [strength] is 0..1. */
-    fun apply(pixels: IntArray, w: Int, h: Int, strength: Float, style: PortraitStyle = PortraitStyle.NATURAL, cues: DepthCues? = null, tap: Pair<Float, Float>? = null, workLongSide: Int = 1024): Boolean {
+    fun apply(pixels: IntArray, w: Int, h: Int, strength: Float, style: PortraitStyle = PortraitStyle.NATURAL, cues: DepthCues? = null, tap: Pair<Float, Float>? = null, workLongSide: Int = 1024, analysisSink: ((PortraitAnalysis) -> Unit)? = null): Boolean {
         // Nothing is written to [pixels] until the very end, so if memory runs out part-way (a
         // phone with a small heap) the whole thing can simply be retried a size smaller.
         var size = workLongSide
         while (true) {
             try {
-                return applyAt(pixels, w, h, strength, style, cues, tap, size)
+                return applyAt(pixels, w, h, strength, style, cues, tap, size, analysisSink)
             } catch (e: OutOfMemoryError) {
                 val smaller = (size * 0.75f).toInt()
                 android.util.Log.w("PortraitEffect", "Out of memory at working size $size; retrying at $smaller", e)
@@ -88,7 +88,7 @@ object PortraitEffect {
         return ((side / 32.0).toInt() * 32).coerceIn(576, 1024)
     }
 
-    private fun applyAt(pixels: IntArray, w: Int, h: Int, strength: Float, style: PortraitStyle, cues: DepthCues?, tap: Pair<Float, Float>?, workLongSide: Int): Boolean {
+    private fun applyAt(pixels: IntArray, w: Int, h: Int, strength: Float, style: PortraitStyle, cues: DepthCues?, tap: Pair<Float, Float>?, workLongSide: Int, analysisSink: ((PortraitAnalysis) -> Unit)?): Boolean {
         val params = paramsFor(style)
         val longSide = max(w, h)
         val scale = min(1f, workLongSide.toFloat() / longSide)
@@ -106,9 +106,11 @@ object PortraitEffect {
 
         // Depth from the camera's own measurements plus the subject's outline; the plain
         // outline blur is the last resort.
-        val render = depthRender(work, lum, ww, wh, params, maxRadius, cues, tap)
+        val analysis = analyse(work, lum, ww, wh, cues, tap)
+        val render = (if (analysis != null) renderFrom(analysis, work, lum, params, maxRadius) else null)
             ?: maskRender(work, lum, ww, wh, params, maxRadius, tap)
             ?: return false
+        if (analysis != null && render.foreground != null) analysisSink?.invoke(analysis)
         composite(pixels, w, h, render, ww, wh, params.subjectLift)
         return true
     }
@@ -132,15 +134,13 @@ object PortraitEffect {
     // ---- depth renderer ----
 
     /**
-     * Simulates a large-aperture lens from a depth map built out of what the camera can measure
-     * itself: the subject's outline (a distance ramp away from it), the parallax between the main
-     * and ultra-wide lenses, and how sharp each area comes out as the lens focuses near and far
-     * ([cues]). Every pixel gets a blur size from how far its depth is from the focus plane (in
-     * front or behind), the picture is split into layers by blur size, each layer is blurred on its
-     * own, and the layers are stacked far to near. A sharp subject therefore can't bleed into the
-     * blur behind it (no halo), and a blurred foreground can soften what is behind it.
+     * Works out, from the camera's own measurements and the subject's outline, what in the picture
+     * is the subject and how far away everything is. The measurements are the learned depth map,
+     * the parallax between the main and ultra-wide lenses and how sharp each area comes out as the
+     * lens focuses near and far ([cues]); the outline (a distance ramp away from the subject)
+     * fills in wherever those are weak.
      */
-    private fun depthRender(work: IntArray, lum: FloatArray, ww: Int, wh: Int, params: Params, maxRadius: Float, cues: DepthCues?, tap: Pair<Float, Float>? = null): Render? {
+    private fun analyse(work: IntArray, lum: FloatArray, ww: Int, wh: Int, cues: DepthCues?, tap: Pair<Float, Float>?): PortraitAnalysis? {
         val n = ww * wh
 
         // The subject: a person if the model finds one, otherwise whatever is in focus.
@@ -275,6 +275,25 @@ object PortraitEffect {
         val regionMask = refine(lum, grown, ww, wh)
         // Nothing may stay sharp unless it is joined to the main subject: stray islands are dropped.
         val keep = cleanMask(FloatArray(n) { i -> max(regionMask[i], subject?.get(i) ?: 0f) }, ww, wh)
+        val confident = BooleanArray(n) { cueConf[it] > 0.6f }
+        return PortraitAnalysis(ww, wh, depth, keep, confident, focus)
+    }
+
+    /**
+     * Blurs the picture's background from an [analysis] (what is the subject, how far away is
+     * everything): every pixel gets a blur size from how far its depth is from the focus plane,
+     * the picture is split into layers by blur size, each layer is blurred on its own, in linear
+     * light and with a disc-like kernel, and the layers are stacked far to near. A sharp subject
+     * therefore can't bleed into the blur behind it (no halo). Null if the result would be
+     * pointless (nothing, or everything, is sharp).
+     */
+    private fun renderFrom(analysis: PortraitAnalysis, work: IntArray, lum: FloatArray, params: Params, maxRadius: Float): Render? {
+        val ww = analysis.width
+        val wh = analysis.height
+        val n = ww * wh
+        val depth = analysis.depth
+        val keep = analysis.keep
+        val focus = analysis.focus
         val bloom = bloomGain(lum, ww, wh, maxRadius, params.bloom)
 
         // Blur size per pixel (0..1), and whether it is in front of or behind the focus plane.
@@ -289,7 +308,7 @@ object PortraitEffect {
             val ramp = smooth(((kotlin.math.abs(s) - 0.04f) / 0.5f).coerceIn(0f, 1f))
             // Only something clearly and confidently in front of the subject gets the light blur;
             // everything else outside the subject is background, however noisy the depth there is.
-            val front = s > 0.22f && cueConf[i] > 0.6f
+            val front = s > 0.22f && analysis.confident[i]
             val c = if (front) 0.3f * ramp else 0.38f + 0.62f * ramp
             coc[i] = c * (1f - keep[i])
             inFront[i] = front && keep[i] < 0.5f
@@ -319,12 +338,12 @@ object PortraitEffect {
             accB[i] = TO_LINEAR[p and 0xFF]
         }
         // Underneath everything: the whole picture at the widest blur, so no gap ever shows.
-        val baseRadius = maxRadius.roundToInt().coerceAtLeast(1)
-        repeat(3) {
-            boxBlurF(accR, tmp, ww, wh, baseRadius)
-            boxBlurF(accG, tmp, ww, wh, baseRadius)
-            boxBlurF(accB, tmp, ww, wh, baseRadius)
-        }
+        // The blur kernel is a disc (an octagon, close enough), as a real lens's is: its radius is
+        // twice the box blur's, which has the same spread.
+        val baseRadius = 2f * maxRadius
+        discBlurF(accR, tmp, ww, wh, baseRadius)
+        discBlurF(accG, tmp, ww, wh, baseRadius)
+        discBlurF(accB, tmp, ww, wh, baseRadius)
         val layerR = FloatArray(n)
         val layerG = FloatArray(n)
         val layerB = FloatArray(n)
@@ -365,14 +384,12 @@ object PortraitEffect {
                 }
             }
             if (used == 0) return
-            val radius = (maxRadius * step / steps).roundToInt()
-            if (radius >= 1) {
-                repeat(3) {
-                    boxBlurF(layerR, tmp, ww, wh, radius)
-                    boxBlurF(layerG, tmp, ww, wh, radius)
-                    boxBlurF(layerB, tmp, ww, wh, radius)
-                    boxBlurF(layerA, tmp, ww, wh, radius)
-                }
+            val radius = 2f * maxRadius * step / steps
+            if (radius >= 1.5f) {
+                discBlurF(layerR, tmp, ww, wh, radius)
+                discBlurF(layerG, tmp, ww, wh, radius)
+                discBlurF(layerB, tmp, ww, wh, radius)
+                discBlurF(layerA, tmp, ww, wh, radius)
             }
             for (i in 0 until n) {
                 val a = layerA[i].coerceIn(0f, 1f)
@@ -405,7 +422,30 @@ object PortraitEffect {
                 (b * gain).toInt().coerceIn(0, 255)
             weight[i] = smooth((coc[i] / 0.1f).coerceIn(0f, 1f))
         }
-        return Render(image, weight)
+        // The colour of the subject itself, spread a little way into the soft edge. The photo's
+        // edge pixels (hair, a shoulder) still carry a tint of the old background; composite
+        // swaps that for this so no halo of the old background is left around the subject.
+        val rim = max(2, (maxRadius * 0.15f).roundToInt())
+        for (i in 0 until n) {
+            val m = if (weight[i] < 0.15f) 1f else 0f
+            val p = work[i]
+            accR[i] = ((p shr 16) and 0xFF) * m
+            accG[i] = ((p shr 8) and 0xFF) * m
+            accB[i] = (p and 0xFF) * m
+            layerA[i] = m
+        }
+        boxBlurF(accR, tmp, ww, wh, rim)
+        boxBlurF(accG, tmp, ww, wh, rim)
+        boxBlurF(accB, tmp, ww, wh, rim)
+        boxBlurF(layerA, tmp, ww, wh, rim)
+        val foreground = IntArray(n) { i ->
+            val d = layerA[i]
+            if (d < 0.02f) work[i] else (0xFF shl 24) or
+                ((accR[i] / d).toInt().coerceIn(0, 255) shl 16) or
+                ((accG[i] / d).toInt().coerceIn(0, 255) shl 8) or
+                (accB[i] / d).toInt().coerceIn(0, 255)
+        }
+        return Render(image, weight, foreground)
     }
 
     /**
@@ -618,6 +658,7 @@ object PortraitEffect {
     private fun composite(pixels: IntArray, w: Int, h: Int, render: Render, ww: Int, wh: Int, subjectLift: Boolean) {
         val backdrop = render.image
         val weight = render.weight
+        val foreground = render.foreground
         val xs = (ww - 1).toFloat() / (w - 1).coerceAtLeast(1)
         val ys = (wh - 1).toFloat() / (h - 1).coerceAtLeast(1)
         parallelFor(h) { y ->
@@ -638,6 +679,22 @@ object PortraitEffect {
                 if (blurAmount <= 0.001f) {
                     pixels[i] = p
                     continue
+                }
+                if (foreground != null) {
+                    // In the soft edge the photo's own pixels still hold a tint of the old
+                    // background; use the subject's colour from just inside instead.
+                    val t = (blurAmount * 1.6f).coerceAtMost(1f)
+                    val f00 = foreground[i00]
+                    val f10 = foreground[i00 + 1]
+                    val f01 = foreground[i00 + ww]
+                    val f11 = foreground[i00 + ww + 1]
+                    fun fgChannel(shift: Int): Float {
+                        val top = ((f00 shr shift) and 0xFF) * (1 - tx) + ((f10 shr shift) and 0xFF) * tx
+                        val bottom = ((f01 shr shift) and 0xFF) * (1 - tx) + ((f11 shr shift) and 0xFF) * tx
+                        return top * (1 - ty) + bottom * ty
+                    }
+                    fun cleaned(shift: Int): Int = (((p shr shift) and 0xFF) * (1 - t) + fgChannel(shift) * t).toInt().coerceIn(0, 255)
+                    p = (0xFF shl 24) or (cleaned(16) shl 16) or (cleaned(8) shl 8) or cleaned(0)
                 }
                 val c00 = backdrop[i00]
                 val c10 = backdrop[i00 + 1]
@@ -936,6 +993,143 @@ object PortraitEffect {
                 a[y * w + x] = (prefix[hi + 1] - prefix[lo]) / (hi - lo + 1)
             }
         }
+    }
+
+    /**
+     * A disc-like blur of radius [radius] in place: the kernel is an octagon, made by blurring with
+     * an axis-aligned box and then along both diagonals, which costs a few simple passes instead
+     * of a full circular convolution. Unlike the Gaussian-like triple box blur, its flat top gives
+     * lights the round, evenly lit bokeh of a real lens.
+     */
+    internal fun discBlurF(a: FloatArray, tmp: FloatArray, w: Int, h: Int, radius: Float) {
+        // A regular octagon of the same area as a disc of this radius has sides of about 0.8 radius.
+        val side = max(1f, 0.806f * radius)
+        val half = ((side - 1f) / 2f).roundToInt().coerceAtLeast(0)
+        val run = (side / 1.414f).roundToInt().coerceAtLeast(1)
+        if (half >= 1) boxBlurF(a, tmp, w, h, half)
+        if (run >= 2) {
+            diagBlurF(a, w, h, run, 1)
+            diagBlurF(a, w, h, run, -1)
+        }
+    }
+
+    /**
+     * Mean over a window of [run] pixels along every diagonal of [a], in place: direction +1 runs
+     * down-right, -1 runs up-right. Windows are cut short at the picture's edge.
+     */
+    internal fun diagBlurF(a: FloatArray, w: Int, h: Int, run: Int, direction: Int) {
+        val before = (run - 1) / 2
+        val after = run - 1 - before
+        val need = min(w, h) + 2
+        parallelFor(w + h - 1) { k ->
+            val startX = max(0, k - (h - 1))
+            val startY = if (direction > 0) max(0, (h - 1) - k) else min(h - 1, k)
+            val stepY = if (direction > 0) 1 else -1
+            val length = if (direction > 0) min(w - startX, h - startY) else min(w - startX, startY + 1)
+            if (length > 1) {
+                // One scratch buffer per thread, not one per diagonal: this runs thousands of times.
+                var scratch = diagScratch.get()
+                if (scratch == null || scratch.size < 2 * need) {
+                    scratch = FloatArray(2 * need)
+                    diagScratch.set(scratch)
+                }
+                // scratch[0 until need] holds the line, scratch[need until 2 * need] its running sums.
+                for (t in 0 until length) scratch[t] = a[(startY + stepY * t) * w + startX + t]
+                scratch[need] = 0f
+                for (t in 0 until length) scratch[need + t + 1] = scratch[need + t] + scratch[t]
+                for (t in 0 until length) {
+                    val lo = max(0, t - before)
+                    val hi = min(length - 1, t + after)
+                    a[(startY + stepY * t) * w + startX + t] = (scratch[need + hi + 1] - scratch[need + lo]) / (hi - lo + 1)
+                }
+            }
+        }
+    }
+
+    private val diagScratch = ThreadLocal<FloatArray>()
+
+    // ---- editing a saved portrait ----
+
+    /**
+     * Re-does the blur of a saved Portrait: [pixels] is the picture as it was before the blur
+     * ([w] x [h], any size with the original's proportions) and [analysis] what was found out about
+     * it then. [tap] (0..1 across and down) moves the focus to a new subject picked by depth.
+     * Returns false if there is nothing to blur. [pixels] is changed in place only on success.
+     */
+    fun rerender(pixels: IntArray, w: Int, h: Int, analysis: PortraitAnalysis, style: PortraitStyle, strength: Float, tap: Pair<Float, Float>? = null): Boolean {
+        val params = paramsFor(style)
+        val ww = analysis.width
+        val wh = analysis.height
+        val work = downscale(pixels, w, h, ww, wh)
+        val lum = FloatArray(ww * wh) { i ->
+            val p = work[i]
+            (0.299f * ((p shr 16) and 0xFF) + 0.587f * ((p shr 8) and 0xFF) + 0.114f * (p and 0xFF)) / 255f
+        }
+        val used = if (tap != null) refocus(analysis, lum, tap) ?: analysis else analysis
+        val strengthFactor = 0.2f + 0.8f * strength.coerceIn(0f, 1f)
+        val maxRadius = (params.radius * max(ww, wh) * strengthFactor).coerceAtLeast(2f)
+        val render = renderFrom(used, work, lum, params, maxRadius) ?: return false
+        composite(pixels, w, h, render, ww, wh, params.subjectLift)
+        return true
+    }
+
+    /**
+     * A copy of [a] focused on whatever is at [tap]: the subject becomes the connected area around
+     * that spot at about the same depth (so tapping a face, a hand or an object each works), and the
+     * focus plane moves to its depth. Null if the spot gives no usable subject.
+     */
+    internal fun refocus(a: PortraitAnalysis, lum: FloatArray, tap: Pair<Float, Float>): PortraitAnalysis? {
+        val ww = a.width
+        val wh = a.height
+        val n = ww * wh
+        val tx = (tap.first * (ww - 1)).roundToInt().coerceIn(0, ww - 1)
+        val ty = (tap.second * (wh - 1)).roundToInt().coerceIn(0, wh - 1)
+        val reach = max(3, (0.02f * max(ww, wh)).roundToInt())
+        val seedDepths = ArrayList<Float>()
+        for (y in max(0, ty - reach)..min(wh - 1, ty + reach)) {
+            for (x in max(0, tx - reach)..min(ww - 1, tx + reach)) seedDepths.add(a.depth[y * ww + x])
+        }
+        seedDepths.sort()
+        val focus = seedDepths[seedDepths.size / 2]
+        val band = 0.2f
+        val stepLimit = 0.06f
+        val limit = 0.5f * max(ww, wh)
+        val region = BooleanArray(n)
+        val queue = IntArray(n)
+        var head = 0
+        var tail = 0
+        for (y in max(0, ty - reach)..min(wh - 1, ty + reach)) {
+            for (x in max(0, tx - reach)..min(ww - 1, tx + reach)) {
+                val i = y * ww + x
+                if (kotlin.math.abs(a.depth[i] - focus) < band) {
+                    region[i] = true
+                    queue[tail++] = i
+                }
+            }
+        }
+        if (tail == 0) return null
+        while (head < tail) {
+            val i = queue[head++]
+            val x = i % ww
+            val y = i / ww
+            fun grow(j: Int) {
+                if (!region[j] && kotlin.math.abs(a.depth[j] - focus) < band && kotlin.math.abs(a.depth[j] - a.depth[i]) < stepLimit &&
+                    kotlin.math.abs((j % ww) - tx) < limit && kotlin.math.abs((j / ww) - ty) < limit
+                ) {
+                    region[j] = true
+                    queue[tail++] = j
+                }
+            }
+            if (x > 0) grow(i - 1)
+            if (x < ww - 1) grow(i + 1)
+            if (y > 0) grow(i - ww)
+            if (y < wh - 1) grow(i + ww)
+        }
+        // Growth that swallowed most of the picture means the depth there is flat: don't trust it.
+        if (tail > n / 2) return null
+        val grown = FloatArray(n) { if (region[it]) 1f else 0f }
+        val keep = cleanMask(refine(lum, grown, ww, wh), ww, wh)
+        return PortraitAnalysis(ww, wh, a.depth, keep, a.confident, focus)
     }
 
     // ---- helpers ----

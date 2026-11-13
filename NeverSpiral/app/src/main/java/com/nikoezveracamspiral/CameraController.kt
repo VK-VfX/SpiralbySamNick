@@ -94,6 +94,8 @@ class CameraController(private val context: Context) {
     var histogramEnabled by mutableStateOf(false)
     /** Zoomed shots (2x and up) are taken as a short burst and merged for detail. */
     var zoomEnhance by mutableStateOf(true)
+    /** Portrait: also save the photo as it was before the blur, as bynikezvera_<date>_original.jpeg. */
+    var saveOriginals by mutableStateOf(true)
     /** Photos keep an HDR gain map (Ultra HDR) where the camera offers it. */
     var ultraHdrEnabled by mutableStateOf(true)
     /** Night mode uses Google's own Night Sight (the system extension) rather than this app's. */
@@ -264,7 +266,7 @@ class CameraController(private val context: Context) {
         val timer: Int, val grid: Int, val ratio: Int, val quality: Int, val mirror: Boolean,
         val hdr: Boolean, val hdrStrength: Int, val night: Int, val blur: Float, val raw: Boolean,
         val histogram: Boolean, val zoomEnhance: Boolean, val videoRes: Int, val videoFps: Int, val hevc: Boolean,
-        val ultraHdr: Boolean, val nightGoogle: Boolean, val portraitStyle: Int,
+        val ultraHdr: Boolean, val nightGoogle: Boolean, val portraitStyle: Int, val saveOriginals: Boolean,
         val look: Look,
     )
 
@@ -272,7 +274,7 @@ class CameraController(private val context: Context) {
         timerSeconds, gridStyle.ordinal, aspectRatio.ordinal, jpegQuality, mirrorSelfies,
         hdrEnabled, hdrStrength, nightSeconds, portraitBlurStrength, isRawEnabled,
         histogramEnabled, zoomEnhance, videoConfig.res.ordinal, videoConfig.fps, videoConfig.hevc,
-        ultraHdrEnabled, nightGoogle, portraitStyle.ordinal, look,
+        ultraHdrEnabled, nightGoogle, portraitStyle.ordinal, saveOriginals, look,
     )
 
     private fun saveSettings(s: Persisted) {
@@ -283,7 +285,7 @@ class CameraController(private val context: Context) {
             .putInt("night", s.night).putFloat("blur", s.blur).putBoolean("raw", s.raw)
             .putBoolean("histogram", s.histogram).putBoolean("zoomEnhance", s.zoomEnhance)
             .putInt("videoRes", s.videoRes).putInt("videoFps", s.videoFps).putBoolean("hevc", s.hevc)
-            .putBoolean("ultraHdr", s.ultraHdr).putBoolean("nightGoogle", s.nightGoogle).putInt("portraitStyle", s.portraitStyle)
+            .putBoolean("ultraHdr", s.ultraHdr).putBoolean("nightGoogle", s.nightGoogle).putInt("portraitStyle", s.portraitStyle).putBoolean("saveOriginals", s.saveOriginals)
             .putString("filter", l.filter.name).putString("lut", l.lut?.name ?: "").putFloat("strength", l.strength)
             .putFloat("exposure", l.exposure).putFloat("contrast", l.contrast).putFloat("saturation", l.saturation)
             .putFloat("warmth", l.warmth).putFloat("tint", l.tint).putFloat("highlights", l.highlights)
@@ -309,6 +311,7 @@ class CameraController(private val context: Context) {
         zoomEnhance = p.getBoolean("zoomEnhance", true)
         ultraHdrEnabled = p.getBoolean("ultraHdr", true)
         nightGoogle = p.getBoolean("nightGoogle", false)
+        saveOriginals = p.getBoolean("saveOriginals", true)
         videoConfig = VideoConfig(
             VideoRes.entries.getOrElse(p.getInt("videoRes", 1)) { VideoRes.P1080 },
             p.getInt("videoFps", 30),
@@ -953,6 +956,7 @@ class CameraController(private val context: Context) {
                 depth = depthCapture,
                 subjectTap = if (mode == CaptureMode.PORTRAIT) portraitSubject else null,
                 // The same look on every phone: only the working resolution of the blur changes with the phone's speed.
+                saveOriginal = saveOriginals,
                 portraitWorkSize = minOf(
                     PortraitEffect.workSizeFor(Runtime.getRuntime().maxMemory()),
                     if (deviceProfile.tier == PerformanceTier.LOW) 768 else 1024,
@@ -1074,13 +1078,21 @@ class CameraController(private val context: Context) {
         val depth: DepthCapture? = null,
         val subjectTap: Pair<Float, Float>? = null,
         val portraitWorkSize: Int = 1024,
+        val saveOriginal: Boolean = false,
     )
 
     private suspend fun runPhotoJob(job: PhotoJob) {
         try {
             // On any failure the camera's own JPEG, already saved, simply stays as the photo.
+            // For a Portrait, the picture as it was before the blur and what was found out about it,
+            // kept so the blur can be changed later in the editor.
+            val kept = arrayOfNulls<Pair<ByteArray, PortraitAnalysis>>(1)
             val jpeg = try {
-                PhotoProcessor.processShots(job.frames, job.tone, job.look, job.ratio, job.mirror, job.quality, job.portraitBlur, job.noiseScale, job.zoomRatio, job.keepUltraHdr, job.portraitStyle, job.depth, job.subjectTap, job.portraitWorkSize)
+                PhotoProcessor.processShots(
+                    job.frames, job.tone, job.look, job.ratio, job.mirror, job.quality, job.portraitBlur, job.noiseScale,
+                    job.zoomRatio, job.keepUltraHdr, job.portraitStyle, job.depth, job.subjectTap, job.portraitWorkSize,
+                    portraitSink = { before, analysis -> kept[0] = before to analysis },
+                )
             } catch (e: Exception) {
                 Log.e(TAG, "Processing failed; keeping the camera's own JPEG", e)
                 null
@@ -1092,6 +1104,19 @@ class CameraController(private val context: Context) {
                 lastCaptureUri = job.uri
                 lastCaptureIsVideo = false
                 captureRevision += 1
+                kept[0]?.let { (before, analysis) ->
+                    withContext(Dispatchers.IO) {
+                        PortraitStore.save(context, job.stamp, before, analysis, job.portraitStyle, job.portraitBlur)
+                        if (job.saveOriginal) {
+                            val original = PhotoMeta(
+                                exposureNanos = job.meta.exposureNanos, iso = job.meta.iso, aperture = job.meta.aperture,
+                                focalLengthMm = job.meta.focalLengthMm, software = job.meta.software,
+                                description = "Original, before the Portrait blur; ${job.meta.description}",
+                            )
+                            CaptureStore.saveJpeg(context, before, job.stamp, suffix = "_original", meta = original)
+                        }
+                    }
+                }
             }
         } catch (e: Exception) {
             fail("Saving photo", e)

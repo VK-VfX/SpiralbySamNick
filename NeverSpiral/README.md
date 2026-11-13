@@ -214,7 +214,17 @@ Not built yet (needs on-device testing): a YUV/RAW burst with zero-shutter-lag, 
 - Zoom quality: from 2x up, a shot is a 5-frame merged burst with minimal in-camera noise reduction (Settings: Zoom enhance), followed by a wider-radius unsharp mask that grows with the zoom level. Each photo's description now records the zoom and which physical lens captured it, so a telephoto shot can be told from a cropped main-lens one.
 - Predictive-back callback enabled for Android 13+.
 
-## v2.6.1
+## v2.7.0
+- **Change a Portrait's blur after the shot.** Every Portrait now keeps (privately, newest 40) the picture as it was before the blur and what Portrait worked out about it (the subject and the depth of everything). The editor gets a **Portrait** tab for those photos: pick another style, change the blur strength with a live preview, or **tap the photo to pick a different subject** (a face, a hand, an object: the blur is re-done around it). Apply, then Save copy. Deleting a photo from the app deletes its data.
+- **The original is saved too.** Settings, Photo: "Portrait: also save the original" (on by default) saves the photo as it was before the blur as `bynikezvera_<date>_original.jpeg`.
+- **Round bokeh.** The blur kernel is now a disc (an octagon built from a box blur and two diagonal ones) instead of a Gaussian-like triple box blur, so lights become evenly lit round discs like a real lens's, and background detail keeps its shape instead of going milky. It is also cheaper to compute.
+- **Cleaner edges.** In the soft edge around the subject (hair, shoulders) the photo's own pixels still carry a tint of the old background; Portrait now swaps that for the subject's colour from just inside, which removes the halo.
+- **Colour and sharpening happen before the blur**, so an edited Portrait and a fresh one are built from the same picture.
+- **Portrait fits phones with a small memory limit, like the Pixel 8a** (working size follows the app heap: about 1024 px on 512 MB, about 768 px on 256 MB; cues are fused in a separate step so their maps are freed before the blur; if memory still runs out the blur is retried a size smaller).
+- **No more square notches at the edge of hair.** The mask clean-up kept clearing a square around small pieces such as strands of hair; pieces that sit against the subject are now kept, and only pieces floating well away are dropped, with a thin rim.
+- **Unit tests** now cover Portrait's maths (mask clean-up, working size, the disc blur, refocusing, the saved record), which CI runs on every build.
+
+## v2.6.1 (folded into 2.7.0)
 - **Portrait fits phones with a small memory limit, like the Pixel 8a.** The Portrait blur keeps dozens of working maps in memory, which fit a Pixel 9 Pro XL's 512 MB app heap but not an 8a's roughly 256 MB. The working size now follows the phone's real heap (about 1024 px on 512 MB, about 750 px on 256 MB, never below 576), the depth, lens and focus cues are fused in a separate step so their maps are freed before the blur starts, and if memory still runs out the whole blur is retried a size smaller instead of failing. The radii scale with the working size, so the look is the same on every phone, and the log shows the size used.
 - **No more square notches at the edge of hair.** When the subject mask had small separate pieces (strands of hair, fringe), cleaning them up cleared a square margin around each, which cut rectangular bites out of the hair and shoulders. Pieces that sit against the subject are now kept, only pieces floating well away are dropped, and only with a thin rim.
 

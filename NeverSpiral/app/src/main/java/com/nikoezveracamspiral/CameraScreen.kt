@@ -1817,6 +1817,18 @@ private fun SettingsSheet(controller: CameraController, startOnAbout: Boolean = 
             selected = controller.zoomEnhance,
         ) { controller.zoomEnhance = it }
 
+        SheetSection("Portrait: also save the original", if (controller.saveOriginals) "On" else "Off")
+        SegmentRow(
+            options = listOf(true to "On", false to "Off").map { Triple(it.first, it.second, null as ImageVector?) },
+            selected = controller.saveOriginals,
+        ) { controller.saveOriginals = it }
+        Text(
+            "Keeps the photo as it was before the blur too (bynikezvera_<date>_original). You can also change a Portrait's blur afterwards in the editor.",
+            color = CameraTheme.TEXT_SECONDARY,
+            fontSize = 12.sp,
+            modifier = Modifier.padding(horizontal = 4.dp),
+        )
+
         SheetSection("Ultra HDR", if (controller.ultraHdrEnabled) "On" else "Off")
         SegmentRow(
             options = listOf(true to "On", false to "Off").map { Triple(it.first, it.second, null as ImageVector?) },

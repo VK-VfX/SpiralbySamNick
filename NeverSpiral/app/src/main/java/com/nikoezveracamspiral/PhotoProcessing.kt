@@ -514,6 +514,7 @@ object PhotoProcessor {
         depth: DepthCapture? = null,
         subjectTap: Pair<Float, Float>? = null,
         portraitWorkSize: Int = 1024,
+        portraitSink: ((ByteArray, PortraitAnalysis) -> Unit)? = null,
     ): ByteArray {
         val refIndex = frames.size / 2
         val maxPixels = if (frames.size > 1) burstMaxPixels else singleMaxPixels
@@ -537,15 +538,8 @@ object PhotoProcessor {
         val h = merged.h
         val pixels = merged.pixels
 
-        if (portraitBlur > 0f) {
-            try {
-                // The measured depth cues are made before anything touches the pixels.
-                val cues = depth?.let { PortraitDepth.cues(it, pixels, w, h, ratio, mirror) }
-                PortraitEffect.apply(pixels, w, h, portraitBlur, portraitStyle, cues, subjectTap, portraitWorkSize)
-            } catch (e: Exception) {
-                android.util.Log.w("PhotoProcessor", "Portrait blur failed; keeping the unblurred photo", e)
-            }
-        }
+        // Colour, look and sharpening come first, so the Portrait blur (and the editable copy kept
+        // before it) works on the finished picture.
         LookProcessor.apply(pixels, w, h, look)
         LookProcessor.sharpen(pixels, w, h, 0.2f + look.sharpness * 0.8f)
         if (zoomRatio >= 2f) {
@@ -553,6 +547,23 @@ object PhotoProcessor {
             // detail back, more of it the further in the shot was zoomed.
             val strength = (0.35f * (kotlin.math.ln(zoomRatio) / kotlin.math.ln(2f))).coerceAtMost(1.1f)
             ImageOps.unsharp(pixels, w, h, radius = 2, amount = strength, threshold = 3)
+        }
+        if (portraitBlur > 0f) {
+            try {
+                // The picture before the blur is kept (privately) so the blur can be changed later.
+                val before = if (portraitSink != null) encode(pixels, w, h, 95, null) else null
+                // The measured depth cues are made before anything touches the pixels.
+                val cues = depth?.let { PortraitDepth.cues(it, pixels, w, h, ratio, mirror) }
+                val found = arrayOfNulls<PortraitAnalysis>(1)
+                val blurred = PortraitEffect.apply(
+                    pixels, w, h, portraitBlur, portraitStyle, cues, subjectTap, portraitWorkSize,
+                    analysisSink = { found[0] = it },
+                )
+                val analysis = found[0]
+                if (blurred && before != null && analysis != null) portraitSink?.invoke(before, analysis)
+            } catch (e: Exception) {
+                android.util.Log.w("PhotoProcessor", "Portrait blur failed; keeping the unblurred photo", e)
+            }
         }
         var gainmap: android.graphics.Gainmap? = null
         if (keepUltraHdr && android.os.Build.VERSION.SDK_INT >= 34 && UltraHdr.isUltraHdr(frames[refIndex])) {
@@ -564,6 +575,30 @@ object PhotoProcessor {
             }
         }
         return encode(pixels, w, h, quality, gainmap)
+    }
+
+    // ---- re-doing a saved portrait's blur ----
+
+    /** A saved portrait with its blur re-done, as a bitmap at most [maxPixels] big (for the editor's live preview), or null. */
+    fun portraitPreview(preBlurJpeg: ByteArray, analysis: PortraitAnalysis, style: PortraitStyle, strength: Float, tap: Pair<Float, Float>?, maxPixels: Int): Bitmap? {
+        val bitmap = decodeUpright(preBlurJpeg, maxPixels) ?: return null
+        val w = bitmap.width
+        val h = bitmap.height
+        val pixels = pixelsOf(bitmap)
+        bitmap.recycle()
+        if (!PortraitEffect.rerender(pixels, w, h, analysis, style, strength, tap)) return null
+        return Bitmap.createBitmap(pixels, w, h, Bitmap.Config.ARGB_8888)
+    }
+
+    /** A saved portrait with its blur re-done at full size, as a JPEG, or null. */
+    fun portraitRerender(preBlurJpeg: ByteArray, analysis: PortraitAnalysis, style: PortraitStyle, strength: Float, tap: Pair<Float, Float>?, quality: Int): ByteArray? {
+        val bitmap = decodeUpright(preBlurJpeg, singleMaxPixels) ?: return null
+        val w = bitmap.width
+        val h = bitmap.height
+        val pixels = pixelsOf(bitmap)
+        bitmap.recycle()
+        if (!PortraitEffect.rerender(pixels, w, h, analysis, style, strength, tap)) return null
+        return encode(pixels, w, h, quality, null)
     }
 
     // ---- post-capture editing ----

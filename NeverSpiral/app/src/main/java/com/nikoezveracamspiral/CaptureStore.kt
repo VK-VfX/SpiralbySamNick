@@ -72,6 +72,12 @@ object CaptureStore {
         }
     }
 
+    /** The date stamp of a photo this app saved (bynikezvera_<stamp>.jpeg), or null for anything else, including "_original" copies. */
+    fun stampOf(context: Context, uri: Uri): String? {
+        val name = displayNameOf(context, uri) ?: return null
+        return Regex("^bynikezvera_(\\d{8}_\\d{6})\\.jpeg$").find(name)?.groupValues?.get(1)
+    }
+
     private fun displayNameOf(context: Context, uri: Uri): String? =
         try {
             context.contentResolver.query(uri, arrayOf(MediaStore.MediaColumns.DISPLAY_NAME), null, null, null)?.use { c ->
@@ -211,6 +217,8 @@ object CaptureStore {
         publishVideo(context, file, displayName, deleteSource = false)
 
     fun deleteMedia(context: Context, uri: Uri) {
+        // A Portrait's editable data goes with the photo.
+        PortraitStore.delete(context, stampOf(context, uri))
         try {
             context.contentResolver.delete(uri, null, null)
         } catch (e: Exception) {
