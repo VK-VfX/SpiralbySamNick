@@ -207,8 +207,11 @@ object PortraitEffect {
         // a held object, a collar), the way Google's portrait keeps everything attached to the
         // subject crisp. Anything not connected (a pillow beside the hand) stays background even
         // at a similar depth. With no measured depth the outline alone is the subject.
+        // Things nearer than the subject may belong to it (fingers coming toward the camera), but
+        // things only a little farther are the background (a seat back behind a hand).
         val band = if (hasLearned) 0.2f else 0.11f
-        val stepLimit = if (hasLearned) 0.06f else 0.05f
+        val behindBand = if (hasLearned) 0.07f else 0.08f
+        val stepLimit = if (hasLearned) 0.05f else 0.05f
         val region = BooleanArray(n)
         val queue = IntArray(n)
         var head = 0
@@ -241,7 +244,7 @@ object PortraitEffect {
         }
         // A person's outline is trusted (a little growth for held things); for an object picked by
         // a tap the depth has to find the rest of it.
-        val reachLimit = (if (isPerson) 0.03f else 0.15f) * max(ww, wh)
+        val reachLimit = (if (isPerson) 0.03f else 0.08f) * max(ww, wh)
         val seedCount = tail
         if (focusCueDepth >= 0f) {
             while (head < tail) {
@@ -251,7 +254,8 @@ object PortraitEffect {
                 fun grow(j: Int) {
                     // Only things close to the subject can belong to it (a held object, fingers), so
                     // noisy depth can never flood the region out into the background.
-                    if (!region[j] && cueConf[j] > 0.5f && kotlin.math.abs(cueDepth[j] - focusCueDepth) < band &&
+                    val away = cueDepth[j] - focusCueDepth
+                    if (!region[j] && cueConf[j] > 0.5f && away < band && away > -behindBand &&
                         kotlin.math.abs(cueDepth[j] - cueDepth[i]) < stepLimit &&
                         (subjectDistance == null || subjectDistance[j] < reachLimit)
                     ) {
@@ -266,7 +270,7 @@ object PortraitEffect {
             }
         }
         // If growth ran away anyway (far more than the subject itself), distrust it and keep the outline.
-        if (tail > max(seedCount * (if (isPerson) 3 else 12), n / 3) && seedCount > 0) {
+        if (tail > max(seedCount * (if (isPerson) 3 else 6), n / 3) && seedCount > 0) {
             region.fill(false)
             for (k in 0 until seedCount) region[queue[k]] = true
         }
@@ -337,17 +341,36 @@ object PortraitEffect {
             accG[i] = TO_LINEAR[(p shr 8) and 0xFF]
             accB[i] = TO_LINEAR[p and 0xFF]
         }
-        // Underneath everything: the whole picture at the widest blur, so no gap ever shows.
+        // Underneath everything: the background at the widest blur, so no gap ever shows. Only
+        // background colours go into it: blurring the subject's own colours in would smear them
+        // outward as a pale glow around the subject.
         // The blur kernel is a disc (an octagon, close enough), as a real lens's is: its radius is
         // twice the box blur's, which has the same spread.
         val baseRadius = 2f * maxRadius
-        discBlurF(accR, tmp, ww, wh, baseRadius)
-        discBlurF(accG, tmp, ww, wh, baseRadius)
-        discBlurF(accB, tmp, ww, wh, baseRadius)
         val layerR = FloatArray(n)
         val layerG = FloatArray(n)
         val layerB = FloatArray(n)
         val layerA = FloatArray(n)
+        for (i in 0 until n) {
+            val a = 1f - keep[i]
+            layerR[i] = accR[i] * a
+            layerG[i] = accG[i] * a
+            layerB[i] = accB[i] * a
+            layerA[i] = a
+        }
+        discBlurF(layerR, tmp, ww, wh, baseRadius)
+        discBlurF(layerG, tmp, ww, wh, baseRadius)
+        discBlurF(layerB, tmp, ww, wh, baseRadius)
+        discBlurF(layerA, tmp, ww, wh, baseRadius)
+        for (i in 0 until n) {
+            val d = layerA[i]
+            // Deep inside the subject there is no background to average; the sharp layer covers it anyway.
+            if (d > 0.02f) {
+                accR[i] = layerR[i] / d
+                accG[i] = layerG[i] / d
+                accB[i] = layerB[i] / d
+            }
+        }
 
         fun addLayer(front: Boolean, step: Int) {
             var used = 0
@@ -693,7 +716,12 @@ object PortraitEffect {
                         val bottom = ((f01 shr shift) and 0xFF) * (1 - tx) + ((f11 shr shift) and 0xFF) * tx
                         return top * (1 - ty) + bottom * ty
                     }
-                    fun cleaned(shift: Int): Int = (((p shr shift) and 0xFF) * (1 - t) + fgChannel(shift) * t).toInt().coerceIn(0, 255)
+                    // Darkening an edge that still holds some bright background is fine; lightening
+                    // it with the subject's brighter inside is what made a glow, so that is capped.
+                    fun cleaned(shift: Int): Int {
+                        val own = ((p shr shift) and 0xFF).toFloat()
+                        return (own + (fgChannel(shift) - own).coerceIn(-30f, 10f) * t).toInt().coerceIn(0, 255)
+                    }
                     p = (0xFF shl 24) or (cleaned(16) shl 16) or (cleaned(8) shl 8) or cleaned(0)
                 }
                 val c00 = backdrop[i00]
@@ -1092,7 +1120,8 @@ object PortraitEffect {
         seedDepths.sort()
         val focus = seedDepths[seedDepths.size / 2]
         val band = 0.2f
-        val stepLimit = 0.06f
+        val behindBand = 0.07f
+        val stepLimit = 0.05f
         val limit = 0.5f * max(ww, wh)
         val region = BooleanArray(n)
         val queue = IntArray(n)
@@ -1101,7 +1130,7 @@ object PortraitEffect {
         for (y in max(0, ty - reach)..min(wh - 1, ty + reach)) {
             for (x in max(0, tx - reach)..min(ww - 1, tx + reach)) {
                 val i = y * ww + x
-                if (kotlin.math.abs(a.depth[i] - focus) < band) {
+                if (a.depth[i] - focus < band && a.depth[i] - focus > -behindBand) {
                     region[i] = true
                     queue[tail++] = i
                 }
@@ -1113,7 +1142,7 @@ object PortraitEffect {
             val x = i % ww
             val y = i / ww
             fun grow(j: Int) {
-                if (!region[j] && kotlin.math.abs(a.depth[j] - focus) < band && kotlin.math.abs(a.depth[j] - a.depth[i]) < stepLimit &&
+                if (!region[j] && a.depth[j] - focus < band && a.depth[j] - focus > -behindBand && kotlin.math.abs(a.depth[j] - a.depth[i]) < stepLimit &&
                     kotlin.math.abs((j % ww) - tx) < limit && kotlin.math.abs((j / ww) - ty) < limit
                 ) {
                     region[j] = true

@@ -515,6 +515,9 @@ object PhotoProcessor {
         subjectTap: Pair<Float, Float>? = null,
         portraitWorkSize: Int = 1024,
         portraitSink: ((ByteArray, PortraitAnalysis) -> Unit)? = null,
+        watermark: WatermarkSettings? = null,
+        watermarkLogo: Bitmap? = null,
+        watermarkDetails: String = "",
     ): ByteArray {
         val refIndex = frames.size / 2
         val maxPixels = if (frames.size > 1) burstMaxPixels else singleMaxPixels
@@ -574,7 +577,24 @@ object PhotoProcessor {
                 null
             }
         }
+        if (watermark != null && watermark.on) {
+            val marked = Watermark.apply(watermarkLogo, pixels, w, h, watermark, watermarkDetails)
+            // A frame bar makes the picture taller, so the HDR gain map would no longer fit it.
+            if (marked.width != w || marked.height != h) gainmap = null
+            return encode(marked.pixels, marked.width, marked.height, quality, gainmap)
+        }
         return encode(pixels, w, h, quality, gainmap)
+    }
+
+    /** A finished photo (a JPEG) with the watermark put on it, for photos that skip the usual processing. */
+    fun watermarkOnly(jpeg: ByteArray, quality: Int, logo: Bitmap?, settings: WatermarkSettings, details: String): ByteArray? {
+        val bitmap = decodeUpright(jpeg, singleMaxPixels) ?: return null
+        val w = bitmap.width
+        val h = bitmap.height
+        val pixels = pixelsOf(bitmap)
+        bitmap.recycle()
+        val marked = Watermark.apply(logo, pixels, w, h, settings, details)
+        return encode(marked.pixels, marked.width, marked.height, quality, null)
     }
 
     // ---- re-doing a saved portrait's blur ----
@@ -591,13 +611,20 @@ object PhotoProcessor {
     }
 
     /** A saved portrait with its blur re-done at full size, as a JPEG, or null. */
-    fun portraitRerender(preBlurJpeg: ByteArray, analysis: PortraitAnalysis, style: PortraitStyle, strength: Float, tap: Pair<Float, Float>?, quality: Int): ByteArray? {
+    fun portraitRerender(
+        preBlurJpeg: ByteArray, analysis: PortraitAnalysis, style: PortraitStyle, strength: Float, tap: Pair<Float, Float>?, quality: Int,
+        watermark: WatermarkSettings? = null, watermarkLogo: Bitmap? = null, watermarkDetails: String = "",
+    ): ByteArray? {
         val bitmap = decodeUpright(preBlurJpeg, singleMaxPixels) ?: return null
         val w = bitmap.width
         val h = bitmap.height
         val pixels = pixelsOf(bitmap)
         bitmap.recycle()
         if (!PortraitEffect.rerender(pixels, w, h, analysis, style, strength, tap)) return null
+        if (watermark != null && watermark.on) {
+            val marked = Watermark.apply(watermarkLogo, pixels, w, h, watermark, watermarkDetails)
+            return encode(marked.pixels, marked.width, marked.height, quality, null)
+        }
         return encode(pixels, w, h, quality, null)
     }
 

@@ -601,7 +601,6 @@ private fun Viewfinder(controller: CameraController, showControls: Boolean, stri
             } else {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (controller.mode == CaptureMode.NIGHT) NightDurationPills(controller)
-                    if (controller.mode == CaptureMode.PORTRAIT) PortraitStylePills(controller)
                     if (dialOpen) {
                         ZoomDial(controller, onClose = { dialOpen = false })
                     } else {
@@ -1117,32 +1116,6 @@ private fun LensLabel(controller: CameraController) {
 }
 
 /** Portrait looks: how the background (and for Studio, the subject) is treated. */
-@Composable
-private fun PortraitStylePills(controller: CameraController) {
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(50))
-            .background(OVERLAY_BUTTON_COLOR)
-            .horizontalScroll(rememberScrollState())
-            .padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        for (style in PortraitStyle.entries) {
-            val selected = controller.portraitStyle == style
-            Text(
-                text = style.label,
-                color = if (selected) Color.Black else Color.White,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(if (selected) Color.White else Color.Transparent)
-                    .clickable { controller.portraitStyle = style }
-                    .padding(horizontal = 14.dp, vertical = 9.dp),
-            )
-        }
-    }
-}
 
 @Composable
 private fun NightDurationPills(controller: CameraController) {
@@ -1899,6 +1872,8 @@ private fun SettingsSheet(controller: CameraController, startOnAbout: Boolean = 
             modifier = Modifier.padding(horizontal = 4.dp),
         )
 
+        WatermarkSection(controller)
+
                     }
                     else -> {
                         UpdateSection(controller)
@@ -2091,6 +2066,115 @@ private fun UpdateButton(label: String, modifier: Modifier, onClick: () -> Unit)
     ) {
         Text(label, color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Medium)
     }
+}
+
+/** Settings, Display: a "Shot on Niko's Cam" watermark with the app logo, stamped on saved photos. */
+@Composable
+private fun WatermarkSection(controller: CameraController) {
+    val context = LocalContext.current
+    val w = controller.watermark
+    Spacer(modifier = Modifier.height(6.dp))
+    SheetSection("Watermark", if (w.on) "On" else "Off")
+    SegmentRow(
+        options = listOf(true to "On", false to "Off").map { Triple(it.first, it.second, null as ImageVector?) },
+        selected = w.on,
+    ) { controller.watermark = w.copy(on = it) }
+    if (!w.on) {
+        Text(
+            "Stamps \"Shot on Niko's Cam\" and the app logo on every photo you take. Turn it on to choose how it looks.",
+            color = CameraTheme.TEXT_SECONDARY,
+            fontSize = 12.sp,
+            modifier = Modifier.padding(horizontal = 4.dp),
+        )
+        return
+    }
+
+    SheetSection("Style", w.style.label)
+    SegmentRow(
+        options = WatermarkStyle.entries.map { Triple(it, it.label, null as ImageVector?) },
+        selected = w.style,
+    ) { controller.watermark = w.copy(style = it) }
+
+    SheetSection("Position", w.position.label)
+    SegmentRow(
+        options = WatermarkPosition.entries.map { Triple(it, it.label, null as ImageVector?) },
+        selected = w.position,
+    ) { controller.watermark = w.copy(position = it) }
+
+    SheetSection("Your text", "")
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(CameraTheme.SURFACE_RAISED)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        androidx.compose.foundation.text.BasicTextField(
+            value = w.text,
+            onValueChange = { controller.watermark = w.copy(text = it.take(40)) },
+            singleLine = true,
+            textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 15.sp),
+            cursorBrush = androidx.compose.ui.graphics.SolidColor(Color.White),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        if (w.text.isEmpty()) Text(WatermarkSettings.DEFAULT_TEXT, color = CameraTheme.TEXT_SECONDARY, fontSize = 15.sp)
+    }
+
+    SheetSection("App logo", if (w.logo) "Shown" else "Hidden")
+    SegmentRow(
+        options = listOf(true to "Show", false to "Hide").map { Triple(it.first, it.second, null as ImageVector?) },
+        selected = w.logo,
+    ) { controller.watermark = w.copy(logo = it) }
+
+    SheetSection("Phone name", if (w.device) "Shown" else "Hidden")
+    SegmentRow(
+        options = listOf(true to "Show", false to "Hide").map { Triple(it.first, it.second, null as ImageVector?) },
+        selected = w.device,
+    ) { controller.watermark = w.copy(device = it) }
+
+    SheetSection("Shot details (lens, f-stop, shutter, ISO)", if (w.details) "Shown" else "Hidden")
+    SegmentRow(
+        options = listOf(true to "Show", false to "Hide").map { Triple(it.first, it.second, null as ImageVector?) },
+        selected = w.details,
+    ) { controller.watermark = w.copy(details = it) }
+
+    if (w.style == WatermarkStyle.BAR) {
+        SheetSection("Bar colour", if (w.dark) "Dark" else "Light")
+        SegmentRow(
+            options = listOf(false to "Light", true to "Dark").map { Triple(it.first, it.second, null as ImageVector?) },
+            selected = w.dark,
+        ) { controller.watermark = w.copy(dark = it) }
+    }
+
+    // What a photo will look like, drawn by the same code that stamps the real ones.
+    var preview by remember { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(w) {
+        delay(120)
+        preview = try {
+            withContext(Dispatchers.Default) {
+                Watermark.preview(
+                    if (w.logo) Watermark.logo(context) else null, w,
+                    if (w.details) "6.9 mm  \u00B7  f/1.7  \u00B7  1/120 s  \u00B7  ISO 50" else "",
+                ).asImageBitmap()
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+    preview?.let { image ->
+        Image(
+            bitmap = image,
+            contentDescription = "Watermark preview",
+            contentScale = ContentScale.FillWidth,
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp).clip(RoundedCornerShape(14.dp)),
+        )
+    }
+    Text(
+        "Added to photos only (not video or RAW). A frame bar makes the photo a little taller; in Ultra HDR the bar style drops the HDR extra.",
+        color = CameraTheme.TEXT_SECONDARY,
+        fontSize = 12.sp,
+        modifier = Modifier.padding(horizontal = 4.dp),
+    )
 }
 
 @Composable

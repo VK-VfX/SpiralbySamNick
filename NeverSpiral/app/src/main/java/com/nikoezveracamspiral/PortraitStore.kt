@@ -35,10 +35,11 @@ class PortraitAnalysis(
  * removed when the photo is deleted from the app.
  */
 object PortraitStore {
-    class Saved(val preBlur: File, val analysis: PortraitAnalysis, val style: PortraitStyle, val strength: Float)
+    class Saved(val preBlur: File, val analysis: PortraitAnalysis, val style: PortraitStyle, val strength: Float, val details: String = "")
 
     private const val DIR = "portrait"
-    private const val MAGIC = 0x4E504131 // "NPA1"
+    private const val MAGIC = 0x4E504131 // "NPA1": the first record format, without the watermark line
+    private const val MAGIC_2 = 0x4E504132 // "NPA2"
     private const val KEEP_PAIRS = 40
 
     private fun dir(context: Context): File = File(context.filesDir, DIR).apply { mkdirs() }
@@ -46,11 +47,11 @@ object PortraitStore {
     private fun dataFile(context: Context, stamp: String) = File(dir(context), "$stamp.pa")
 
     /** Saves the pair for the photo with this [stamp]. Best effort: a failure only means no later editing. */
-    fun save(context: Context, stamp: String, preBlurJpeg: ByteArray, analysis: PortraitAnalysis, style: PortraitStyle, strength: Float) {
+    fun save(context: Context, stamp: String, preBlurJpeg: ByteArray, analysis: PortraitAnalysis, style: PortraitStyle, strength: Float, details: String = "") {
         if (stamp.isEmpty()) return
         try {
             jpegFile(context, stamp).writeBytes(preBlurJpeg)
-            dataFile(context, stamp).writeBytes(encode(analysis, style, strength))
+            dataFile(context, stamp).writeBytes(encode(analysis, style, strength, details))
             prune(context)
         } catch (e: Exception) {
             android.util.Log.w("PortraitStore", "Couldn't keep the portrait data", e)
@@ -65,7 +66,7 @@ object PortraitStore {
         if (stamp.isNullOrEmpty() || !exists(context, stamp)) return null
         return try {
             val decoded = decode(dataFile(context, stamp).readBytes()) ?: return null
-            Saved(jpegFile(context, stamp), decoded.analysis, decoded.style, decoded.strength)
+            Saved(jpegFile(context, stamp), decoded.analysis, decoded.style, decoded.strength, decoded.details)
         } catch (e: Exception) {
             null
         }
@@ -89,18 +90,19 @@ object PortraitStore {
         }
     }
 
-    internal class Decoded(val analysis: PortraitAnalysis, val style: PortraitStyle, val strength: Float)
+    internal class Decoded(val analysis: PortraitAnalysis, val style: PortraitStyle, val strength: Float, val details: String = "")
 
     /** The analysis and the settings it was made with as a compact, compressed record. */
-    internal fun encode(a: PortraitAnalysis, style: PortraitStyle, strength: Float): ByteArray {
+    internal fun encode(a: PortraitAnalysis, style: PortraitStyle, strength: Float, details: String = ""): ByteArray {
         val bytes = ByteArrayOutputStream()
         DataOutputStream(DeflaterOutputStream(bytes, Deflater(Deflater.BEST_SPEED))).use { out ->
-            out.writeInt(MAGIC)
+            out.writeInt(MAGIC_2)
             out.writeInt(a.width)
             out.writeInt(a.height)
             out.writeFloat(a.focus)
             out.writeInt(style.ordinal)
             out.writeFloat(strength)
+            out.writeUTF(details)
             val n = a.width * a.height
             out.write(ByteArray(n) { (a.depth[it].coerceIn(0f, 1f) * 255f + 0.5f).toInt().toByte() })
             out.write(ByteArray(n) { (a.keep[it].coerceIn(0f, 1f) * 255f + 0.5f).toInt().toByte() })
@@ -112,13 +114,15 @@ object PortraitStore {
     internal fun decode(data: ByteArray): Decoded? {
         return try {
             DataInputStream(InflaterInputStream(ByteArrayInputStream(data))).use { input ->
-                if (input.readInt() != MAGIC) return null
+                val magic = input.readInt()
+                if (magic != MAGIC && magic != MAGIC_2) return null
                 val w = input.readInt()
                 val h = input.readInt()
                 if (w < 16 || h < 16 || w.toLong() * h > 8_000_000L) return null
                 val focus = input.readFloat()
                 val style = PortraitStyle.entries.getOrElse(input.readInt()) { PortraitStyle.NATURAL }
                 val strength = input.readFloat()
+                val details = if (magic == MAGIC_2) input.readUTF() else ""
                 val n = w * h
                 val depth = ByteArray(n)
                 val keep = ByteArray(n)
@@ -134,7 +138,7 @@ object PortraitStore {
                         BooleanArray(n) { confident[it].toInt() != 0 },
                         focus,
                     ),
-                    style, strength,
+                    style, strength, details,
                 )
             }
         } catch (e: Exception) {

@@ -96,6 +96,8 @@ class CameraController(private val context: Context) {
     var zoomEnhance by mutableStateOf(true)
     /** Portrait: also save the photo as it was before the blur, as bynikezvera_<date>_original.jpeg. */
     var saveOriginals by mutableStateOf(true)
+    /** The "Shot on Niko's Cam" watermark put on saved photos (Settings, Display). */
+    var watermark by mutableStateOf(WatermarkSettings())
     /** Photos keep an HDR gain map (Ultra HDR) where the camera offers it. */
     var ultraHdrEnabled by mutableStateOf(true)
     /** Night mode uses Google's own Night Sight (the system extension) rather than this app's. */
@@ -267,14 +269,14 @@ class CameraController(private val context: Context) {
         val hdr: Boolean, val hdrStrength: Int, val night: Int, val blur: Float, val raw: Boolean,
         val histogram: Boolean, val zoomEnhance: Boolean, val videoRes: Int, val videoFps: Int, val hevc: Boolean,
         val ultraHdr: Boolean, val nightGoogle: Boolean, val portraitStyle: Int, val saveOriginals: Boolean,
-        val look: Look,
+        val watermark: WatermarkSettings, val look: Look,
     )
 
     private fun settingsSnapshot() = Persisted(
         timerSeconds, gridStyle.ordinal, aspectRatio.ordinal, jpegQuality, mirrorSelfies,
         hdrEnabled, hdrStrength, nightSeconds, portraitBlurStrength, isRawEnabled,
         histogramEnabled, zoomEnhance, videoConfig.res.ordinal, videoConfig.fps, videoConfig.hevc,
-        ultraHdrEnabled, nightGoogle, portraitStyle.ordinal, saveOriginals, look,
+        ultraHdrEnabled, nightGoogle, portraitStyle.ordinal, saveOriginals, watermark, look,
     )
 
     private fun saveSettings(s: Persisted) {
@@ -286,6 +288,9 @@ class CameraController(private val context: Context) {
             .putBoolean("histogram", s.histogram).putBoolean("zoomEnhance", s.zoomEnhance)
             .putInt("videoRes", s.videoRes).putInt("videoFps", s.videoFps).putBoolean("hevc", s.hevc)
             .putBoolean("ultraHdr", s.ultraHdr).putBoolean("nightGoogle", s.nightGoogle).putInt("portraitStyle", s.portraitStyle).putBoolean("saveOriginals", s.saveOriginals)
+            .putBoolean("wmOn", s.watermark.on).putInt("wmStyle", s.watermark.style.ordinal).putString("wmText", s.watermark.text)
+            .putBoolean("wmLogo", s.watermark.logo).putBoolean("wmDevice", s.watermark.device).putBoolean("wmDetails", s.watermark.details)
+            .putBoolean("wmDark", s.watermark.dark).putInt("wmPosition", s.watermark.position.ordinal)
             .putString("filter", l.filter.name).putString("lut", l.lut?.name ?: "").putFloat("strength", l.strength)
             .putFloat("exposure", l.exposure).putFloat("contrast", l.contrast).putFloat("saturation", l.saturation)
             .putFloat("warmth", l.warmth).putFloat("tint", l.tint).putFloat("highlights", l.highlights)
@@ -305,13 +310,24 @@ class CameraController(private val context: Context) {
         hdrStrength = p.getInt("hdrStrength", 4).coerceIn(1, 5)
         nightSeconds = p.getInt("night", 3)
         portraitBlurStrength = p.getFloat("blur", 0.5f)
-        portraitStyle = PortraitStyle.entries.getOrElse(p.getInt("portraitStyle", 0)) { PortraitStyle.NATURAL }
+        // Portrait has a single look now (Natural) with the blur slider; older saved styles are ignored.
+        portraitStyle = PortraitStyle.NATURAL
         isRawEnabled = p.getBoolean("raw", false)
         histogramEnabled = p.getBoolean("histogram", false)
         zoomEnhance = p.getBoolean("zoomEnhance", true)
         ultraHdrEnabled = p.getBoolean("ultraHdr", true)
         nightGoogle = p.getBoolean("nightGoogle", false)
         saveOriginals = p.getBoolean("saveOriginals", true)
+        watermark = WatermarkSettings(
+            on = p.getBoolean("wmOn", false),
+            style = WatermarkStyle.entries.getOrElse(p.getInt("wmStyle", 0)) { WatermarkStyle.CORNER },
+            text = p.getString("wmText", WatermarkSettings.DEFAULT_TEXT) ?: WatermarkSettings.DEFAULT_TEXT,
+            logo = p.getBoolean("wmLogo", true),
+            device = p.getBoolean("wmDevice", true),
+            details = p.getBoolean("wmDetails", true),
+            dark = p.getBoolean("wmDark", false),
+            position = WatermarkPosition.entries.getOrElse(p.getInt("wmPosition", 0)) { WatermarkPosition.LEFT },
+        )
         videoConfig = VideoConfig(
             VideoRes.entries.getOrElse(p.getInt("videoRes", 1)) { VideoRes.P1080 },
             p.getInt("videoFps", 30),
@@ -928,7 +944,7 @@ class CameraController(private val context: Context) {
                 lastCaptureIsVideo = false
                 captureRevision += 1
             }
-            val needsProcessing = tone != PhotoProcessor.ToneMode.None || !look.isNeutral || zoomRatio >= 2f || mirrorNow || blurNow > 0f ||
+            val needsProcessing = tone != PhotoProcessor.ToneMode.None || !look.isNeutral || zoomRatio >= 2f || mirrorNow || blurNow > 0f || watermark.on ||
                 !(ratioNow == AspectOption.R4_3 && sensorIsFourThree)
             if (instant == null || !needsProcessing) {
                 mergeRaw?.invoke()
@@ -957,6 +973,9 @@ class CameraController(private val context: Context) {
                 subjectTap = if (mode == CaptureMode.PORTRAIT) portraitSubject else null,
                 // The same look on every phone: only the working resolution of the blur changes with the phone's speed.
                 saveOriginal = saveOriginals,
+                watermark = if (watermark.on) watermark else null,
+                watermarkLogo = if (watermark.on && watermark.logo) Watermark.logo(context) else null,
+                watermarkDetails = if (watermark.on && watermark.details) Watermark.detailLine(meta) else "",
                 portraitWorkSize = minOf(
                     PortraitEffect.workSizeFor(Runtime.getRuntime().maxMemory()),
                     if (deviceProfile.tier == PerformanceTier.LOW) 768 else 1024,
@@ -1052,7 +1071,21 @@ class CameraController(private val context: Context) {
             software = "Niko's Cam ${UpdateManager.installedVersionName(context)}",
             description = "Quality 98; Night Sight (Google); ${look.filter.label}; zoom ${String.format(java.util.Locale.US, "%.1f", zoomRatio)}x",
         )
-        val uri = withContext(Dispatchers.IO) { CaptureStore.saveJpeg(context, bytes, stamp, meta = meta) }
+        // The system's Night engine hands back a finished JPEG, so the watermark goes on it here.
+        val marked = if (watermark.on) {
+            val settings = watermark.copy(details = false) // the engine reports no exposure details
+            withContext(Dispatchers.Default) {
+                try {
+                    PhotoProcessor.watermarkOnly(bytes, 98, if (settings.logo) Watermark.logo(context) else null, settings, "")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Couldn't watermark the Night photo", e)
+                    null
+                } catch (e: OutOfMemoryError) {
+                    null
+                }
+            }
+        } else null
+        val uri = withContext(Dispatchers.IO) { CaptureStore.saveJpeg(context, marked ?: bytes, stamp, meta = meta) }
         if (uri != null) {
             lastCaptureUri = uri
             lastCaptureIsVideo = false
@@ -1079,6 +1112,9 @@ class CameraController(private val context: Context) {
         val subjectTap: Pair<Float, Float>? = null,
         val portraitWorkSize: Int = 1024,
         val saveOriginal: Boolean = false,
+        val watermark: WatermarkSettings? = null,
+        val watermarkLogo: android.graphics.Bitmap? = null,
+        val watermarkDetails: String = "",
     )
 
     private suspend fun runPhotoJob(job: PhotoJob) {
@@ -1092,6 +1128,7 @@ class CameraController(private val context: Context) {
                     job.frames, job.tone, job.look, job.ratio, job.mirror, job.quality, job.portraitBlur, job.noiseScale,
                     job.zoomRatio, job.keepUltraHdr, job.portraitStyle, job.depth, job.subjectTap, job.portraitWorkSize,
                     portraitSink = { before, analysis -> kept[0] = before to analysis },
+                    watermark = job.watermark, watermarkLogo = job.watermarkLogo, watermarkDetails = job.watermarkDetails,
                 )
             } catch (e: Exception) {
                 Log.e(TAG, "Processing failed; keeping the camera's own JPEG", e)
@@ -1106,7 +1143,7 @@ class CameraController(private val context: Context) {
                 captureRevision += 1
                 kept[0]?.let { (before, analysis) ->
                     withContext(Dispatchers.IO) {
-                        PortraitStore.save(context, job.stamp, before, analysis, job.portraitStyle, job.portraitBlur)
+                        PortraitStore.save(context, job.stamp, before, analysis, job.portraitStyle, job.portraitBlur, job.watermarkDetails)
                         if (job.saveOriginal) {
                             val original = PhotoMeta(
                                 exposureNanos = job.meta.exposureNanos, iso = job.meta.iso, aperture = job.meta.aperture,

@@ -115,7 +115,6 @@ fun EditorScreen(uri: Uri, controller: CameraController, onClose: () -> Unit) {
     var pBusy by remember { mutableStateOf(false) }
     LaunchedEffect(portrait) {
         portrait?.let {
-            pStyle = it.style
             pStrength = it.strength
         }
     }
@@ -341,7 +340,6 @@ fun EditorScreen(uri: Uri, controller: CameraController, onClose: () -> Unit) {
                 EditorTab.ADJUST -> AdjustPanel(look) { look = it }
                 EditorTab.CROP -> CropPanel(transform) { transform = it }
                 EditorTab.PORTRAIT -> PortraitPanel(
-                    style = pStyle, onStyle = { pStyle = it },
                     strength = pStrength, onStrength = { pStrength = it },
                     refocused = pTap != null, onResetFocus = { pTap = null },
                     busy = pBusy, previewing = portraitPreview != null,
@@ -353,7 +351,10 @@ fun EditorScreen(uri: Uri, controller: CameraController, onClose: () -> Unit) {
                                 pBusy = true
                                 try {
                                     val out = withContext(Dispatchers.Default) {
-                                        PhotoProcessor.portraitRerender(bytes, saved.analysis, pStyle, pStrength, pTap, controller.jpegQuality)
+                                        PhotoProcessor.portraitRerender(
+                                            bytes, saved.analysis, pStyle, pStrength, pTap, controller.jpegQuality,
+                                            controller.watermark.takeIf { it.on }, if (controller.watermark.on && controller.watermark.logo) Watermark.logo(context) else null, saved.details,
+                                        )
                                     } ?: throw IllegalStateException("there is nothing to blur with this subject")
                                     val decoded = withContext(Dispatchers.Default) { PhotoProcessor.decodeUpright(out, 2_500_000) }
                                         ?: throw IllegalStateException("couldn't read the result")
@@ -402,8 +403,6 @@ fun EditorScreen(uri: Uri, controller: CameraController, onClose: () -> Unit) {
 /** Change a Portrait's blur after the shot: its style and strength, and tap the photo to pick another subject. */
 @Composable
 private fun PortraitPanel(
-    style: PortraitStyle,
-    onStyle: (PortraitStyle) -> Unit,
     strength: Float,
     onStrength: (Float) -> Unit,
     refocused: Boolean,
@@ -413,12 +412,6 @@ private fun PortraitPanel(
     onApply: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            for (option in PortraitStyle.entries) ChipText(option.label, option == style) { onStyle(option) }
-        }
         FloatWheelRow(
             label = "Blur",
             value = strength,

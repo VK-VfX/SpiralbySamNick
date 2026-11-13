@@ -4,6 +4,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.ByteArrayOutputStream
+import java.io.DataOutputStream
+import java.util.zip.DeflaterOutputStream
 
 /** The pure maths behind Portrait: nothing here touches the camera or Android. */
 class PortraitEffectTest {
@@ -78,10 +81,11 @@ class PortraitEffectTest {
             BooleanArray(n) { it % 3 == 0 },
             0.42f,
         )
-        val decoded = PortraitStore.decode(PortraitStore.encode(analysis, PortraitStyle.BOKEH, 0.7f))
+        val decoded = PortraitStore.decode(PortraitStore.encode(analysis, PortraitStyle.BOKEH, 0.7f, "6.9 mm  \u00B7  f/1.7"))
         assertNotNull(decoded)
         decoded!!
         assertEquals(PortraitStyle.BOKEH, decoded.style)
+        assertEquals("6.9 mm  \u00B7  f/1.7", decoded.details)
         assertEquals(0.7f, decoded.strength, 1e-6f)
         assertEquals(0.42f, decoded.analysis.focus, 1e-6f)
         assertEquals(w, decoded.analysis.width)
@@ -114,5 +118,25 @@ class PortraitEffectTest {
         assertEquals(0.8f, moved.focus, 1e-4f)
         assertTrue("the tapped area is now the subject", moved.keep[30 * w + 10] > 0.5f)
         assertTrue("the old subject is now background", moved.keep[30 * w + 70] < 0.5f)
+    }
+
+    @Test
+    fun aRecordInTheFirstFormatStillLoads() {
+        val bytes = ByteArrayOutputStream()
+        DataOutputStream(DeflaterOutputStream(bytes)).use { out ->
+            out.writeInt(0x4E504131) // the first format, before watermark details were kept
+            out.writeInt(16)
+            out.writeInt(16)
+            out.writeFloat(0.4f)
+            out.writeInt(0)
+            out.writeFloat(0.5f)
+            out.write(ByteArray(256))
+            out.write(ByteArray(256))
+            out.write(ByteArray(256))
+        }
+        val decoded = PortraitStore.decode(bytes.toByteArray())
+        assertNotNull(decoded)
+        assertEquals("", decoded!!.details)
+        assertEquals(16, decoded.analysis.width)
     }
 }
