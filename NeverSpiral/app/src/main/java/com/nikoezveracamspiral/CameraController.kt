@@ -52,6 +52,11 @@ private const val TAG = "CameraController"
 class CameraController(private val context: Context) {
     val engine = CameraEngine(context)
 
+    /** What this phone can safely do: processing budgets are sized from its memory. */
+    val deviceProfile: DeviceProfile = DeviceProfile.detect(context).also {
+        PhotoProcessor.configure(it.singleMaxPixels, it.burstMaxPixels)
+    }
+
     var mode by mutableStateOf(CaptureMode.PHOTO)
         private set
     var isRawEnabled by mutableStateOf(false)

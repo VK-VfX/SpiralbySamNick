@@ -264,6 +264,68 @@ class CameraEngine(private val context: Context) {
 
     private var videoFps = 30
 
+    private var stopsCache: Pair<String, List<Float>>? = null
+    private var lensCache: Pair<String, String>? = null
+
+    /** 35 mm-equivalent focal length of each physical lens behind the current (logical) camera. */
+    private fun physicalLensEquivalents(): List<Float> {
+        val chars = characteristics ?: return emptyList()
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.P) return emptyList()
+        return chars.physicalCameraIds.mapNotNull { id ->
+            try {
+                val c = cameraManager.getCameraCharacteristics(id)
+                val focal = c.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.firstOrNull()
+                val size = c.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
+                if (focal != null && size != null) focal * 43.27f / kotlin.math.hypot(size.width, size.height) else null
+            } catch (e: Exception) {
+                null
+            }
+        }.sorted()
+    }
+
+    /**
+     * The zoom stops to offer as one-tap chips, built from what this particular phone's camera
+     * reports: its widest zoom, 1x, the optical stop of every extra lens (a Pixel 9 Pro XL's 5x
+     * telephoto, a Pixel 7 Pro's 4x, none on a Pixel 8a), a 2x sensor crop, and a doubled
+     * telephoto. Falls back to common stops when the lens data isn't readable.
+     */
+    fun zoomStops(): List<Float> {
+        val chars = characteristics ?: return listOf(1f)
+        val cached = stopsCache
+        if (cached != null && cached.first == currentCameraId) return cached.second
+        val min = minZoomRatio()
+        val max = maxZoomRatio()
+        val stops = sortedSetOf(1f)
+        if (min < 0.95f) stops.add(Math.round(min * 10f) / 10f)
+        val equivalents = physicalLensEquivalents()
+        var telephoto: Float? = null
+        if (equivalents.size >= 2) {
+            val main = equivalents.minByOrNull { kotlin.math.abs(it - 24f) } ?: equivalents.first()
+            for (eq in equivalents) {
+                val ratio = eq / main
+                if (ratio > 1.3f && ratio <= max) {
+                    val rounded = Math.round(ratio * 2f) / 2f
+                    stops.add(rounded)
+                    telephoto = rounded
+                }
+            }
+        }
+        if (max >= 2f && (telephoto == null || kotlin.math.abs(telephoto - 2f) > 0.4f)) stops.add(2f)
+        if (telephoto != null) {
+            if (telephoto * 2f <= max) stops.add(telephoto * 2f)
+        } else if (equivalents.size < 2) {
+            if (max >= 5f) stops.add(5f)
+            if (max >= 10f) stops.add(10f)
+        }
+        val result = stops.filter { it <= max + 0.01f && (it >= min - 0.01f || it == 1f) }
+        stopsCache = currentCameraId to result
+        return result
+    }
+
+    /** "0.5x, 1x, 5x" style summary of this camera's lenses, for the settings sheet and reports. */
+    fun lensSummary(): String =
+        zoomStops().joinToString(" · ") { if (it == it.toInt().toFloat()) "${it.toInt()}x" else "${it}x" }
+
     /** Macro: prefers the camera's close-focus AF mode where it has one. */
     var macroMode: Boolean = false
 

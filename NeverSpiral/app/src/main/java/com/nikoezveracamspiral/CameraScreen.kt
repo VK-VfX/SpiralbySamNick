@@ -262,7 +262,8 @@ private fun CameraContent(controller: CameraController, deviceRotation: Int, onO
         // The viewfinder takes the chosen output ratio (so what you see is what gets saved) and
         // shrinks, staying centered, on a screen too short for it plus the controls.
         val ratio = controller.aspectRatio.widthOverHeight
-        val controlsHeight = 290.dp
+        // Pixel screens run from 6.1" (8a) to 6.8" (9 Pro XL) and the folds; the control area scales with the screen.
+        val controlsHeight = (maxHeight * 0.31f).coerceIn(250.dp, 320.dp)
         val naturalHeight = maxWidth / ratio
         val availableHeight = (maxHeight - controlsHeight - 14.dp).coerceAtLeast(240.dp)
         val targetHeight = if (naturalHeight < availableHeight) naturalHeight else availableHeight
@@ -924,11 +925,17 @@ private fun FlashButton(controller: CameraController) {
     }
 }
 
+private fun zoomLabel(z: Float): String = when {
+    z < 1f -> String.format(Locale.US, "%.1f", z).removePrefix("0")
+    z == z.toInt().toFloat() -> z.toInt().toString()
+    else -> String.format(Locale.US, "%.1f", z)
+}
+
 @Composable
 private fun ZoomChips(controller: CameraController) {
     val minZoom = controller.engine.minZoomRatio()
     val maxZoom = controller.engine.maxZoomRatio()
-    val presets = listOf(0.5f, 1f, 2f, 5f, 10f).filter { it == 1f || (it >= minZoom - 0.01f && it <= maxZoom + 0.01f) }
+    val presets = controller.engine.zoomStops().filter { it == 1f || (it >= minZoom - 0.01f && it <= maxZoom + 0.01f) }
     if (presets.size < 2) return
     Row(
         modifier = Modifier
@@ -940,7 +947,7 @@ private fun ZoomChips(controller: CameraController) {
     ) {
         for (preset in presets) {
             val selected = abs(controller.zoomRatio - preset) < 0.15f
-            val label = if (preset < 1f) ".5" else preset.toInt().toString()
+            val label = zoomLabel(preset)
             Box(
                 modifier = Modifier
                     .size(width = if (selected) 54.dp else 44.dp, height = 40.dp)
@@ -1398,6 +1405,14 @@ private fun UpdateSection(controller: CameraController) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val status = controller.update
+    val profile = controller.deviceProfile
+    SheetSection("This phone", profile.label)
+    Text(
+        "${profile.ramGb} GB memory · ${profile.tier.label} performance · lenses ${controller.engine.lensSummary()}",
+        color = CameraTheme.TEXT_SECONDARY,
+        fontSize = 13.sp,
+        modifier = Modifier.padding(horizontal = 4.dp),
+    )
     SheetSection("Updates", "v${UpdateManager.installedVersionName(context)}")
     val message = when (status) {
         UpdateStatus.Idle -> "Check for a newer build of Niko's Cam."

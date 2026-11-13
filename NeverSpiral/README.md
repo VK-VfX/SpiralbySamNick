@@ -193,3 +193,10 @@ Not built yet (needs on-device testing): a YUV/RAW burst with zero-shutter-lag, 
 - Macro mode (extreme close-up): uses the ultra-wide lens, close-focus AF where the camera offers it, and shows the live focus distance.
 - Fixed: preview surface leak (a Surface is now reused per SurfaceTexture and released on close); the camera now finishes closing before its callback thread stops; the QR scanner is created once and paused instead of recreated, and scans every 1.5 s.
 - The problem report now lists each physical lens with its focal length and closest focus distance.
+
+## v2.2.0 (Pixel family)
+
+- Zoom chips are built from each phone's own lenses: the widest zoom, 1x, the optical stop of every extra physical lens (5x on a Pixel 9 Pro XL, 4x on a 7 Pro, none on an 8a), a 2x crop and a doubled telephoto. Lens focal lengths are converted to 35 mm equivalents from the sensor size.
+- A device profile (`DeviceProfile.kt`) sizes burst and single-frame processing from the phone's memory: High (10.5 GB and up: Pixel 9 Pro XL, 8 Pro), Mid (7 GB and up: Pixel 8a, 7, 6), Basic. Large frames are now scaled to the budget instead of being halved twice (a 16 MP frame stays near 13 MP).
+- The control area scales with the screen height (6.1" to 6.8" and folds).
+- Settings shows "This phone" with its memory, performance tier and lenses; the problem report adds the SoC-independent facts the next features need: largest JPEG/YUV sizes, frame-rate ranges, high-speed video sizes, supported camera extensions (night, HDR, bokeh) and each physical lens with its closest focus distance.

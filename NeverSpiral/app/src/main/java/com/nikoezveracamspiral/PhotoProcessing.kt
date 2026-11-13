@@ -330,8 +330,14 @@ object LookProcessor {
 /** The after-capture pipeline: decode, rotate upright from EXIF, mirror (selfies), crop to the
  * chosen ratio, fuse an HDR bracket when there is one, then run the [Look] and re-encode. */
 object PhotoProcessor {
-    private const val SINGLE_MAX_PIXELS = 16_800_000
-    private const val BURST_MAX_PIXELS = 13_000_000
+    private var singleMaxPixels = 16_800_000
+    private var burstMaxPixels = 13_000_000
+
+    /** Sets the pixel budgets from the phone's [DeviceProfile]. */
+    fun configure(single: Int, burst: Int) {
+        singleMaxPixels = single
+        burstMaxPixels = burst
+    }
 
     /** Decodes [bytes] upright (EXIF rotation applied), subsampled so it stays under [maxPixels]. */
     fun decodeUpright(bytes: ByteArray, maxPixels: Int): Bitmap? {
@@ -339,10 +345,24 @@ object PhotoProcessor {
         val orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        // Subsample by powers of two only while the image is more than twice the budget, then scale
+        // the rest of the way: a 16 MP Pixel 8a frame under a 13 MP budget stays ~13 MP instead of
+        // dropping straight to 4 MP.
         var sample = 1
-        while ((bounds.outWidth / sample).toLong() * (bounds.outHeight / sample) > maxPixels) sample *= 2
-        val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
+        while ((bounds.outWidth / sample).toLong() * (bounds.outHeight / sample) > maxPixels.toLong() * 2) sample *= 2
+        var decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
             ?: return null
+        if (decoded.width.toLong() * decoded.height > maxPixels) {
+            val scale = kotlin.math.sqrt(maxPixels.toDouble() / (decoded.width.toDouble() * decoded.height))
+            val scaled = Bitmap.createScaledBitmap(
+                decoded,
+                (decoded.width * scale).toInt().coerceAtLeast(1),
+                (decoded.height * scale).toInt().coerceAtLeast(1),
+                true,
+            )
+            if (scaled !== decoded) decoded.recycle()
+            decoded = scaled
+        }
         val m = Matrix()
         when (orientation) {
             ExifInterface.ORIENTATION_ROTATE_90 -> m.postRotate(90f)
@@ -425,7 +445,7 @@ object PhotoProcessor {
         noiseScale: Float = 1f,
     ): ByteArray {
         val refIndex = frames.size / 2
-        val maxPixels = if (frames.size > 1) BURST_MAX_PIXELS else SINGLE_MAX_PIXELS
+        val maxPixels = if (frames.size > 1) burstMaxPixels else singleMaxPixels
         val merged: DecodedFrame = if (frames.size > 1 && tone != ToneMode.None) {
             BurstMerge.merge(
                 frames, refIndex,
@@ -495,7 +515,7 @@ object PhotoProcessor {
 
     /** Re-renders a saved photo at full resolution with the editor's transform and look. */
     fun processEdit(bytes: ByteArray, look: Look, t: Transform, quality: Int): ByteArray? {
-        val upright = decodeUpright(bytes, SINGLE_MAX_PIXELS) ?: return null
+        val upright = decodeUpright(bytes, singleMaxPixels) ?: return null
         val transformed = transform(upright, t)
         if (transformed !== upright) upright.recycle()
         val w = transformed.width

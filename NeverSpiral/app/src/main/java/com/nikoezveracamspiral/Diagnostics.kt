@@ -34,6 +34,21 @@ object Diagnostics {
                 val active = c.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
                 out.append("camera $id: $facing, hardware level $level, sensor orientation $orientation, ")
                     .append("zoom range $zoom, active array ${active?.width()}x${active?.height()}, capabilities [$caps]\n")
+                try {
+                    val map = c.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+                    val jpeg = map?.getOutputSizes(android.graphics.ImageFormat.JPEG)?.maxByOrNull { it.width.toLong() * it.height }
+                    val yuv = map?.getOutputSizes(android.graphics.ImageFormat.YUV_420_888)?.maxByOrNull { it.width.toLong() * it.height }
+                    val fps = c.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)?.joinToString { "${it.lower}-${it.upper}" }
+                    val fast = map?.highSpeedVideoSizes?.joinToString { "${it.width}x${it.height}" }
+                    out.append("  largest JPEG $jpeg, largest YUV $yuv, fps ranges [$fps], high-speed sizes [$fast]\n")
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        val names = mapOf(0 to "AUTOMATIC", 1 to "FACE_RETOUCH", 2 to "BOKEH", 3 to "HDR", 4 to "NIGHT")
+                        val ext = manager.getCameraExtensionCharacteristics(id).supportedExtensions.joinToString { names[it] ?: it.toString() }
+                        out.append("  camera extensions [$ext]\n")
+                    }
+                } catch (e: Exception) {
+                    out.append("  stream/extension info unavailable (${e.message})\n")
+                }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     for (pid in c.physicalCameraIds) {
                         try {
@@ -67,6 +82,11 @@ object Diagnostics {
             val text = buildString {
                 appendLine("Niko's Cam ${UpdateManager.installedVersionName(context)} (${UpdateManager.installedVersionCode(context)})")
                 appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
+                val profile = controller.deviceProfile
+                appendLine("Profile: ${profile.label}, ${profile.ramGb} GB, tier ${profile.tier}, burst budget ${profile.burstMaxPixels} px, foldable=${profile.isFoldable}")
+                appendLine("Zoom stops: ${controller.engine.lensSummary()}")
+                val dm = context.resources.displayMetrics
+                appendLine("Display: ${dm.widthPixels}x${dm.heightPixels} px, ${dm.densityDpi} dpi")
                 appendLine()
                 appendLine("Cameras:")
                 append(cameraSummary(context))
