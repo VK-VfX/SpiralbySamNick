@@ -3,3 +3,4 @@
 # camera pipeline needs at runtime. Libraries (Compose, ML Kit, Media3) ship their own rules.
 -keep class com.nikoezveracamspiral.** { *; }
 -ignorewarnings
+-keep class org.tensorflow.lite.** { *; }

@@ -46,12 +46,14 @@ object PortraitEffect {
     )
 
     private fun paramsFor(style: PortraitStyle) = when (style) {
-        PortraitStyle.NATURAL -> Params(0.010f)
-        PortraitStyle.STUDIO -> Params(0.016f, subjectLift = true, backgroundGain = 0.95f)
-        PortraitStyle.SOFT -> Params(0.0055f)
-        PortraitStyle.BOKEH -> Params(0.013f, bloom = true)
-        PortraitStyle.STAGE -> Params(0.011f, backgroundGain = 0.22f)
-        PortraitStyle.MONO -> Params(0.011f, backgroundGain = 0.9f, mono = true)
+        // Radii are fractions of the picture's long side; sized so the default strength gives the
+        // strong, smooth background of Pixel's Portrait.
+        PortraitStyle.NATURAL -> Params(0.024f)
+        PortraitStyle.STUDIO -> Params(0.038f, subjectLift = true, backgroundGain = 0.95f)
+        PortraitStyle.SOFT -> Params(0.013f)
+        PortraitStyle.BOKEH -> Params(0.031f, bloom = true)
+        PortraitStyle.STAGE -> Params(0.026f, backgroundGain = 0.22f)
+        PortraitStyle.MONO -> Params(0.026f, backgroundGain = 0.9f, mono = true)
     }
 
     /** What a renderer hands to [composite]: the blurred picture at working size, and for every
@@ -59,10 +61,10 @@ object PortraitEffect {
     private class Render(val image: IntArray, val weight: FloatArray)
 
     /** Returns true if a subject was found and the background was blurred. [strength] is 0..1. */
-    fun apply(pixels: IntArray, w: Int, h: Int, strength: Float, style: PortraitStyle = PortraitStyle.NATURAL, cues: DepthCues? = null, tap: Pair<Float, Float>? = null): Boolean {
+    fun apply(pixels: IntArray, w: Int, h: Int, strength: Float, style: PortraitStyle = PortraitStyle.NATURAL, cues: DepthCues? = null, tap: Pair<Float, Float>? = null, workLongSide: Int = 1024): Boolean {
         val params = paramsFor(style)
         val longSide = max(w, h)
-        val scale = min(1f, 1024f / longSide)
+        val scale = min(1f, workLongSide.toFloat() / longSide)
         val ww = max(16, (w * scale).roundToInt())
         val wh = max(16, (h * scale).roundToInt())
         val n = ww * wh
@@ -114,7 +116,9 @@ object PortraitEffect {
         val n = ww * wh
 
         // The subject: a person if the model finds one, otherwise whatever is in focus.
-        val subject = findSubject(work, lum, ww, wh, tap)
+        val found = findSubject(work, lum, ww, wh, tap)
+        val subject = found?.mask
+        val isPerson = found?.person ?: true
 
         // The outline cue: depth falls away smoothly with distance from the subject's edge.
         val ramp = FloatArray(n) { 1f }
@@ -127,11 +131,16 @@ object PortraitEffect {
         // The measured cues, each brought to 0..1 (larger = nearer) at working size.
         val stereo = cues?.stereo?.let { normalisedCue(it, ww, wh) }
         val focusCue = cues?.focus?.let { normalisedCue(it, ww, wh) }
+        // The learned depth map (the same kind of network Pixel's Portrait relies on): clean and
+        // smooth everywhere, so it carries the depth and the other cues only refine it.
+        val learned = if (DepthModel.isReady()) learnedCue(work, ww, wh) else null
         if (stereo != null) {
             // Which way is "near" along the baseline isn't known up front; the sharpness cue or, failing
             // that, the fact that the subject is nearer than its surroundings settles it.
             var score = 0f
-            if (focusCue != null) {
+            if (learned != null) {
+                for (i in 0 until n) score += stereo.second[i] * (stereo.first[i] - 0.5f) * (learned.first[i] - 0.5f)
+            } else if (focusCue != null) {
                 for (i in 0 until n) score += stereo.second[i] * focusCue.second[i] * (stereo.first[i] - 0.5f) * (focusCue.first[i] - 0.5f)
             } else if (subject != null) {
                 var inside = 0f
@@ -147,16 +156,19 @@ object PortraitEffect {
             }
             if (score < 0f) for (i in 0 until n) stereo.first[i] = 1f - stereo.first[i]
         }
-        val hasCues = stereo != null || focusCue != null
+        val hasCues = stereo != null || focusCue != null || learned != null
         val cueDepth = FloatArray(n)
         val cueConf = FloatArray(n)
         if (hasCues) {
             for (i in 0 until n) {
                 val sw = if (stereo != null) 0.8f * stereo.second[i] else 0f
                 val fw = if (focusCue != null) 1.0f * focusCue.second[i] else 0f
-                val total = sw + fw
+                val lw = if (learned != null) 4.0f * learned.second[i] else 0f
+                val total = sw + fw + lw
                 if (total > 1e-4f) {
-                    cueDepth[i] = ((if (stereo != null) sw * stereo.first[i] else 0f) + (if (focusCue != null) fw * focusCue.first[i] else 0f)) / total
+                    cueDepth[i] = ((if (stereo != null) sw * stereo.first[i] else 0f) +
+                        (if (focusCue != null) fw * focusCue.first[i] else 0f) +
+                        (if (learned != null) lw * learned.first[i] else 0f)) / total
                     cueConf[i] = min(1f, total)
                 }
             }
@@ -166,7 +178,7 @@ object PortraitEffect {
         // Depth: the measured cues where they are trustworthy, the outline ramp everywhere as a
         // gentle prior, then snapped to the picture's own edges.
         var depth = FloatArray(n)
-        val rampWeight = if (hasCues) 0.6f else 1f
+        val rampWeight = if (learned != null) 0.15f else if (hasCues) 0.6f else 1f
         for (i in 0 until n) depth[i] = (cueDepth[i] * cueConf[i] + ramp[i] * rampWeight) / (cueConf[i] + rampWeight)
         depth = guidedFilter(lum, depth, ww, wh, max(4, max(ww, wh) / 60), 0.002f)
 
@@ -204,8 +216,8 @@ object PortraitEffect {
         // a held object, a collar), the way Google's portrait keeps everything attached to the
         // subject crisp. Anything not connected (a pillow beside the hand) stays background even
         // at a similar depth. With no measured depth the outline alone is the subject.
-        val band = 0.11f
-        val stepLimit = 0.05f
+        val band = if (learned != null) 0.2f else 0.11f
+        val stepLimit = if (learned != null) 0.06f else 0.05f
         val region = BooleanArray(n)
         val queue = IntArray(n)
         var head = 0
@@ -236,7 +248,9 @@ object PortraitEffect {
                 focusCueDepth = values[values.size / 2]
             }
         }
-        val reachLimit = 0.03f * max(ww, wh)
+        // A person's outline is trusted (a little growth for held things); for an object picked by
+        // a tap the depth has to find the rest of it.
+        val reachLimit = (if (isPerson) 0.03f else 0.15f) * max(ww, wh)
         val seedCount = tail
         if (focusCueDepth >= 0f) {
             while (head < tail) {
@@ -261,7 +275,7 @@ object PortraitEffect {
             }
         }
         // If growth ran away anyway (far more than the subject itself), distrust it and keep the outline.
-        if (tail > max(seedCount * 3, n / 3) && seedCount > 0) {
+        if (tail > max(seedCount * (if (isPerson) 3 else 12), n / 3) && seedCount > 0) {
             region.fill(false)
             for (k in 0 until seedCount) region[queue[k]] = true
         }
@@ -409,14 +423,16 @@ object PortraitEffect {
      * the user touched the viewfinder) it is the person under the finger, or else the in-focus object
      * around that spot.
      */
-    private fun findSubject(work: IntArray, lum: FloatArray, ww: Int, wh: Int, tap: Pair<Float, Float>?): FloatArray? {
+    private class Subject(val mask: FloatArray, val person: Boolean)
+
+    private fun findSubject(work: IntArray, lum: FloatArray, ww: Int, wh: Int, tap: Pair<Float, Float>?): Subject? {
         val tx = tap?.let { (it.first * (ww - 1)).roundToInt().coerceIn(0, ww - 1) } ?: 0
         val ty = tap?.let { (it.second * (wh - 1)).roundToInt().coerceIn(0, wh - 1) } ?: 0
         val reach = max(3, (0.03f * max(ww, wh)).roundToInt())
         val person = personMask(work, ww, wh)?.let { cleanMask(it, ww, wh) }
         if (person != null) {
             val onPerson = tap == null || componentAt(person, ww, wh, tx, ty, reach) != null
-            if (onPerson) return cleanMask(refine(lum, person, ww, wh), ww, wh)
+            if (onPerson) return Subject(cleanMask(refine(lum, person, ww, wh), ww, wh), true)
         }
         val focus = if (tap != null) focusMask(lum, ww, wh, tap.first, tap.second) else focusMask(lum, ww, wh)
         val rough = when {
@@ -433,7 +449,7 @@ object PortraitEffect {
                 if (dx * dx + dy * dy <= radius * radius) 1f else 0f
             }
         } else null
-        return chosen?.let { cleanMask(refine(lum, it, ww, wh), ww, wh) }
+        return chosen?.let { Subject(cleanMask(refine(lum, it, ww, wh), ww, wh), false) }
     }
 
     /** The piece of [mask] (above 0.5) that touches the point (x, y) or lies within [reach] pixels of it, or null if there is none. */
@@ -473,6 +489,20 @@ object PortraitEffect {
         return out
     }
 
+    /** The depth model's map at working size, spread over 0..1 with full confidence (first = value, second = confidence), or null if it can't run. */
+    private fun learnedCue(work: IntArray, ww: Int, wh: Int): Pair<FloatArray, FloatArray>? {
+        val raw = DepthModel.estimate(work, ww, wh) ?: return null
+        val n = ww * wh
+        val value = resize(raw, 256, 256, ww, wh)
+        val sample = FloatArray(n / 16 + 1) { value[min(it * 16, n - 1)] }
+        sample.sort()
+        val low = sample[(sample.size * 0.02f).toInt()]
+        val high = sample[min(sample.size - 1, (sample.size * 0.98f).toInt())]
+        if (high - low < 1e-6f) return null
+        for (i in 0 until n) value[i] = ((value[i] - low) / (high - low)).coerceIn(0f, 1f)
+        return Pair(value, FloatArray(n) { 1f })
+    }
+
     /** A depth cue resized to the working size and spread over 0..1 (first = value, second = confidence), or null if it is too weak to use. */
     private fun normalisedCue(plane: DepthPlane, ww: Int, wh: Int): Pair<FloatArray, FloatArray>? {
         val n = ww * wh
@@ -497,7 +527,7 @@ object PortraitEffect {
     private fun maskRender(work: IntArray, lum: FloatArray, ww: Int, wh: Int, params: Params, maxRadius: Float, tap: Pair<Float, Float>? = null): Render? {
         val n = ww * wh
         // The subject, snapped to the picture's real edges.
-        val mask = findSubject(work, lum, ww, wh, tap) ?: return null
+        val mask = findSubject(work, lum, ww, wh, tap)?.mask ?: return null
         var coverage = 0f
         for (m in mask) if (m > 0.5f) coverage += 1f
         coverage /= n

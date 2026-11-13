@@ -214,6 +214,14 @@ Not built yet (needs on-device testing): a YUV/RAW burst with zero-shutter-lag, 
 - Zoom quality: from 2x up, a shot is a 5-frame merged burst with minimal in-camera noise reduction (Settings: Zoom enhance), followed by a wider-radius unsharp mask that grows with the zoom level. Each photo's description now records the zoom and which physical lens captured it, so a telephoto shot can be told from a cropped main-lens one.
 - Predictive-back callback enabled for Android 13+.
 
+## v2.6.0
+- **Pixel-level Portrait on every phone.** Portrait now uses the same method everywhere: a learned depth map (MiDaS small, the same kind of network Pixel's Portrait relies on, 63 MB, downloaded once on Wi-Fi when you open Portrait and kept across updates) gives clean, smooth depth; the person model (or the object around your tap) sets the subject; the blur size follows the distance from the subject's depth; the background is blurred in layers, in linear light, and composited back over the sharp photo. The two-lens and focus-sweep cues now only refine the learned depth on phones that have them, and Portrait still works without the model (outline blur) until it has downloaded.
+- **Stronger, smoother background blur** by default (radii about 2.4x the old ones), sized to look like Pixel's.
+- **Same look on every phone:** only the working resolution of the blur changes with the phone's speed (768 / 896 / 1024 px), and the radii scale with it.
+- **Tap sets the subject in Portrait,** and the log says which depth sources a photo used ("learned depth", "two-lens stereo", "focus sweep").
+- Two-lens stereo now matches lenses by focal length (the Pixel 9 Pro XL lists its main lens under two ids), with a log line for every reason it is skipped.
+- Blur is done in linear light, so highlights keep their size and brightness.
+
 ## v2.5.5
 - **Two-lens stereo now actually runs on the Pixel 9 Pro XL.** The phone lists its main lens under two ids (2 and 5, both 6.9 mm), and the app threw away the ultra-wide frame whenever the camera reported the other id. Lenses are now compared by focal length. The log (Report a problem) says why stereo was skipped, if it still is: wrong lens, no frame in time, focal ratio, or not enough texture.
 - **Tap to set the subject (Portrait).** Tapping the viewfinder sets focus as before and now also picks the subject: the person under your finger, or else the in-focus object around that spot (a patch around the touch if nothing stands out). That subject stays sharp and sets the focus plane; everything else is blurred around it. A hint pill shows until you tap; changing mode or zoom clears the tap.
