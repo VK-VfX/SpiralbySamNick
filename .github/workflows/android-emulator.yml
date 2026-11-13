@@ -1,0 +1,102 @@
+name: Android Emulator
+
+# Boots a virtual phone with about a Pixel 8a's app memory, installs the app, runs the Portrait
+# pipeline on a public-domain photo and starts the real app, and publishes what they find (a
+# report, the pictures and screenshots) on the never-spiral-emulator-results branch. This is a
+# separate workflow so a problem here can never hold up a release build.
+
+on:
+  push:
+    paths:
+      - "NeverSpiral/**"
+      - ".github/workflows/android-emulator.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: emulator-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: "platform-tools platforms;android-34 build-tools;34.0.0"
+
+      # The emulator needs hardware virtualisation, which the runner has but only root may use.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      # NASA's astronaut portrait, from scikit-image's test data (public domain). Fetched here
+      # rather than kept in the repository so no one's own photos are ever committed.
+      - name: Fetch the test photo
+        run: |
+          mkdir -p NeverSpiral/app/src/androidTest/assets
+          curl -fsSL -o NeverSpiral/app/src/androidTest/assets/person.png \
+            https://raw.githubusercontent.com/scikit-image/scikit-image/main/skimage/data/astronaut.png
+          ls -l NeverSpiral/app/src/androidTest/assets
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x NeverSpiral/gradlew
+
+      - name: Run the tests on an emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          ram-size: 3072M
+          heap-size: 256M
+          disk-size: 6144M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back virtualscene -camera-front emulated
+          working-directory: ./NeverSpiral
+          script: bash ci/emulator-run.sh
+
+      - name: Publish the results
+        if: always()
+        run: |
+          mkdir -p /tmp/results
+          cp -r emulator-results/. /tmp/results/ 2>/dev/null || true
+          if [ -d NeverSpiral/app/build/outputs/androidTest-results ]; then
+            mkdir -p /tmp/results/gradle
+            find NeverSpiral/app/build/outputs/androidTest-results -name "*.xml" -exec cp {} /tmp/results/gradle/ \;
+          fi
+          echo "commit ${{ github.sha }}, run ${{ github.run_id }}" > /tmp/results/RUN.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan never-spiral-emulator-results
+          git rm -rf . > /dev/null 2>&1 || true
+          cp -r /tmp/results/. .
+          git add -A
+          git commit -m "Emulator results from ${{ github.sha }}"
+          git push --force origin HEAD:never-spiral-emulator-results
+
+      - name: Upload the results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: emulator-results
+          path: emulator-results
+          if-no-files-found: ignore

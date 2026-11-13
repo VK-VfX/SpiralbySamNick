@@ -18,7 +18,11 @@ android {
         // (ML Kit and the video renderer carry several each) roughly halves the APK.
         ndk {
             abiFilters.add("arm64-v8a")
+            // The emulator job in CI runs on x86_64; releases stay arm64-only.
+            if (project.hasProperty("emulatorAbi")) abiFilters.add("x86_64")
         }
+
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     // Without this, Gradle falls back to its own default debug config, which auto-generates
@@ -137,4 +141,9 @@ dependencies {
     implementation("androidx.media3:media3-common:1.3.1")
 
     testImplementation("junit:junit:4.13.2")
+
+    // Tests that run on an emulator (see .github/workflows/android-emulator.yml).
+    androidTestImplementation("androidx.test:runner:1.5.2")
+    androidTestImplementation("androidx.test.ext:junit:1.1.5")
+    androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
 }
