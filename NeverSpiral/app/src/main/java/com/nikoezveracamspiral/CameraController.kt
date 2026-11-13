@@ -741,13 +741,23 @@ class CameraController(private val context: Context) {
             videoFile = null
             if (file != null) {
                 val videoLook = look
-                if (VideoFilter.needed(videoLook)) {
-                    // Rendered after recording, in the background; the unfiltered file is
-                    // published instead if that fails.
+                // Save the recording straight away so it can never be lost, then (if a look is
+                // active) render the filtered version in the background and swap it in.
+                val originalUri = withContext(Dispatchers.IO) {
+                    if (VideoFilter.needed(videoLook)) CaptureStore.publishVideoCopy(context, file)
+                    else CaptureStore.publishVideo(context, file)
+                }
+                if (originalUri != null) {
+                    lastCaptureUri = originalUri
+                    lastCaptureIsVideo = true
+                    captureRevision++
+                } else {
+                    lastError = "Couldn't save the video"
+                }
+                if (originalUri != null && VideoFilter.needed(videoLook)) {
                     adjustPending(1)
                     processingScope.launch {
                         try {
-                            val displayName = file.name
                             val filtered = try {
                                 VideoFilter.apply(context, file, videoLook) { videoProgress = it }
                             } catch (e: Exception) {
@@ -755,21 +765,23 @@ class CameraController(private val context: Context) {
                                 lastError = "Couldn't apply the filter to the video: ${e.message ?: e::class.simpleName}"
                                 null
                             }
-                            val source = filtered ?: file
-                            val uri = CaptureStore.publishVideo(context, source, displayName)
-                            if (filtered != null) file.delete()
-                            if (uri != null) {
-                                lastCaptureUri = uri
-                                lastCaptureIsVideo = true
+                            if (filtered != null && filtered.length() > 0) {
+                                val uri = CaptureStore.publishVideo(context, filtered, file.name)
+                                if (uri != null) {
+                                    CaptureStore.deleteMedia(context, originalUri)
+                                    if (lastCaptureUri == originalUri) {
+                                        lastCaptureUri = uri
+                                        lastCaptureIsVideo = true
+                                        captureRevision++
+                                    }
+                                }
                             }
                         } finally {
+                            file.delete()
                             videoProgress = null
                             adjustPending(-1)
                         }
                     }
-                } else {
-                    lastCaptureUri = CaptureStore.publishVideo(context, file)
-                    lastCaptureIsVideo = true
                 }
             }
 

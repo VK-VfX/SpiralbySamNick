@@ -133,7 +133,19 @@ object CaptureStore {
         return File(dir, timestampName("mp4"))
     }
 
-    fun publishVideo(context: Context, file: File, displayName: String = file.name): Uri? {
+    /** Copies [file] into the shared Movies collection and leaves [file] in place. */
+    fun publishVideoCopy(context: Context, file: File, displayName: String = file.name): Uri? =
+        publishVideo(context, file, displayName, deleteSource = false)
+
+    fun deleteMedia(context: Context, uri: Uri) {
+        try {
+            context.contentResolver.delete(uri, null, null)
+        } catch (e: Exception) {
+            android.util.Log.w("CaptureStore", "Couldn't delete $uri", e)
+        }
+    }
+
+    fun publishVideo(context: Context, file: File, displayName: String = file.name, deleteSource: Boolean = true): Uri? {
         val resolver = context.contentResolver
         val values = ContentValues().apply {
             put(MediaStore.Video.Media.DISPLAY_NAME, displayName)
@@ -144,8 +156,12 @@ object CaptureStore {
             }
         }
         val uri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values) ?: return null
-        resolver.openOutputStream(uri)?.use { out -> file.inputStream().use { input -> input.copyTo(out) } }
-        file.delete()
+        val written = resolver.openOutputStream(uri)?.use { out -> file.inputStream().use { input -> input.copyTo(out) }; true } ?: false
+        if (!written) {
+            resolver.delete(uri, null, null)
+            return null
+        }
+        if (deleteSource) file.delete()
         markNotPending(context, uri, isVideo = true)
         return uri
     }

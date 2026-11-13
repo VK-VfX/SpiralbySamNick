@@ -178,6 +178,7 @@ internal fun Modifier.keepUpright(): Modifier {
 fun CameraScreen(controller: CameraController) {
     val context = LocalContext.current
     var editorUri by remember { mutableStateOf<Uri?>(null) }
+    var videoUri by remember { mutableStateOf<Uri?>(null) }
 
     // The phone's roll, in quarter turns: used for the saved photo's orientation, and to keep the
     // icons upright.
@@ -202,17 +203,21 @@ fun CameraScreen(controller: CameraController) {
 
     CompositionLocalProvider(LocalIconRotation provides iconRotation) {
         val uri = editorUri
-        if (uri != null) {
+        val playing = videoUri
+        if (playing != null) {
+            BackHandler { videoUri = null }
+            VideoPlayerScreen(uri = playing, onClose = { videoUri = null })
+        } else if (uri != null) {
             BackHandler { editorUri = null }
             EditorScreen(uri = uri, controller = controller, onClose = { editorUri = null })
         } else {
-            CameraContent(controller, deviceRotation, onOpenEditor = { editorUri = it })
+            CameraContent(controller, deviceRotation, onOpenEditor = { editorUri = it }, onOpenVideo = { videoUri = it })
         }
     }
 }
 
 @Composable
-private fun CameraContent(controller: CameraController, deviceRotation: Int, onOpenEditor: (Uri) -> Unit) {
+private fun CameraContent(controller: CameraController, deviceRotation: Int, onOpenEditor: (Uri) -> Unit, onOpenVideo: (Uri) -> Unit) {
     val cameraEpoch = controller.cameraEpoch
     var panel by remember { mutableStateOf(SidePanel.NONE) }
     var strip by remember { mutableStateOf(StripItem.FILTER) }
@@ -307,7 +312,7 @@ private fun CameraContent(controller: CameraController, deviceRotation: Int, onO
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    GalleryThumbnail(controller, onOpenEditor, onPositioned = { thumbRect = it })
+                    GalleryThumbnail(controller, onOpenEditor, onOpenVideo, onPositioned = { thumbRect = it })
                     ShutterButton(
                         isVideoMode = controller.mode.isVideo,
                         isRecording = controller.isRecording,
@@ -1176,7 +1181,7 @@ private fun CircleIconButton(
 
 /** The last capture's thumbnail, popping in with a small bounce each time a new one lands. */
 @Composable
-private fun GalleryThumbnail(controller: CameraController, onOpenEditor: (Uri) -> Unit, onPositioned: (androidx.compose.ui.geometry.Rect) -> Unit) {
+private fun GalleryThumbnail(controller: CameraController, onOpenEditor: (Uri) -> Unit, onOpenVideo: (Uri) -> Unit, onPositioned: (androidx.compose.ui.geometry.Rect) -> Unit) {
     val context = LocalContext.current
     val uri = controller.lastCaptureUri
     var bitmap by remember { mutableStateOf<ImageBitmap?>(null) }
@@ -1220,13 +1225,7 @@ private fun GalleryThumbnail(controller: CameraController, onOpenEditor: (Uri) -
                     onOpenEditor(target)
                     return@clickable
                 }
-                val intent = Intent(Intent.ACTION_VIEW, target)
-                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                try {
-                    context.startActivity(intent)
-                } catch (e: ActivityNotFoundException) {
-                    // No gallery/viewer app available; nothing more we can do.
-                }
+                onOpenVideo(target)
             },
     ) {
         bitmap?.let { image ->
