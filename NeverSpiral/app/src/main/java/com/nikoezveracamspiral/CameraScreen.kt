@@ -39,6 +39,7 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
@@ -482,10 +483,17 @@ private fun Viewfinder(controller: CameraController, showControls: Boolean, stri
         )
 
         // Portrait's live effect: the chosen style's blurred background laid over the live view.
+        // On Android 12+ the blur itself is done by the graphics chip (so it is smooth); the
+        // processor only finds the subject. Older phones blur on the processor.
+        val gpuBlur = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
+        var liveImage by remember { mutableStateOf<ImageBitmap?>(null) }
+        var liveMask by remember { mutableStateOf<ImageBitmap?>(null) }
         var liveLayer by remember { mutableStateOf<ImageBitmap?>(null) }
         val liveOn = controller.mode == CaptureMode.PORTRAIT && !controller.isRecording
-        LaunchedEffect(liveOn, controller.portraitStyle, controller.portraitBlurStrength, controller.cameraEpoch) {
+        LaunchedEffect(liveOn, if (gpuBlur) null else controller.portraitStyle, if (gpuBlur) null else controller.portraitBlurStrength, controller.cameraEpoch) {
             if (!liveOn) {
+                liveImage = null
+                liveMask = null
                 liveLayer = null
                 PortraitLive.release()
                 return@LaunchedEffect
@@ -496,29 +504,89 @@ private fun Viewfinder(controller: CameraController, showControls: Boolean, stri
                 while (isActive) {
                     val view = textureRef
                     val frame = if (view != null && view.isAvailable && view.width > 0 && view.height > 0) {
-                        val lw = 288
+                        val lw = if (gpuBlur) 240 else 288
                         val lh = (lw * view.height.toFloat() / view.width).toInt().coerceAtLeast(64)
                         try { view.getBitmap(lw, lh) } catch (e: Exception) { null }
                     } else null
-                    if (frame != null) {
+                    if (frame == null) {
+                        delay(30)
+                        continue
+                    }
+                    if (gpuBlur) {
+                        val live = withContext(Dispatchers.Default) { PortraitLive.mask(frame) }
+                        liveImage = live?.frame?.asImageBitmap()
+                        liveMask = live?.mask?.asImageBitmap()
+                    } else {
                         val layer = withContext(Dispatchers.Default) { PortraitLive.render(frame, strength, style) }
                         liveLayer = layer?.asImageBitmap()
+                        delay(40)
                     }
-                    delay(40)
+                    kotlinx.coroutines.yield()
                 }
             } finally {
                 PortraitLive.release()
             }
         }
-        liveLayer?.let { layer ->
-            if (liveOn) {
-                Image(
-                    bitmap = layer,
-                    contentDescription = null,
-                    contentScale = ContentScale.FillBounds,
-                    filterQuality = androidx.compose.ui.graphics.FilterQuality.High,
-                    modifier = Modifier.fillMaxSize(),
-                )
+        if (liveOn) {
+            val image = liveImage
+            val mask = liveMask
+            if (gpuBlur && image != null && mask != null) {
+                val look = remember(controller.portraitStyle) { PortraitEffect.liveStyle(controller.portraitStyle) }
+                val sigma = (look.radius / 0.010f * (4f + 14f * controller.portraitBlurStrength)).dp
+                val tint = remember(look) {
+                    if (!look.mono && look.gain == 1f) null else {
+                        val g = look.gain
+                        val m = if (look.mono) {
+                            floatArrayOf(
+                                0.299f * g, 0.587f * g, 0.114f * g, 0f, 0f,
+                                0.299f * g, 0.587f * g, 0.114f * g, 0f, 0f,
+                                0.299f * g, 0.587f * g, 0.114f * g, 0f, 0f,
+                                0f, 0f, 0f, 1f, 0f,
+                            )
+                        } else {
+                            floatArrayOf(
+                                g, 0f, 0f, 0f, 0f,
+                                0f, g, 0f, 0f, 0f,
+                                0f, 0f, g, 0f, 0f,
+                                0f, 0f, 0f, 1f, 0f,
+                            )
+                        }
+                        androidx.compose.ui.graphics.ColorFilter.colorMatrix(androidx.compose.ui.graphics.ColorMatrix(m))
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
+                        .drawWithContent {
+                            drawContent()
+                            // Keep the blurred copy only where the mask says background.
+                            drawImage(
+                                image = mask,
+                                dstSize = androidx.compose.ui.unit.IntSize(size.width.roundToInt(), size.height.roundToInt()),
+                                blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
+                                filterQuality = androidx.compose.ui.graphics.FilterQuality.High,
+                            )
+                        },
+                ) {
+                    Image(
+                        bitmap = image,
+                        contentDescription = null,
+                        contentScale = ContentScale.FillBounds,
+                        colorFilter = tint,
+                        modifier = Modifier.fillMaxSize().blur(sigma, androidx.compose.ui.draw.BlurredEdgeTreatment.Rectangle),
+                    )
+                }
+            } else if (!gpuBlur) {
+                liveLayer?.let { layer ->
+                    Image(
+                        bitmap = layer,
+                        contentDescription = null,
+                        contentScale = ContentScale.FillBounds,
+                        filterQuality = androidx.compose.ui.graphics.FilterQuality.High,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
             }
         }
 

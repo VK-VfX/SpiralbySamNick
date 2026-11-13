@@ -214,6 +214,10 @@ Not built yet (needs on-device testing): a YUV/RAW burst with zero-shutter-lag, 
 - Zoom quality: from 2x up, a shot is a 5-frame merged burst with minimal in-camera noise reduction (Settings: Zoom enhance), followed by a wider-radius unsharp mask that grows with the zoom level. Each photo's description now records the zoom and which physical lens captured it, so a telephoto shot can be told from a cropped main-lens one.
 - Predictive-back callback enabled for Android 13+.
 
+## v2.5.4
+- **Smooth live Portrait preview.** On Android 12+ the blur is now done by the phone's graphics chip instead of the processor; the processor only finds the subject (about 240 pixels wide, resampled smoothly so fingertips are no longer jagged). The viewfinder keeps its full frame rate and the lag is mostly gone. Older phones keep the processor blur.
+- **No more white blobs.** Bokeh used to swell every bright area before blurring, so a sheet of paper turned into a white smear. Now only small bright points (lights, reflections) swell into soft discs; big bright surfaces are left alone. This applies to the saved photo too.
+
 ## v2.5.3
 - **Portrait without a downloaded AI model.** The 63 MB depth model is gone (the app is smaller and nothing is downloaded). Depth now comes from what the phone can measure itself:
   - **Subject outline plus distance ramp:** the person model (or the in-focus area for objects) is snapped to the picture's real edges and the blur deepens smoothly with distance from it.

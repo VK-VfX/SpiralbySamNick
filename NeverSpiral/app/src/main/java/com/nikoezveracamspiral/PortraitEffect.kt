@@ -83,6 +83,30 @@ object PortraitEffect {
         return true
     }
 
+    /** How Portrait's live viewfinder dresses the blurred background for a style. */
+    internal class LiveStyle(val radius: Float, val gain: Float, val mono: Boolean)
+
+    internal fun liveStyle(style: PortraitStyle): LiveStyle {
+        val p = paramsFor(style)
+        return LiveStyle(p.radius, p.backgroundGain, p.mono)
+    }
+
+    /**
+     * Per-pixel gain that makes small bright points (lights, reflections) swell before they are
+     * blurred into soft discs, while big bright surfaces such as a sheet of paper are left alone
+     * (boosting those is what turned them into white blobs). Null when the style has no bloom.
+     */
+    private fun bloomGain(lum: FloatArray, ww: Int, wh: Int, radius: Float, bloom: Boolean): FloatArray? {
+        if (!bloom) return null
+        val local = lum.copyOf()
+        val tmp = FloatArray(lum.size)
+        boxBlurF(local, tmp, ww, wh, max(3, (radius * 1.5f).roundToInt()))
+        return FloatArray(lum.size) { i ->
+            val excess = lum[i] - local[i]
+            if (lum[i] > 0.7f && excess > 0.08f) 1f + 0.9f * ((excess - 0.08f) / 0.3f).coerceIn(0f, 1f) else 1f
+        }
+    }
+
     /**
      * The live viewfinder version: the blurred background for [style] as an ARGB picture whose alpha
      * says how much of it to lay over the live view (0 over the subject). [segmentation] is the
@@ -264,6 +288,7 @@ object PortraitEffect {
         // Snap the grown region to the picture's own edges, and keep the subject's own shape too.
         val regionMask = refine(lum, grown, ww, wh)
         val keep = FloatArray(n) { i -> max(regionMask[i], subject?.get(i) ?: 0f) }
+        val bloom = bloomGain(lum, ww, wh, maxRadius, params.bloom)
 
         // Blur size per pixel (0..1), and whether it is in front of or behind the focus plane.
         // Behind the subject there is always a clear minimum blur (so nothing back there stays
@@ -333,13 +358,10 @@ object PortraitEffect {
                     var r = ((p shr 16) and 0xFF).toFloat()
                     var g = ((p shr 8) and 0xFF).toFloat()
                     var b = (p and 0xFF).toFloat()
-                    if (params.bloom && step > 0) {
+                    if (bloom != null && step > 0) {
                         // Bright lights swell before they blur, so they melt into soft discs.
-                        val l = (0.299f * r + 0.587f * g + 0.114f * b) / 255f
-                        if (l > 0.78f) {
-                            val boost = 1f + 1.1f * (l - 0.78f) / 0.22f
-                            r *= boost; g *= boost; b *= boost
-                        }
+                        val boost = bloom[i]
+                        r = min(255f, r * boost); g = min(255f, g * boost); b = min(255f, b * boost)
                     }
                     layerR[i] = r * wgt
                     layerG[i] = g * wgt
@@ -431,8 +453,9 @@ object PortraitEffect {
         val reach = 0.16f * max(ww, wh)
         val depth = FloatArray(n) { i -> smooth((distance[i] / reach).coerceIn(0f, 1f)) }
         val background = FloatArray(n) { i -> 1f - mask[i] }
+        val bloom = bloomGain(lum, ww, wh, maxRadius, params.bloom)
         val levels = Array(3) { k ->
-            blurredLevel(work, background, ww, wh, (maxRadius * (k + 1) / 3f).roundToInt().coerceAtLeast(1), params.bloom)
+            blurredLevel(work, background, ww, wh, (maxRadius * (k + 1) / 3f).roundToInt().coerceAtLeast(1), bloom)
         }
         val backdrop = IntArray(n)
         parallelFor(wh) { y ->
@@ -548,7 +571,7 @@ object PortraitEffect {
      * much fine detail each area has, favouring the middle of the frame and filled in so a plain
      * surface inside the subject isn't left out. Null when nothing stands out.
      */
-    private fun focusMask(lum: FloatArray, ww: Int, wh: Int): FloatArray? {
+    internal fun focusMask(lum: FloatArray, ww: Int, wh: Int): FloatArray? {
         val n = ww * wh
         val tmp = FloatArray(n)
         val energy = FloatArray(n)
@@ -600,7 +623,7 @@ object PortraitEffect {
     }
 
     /** Snaps the rough mask to the picture's own edges with a guided filter, leaning outward. */
-    private fun refine(lum: FloatArray, rough: FloatArray, ww: Int, wh: Int): FloatArray {
+    internal fun refine(lum: FloatArray, rough: FloatArray, ww: Int, wh: Int): FloatArray {
         val radius = max(3, max(ww, wh) / 150)
         val q = guidedFilter(lum, rough, ww, wh, radius, 0.0006f)
         return FloatArray(q.size) { i -> smooth(((q[i] - 0.16f) / 0.46f).coerceIn(0f, 1f)) }
@@ -673,7 +696,7 @@ object PortraitEffect {
      * (which is what causes a glow around the subject). Where there is no background nearby the
      * original colour is kept.
      */
-    private fun blurredLevel(work: IntArray, background: FloatArray, ww: Int, wh: Int, radius: Int, bloom: Boolean): IntArray {
+    private fun blurredLevel(work: IntArray, background: FloatArray, ww: Int, wh: Int, radius: Int, bloom: FloatArray?): IntArray {
         val n = ww * wh
         val red = FloatArray(n)
         val green = FloatArray(n)
@@ -684,13 +707,10 @@ object PortraitEffect {
             var r = ((p shr 16) and 0xFF).toFloat()
             var g = ((p shr 8) and 0xFF).toFloat()
             var b = (p and 0xFF).toFloat()
-            if (bloom) {
+            if (bloom != null) {
                 // Bright points swell a little before blurring, so they melt into soft discs.
-                val l = (0.299f * r + 0.587f * g + 0.114f * b) / 255f
-                if (l > 0.78f) {
-                    val boost = 1f + 1.1f * (l - 0.78f) / 0.22f
-                    r *= boost; g *= boost; b *= boost
-                }
+                val boost = bloom[i]
+                r = min(255f, r * boost); g = min(255f, g * boost); b = min(255f, b * boost)
             }
             val wgt = background[i]
             red[i] = r * wgt
