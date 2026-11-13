@@ -71,7 +71,7 @@ object PortraitEffect {
             val p = work[i]
             (0.299f * ((p shr 16) and 0xFF) + 0.587f * ((p shr 8) and 0xFF) + 0.114f * (p and 0xFF)) / 255f
         }
-        val strengthFactor = 0.3f + strength.coerceIn(0f, 1f)
+        val strengthFactor = 0.2f + 0.8f * strength.coerceIn(0f, 1f)
         val maxRadius = (params.radius * longSide * strengthFactor * (ww.toFloat() / w)).coerceAtLeast(2f)
 
         // Preferred: a real depth map from the AI model. Otherwise the subject-outline blur.
@@ -136,17 +136,64 @@ object PortraitEffect {
         }
         val focus = (bin + 0.5f) / 255f
 
+        // The whole subject, not just the part the person model sees: grow outward from the focus
+        // seed across connected pixels at about the same depth (fingers, a held object, a collar),
+        // the way Google's portrait keeps everything attached to the subject crisp. Anything not
+        // connected (a pillow beside the hand) stays background even at a similar depth.
+        val band = 0.11f
+        val stepLimit = 0.05f
+        val region = BooleanArray(n)
+        val queue = IntArray(n)
+        var head = 0
+        var tail = 0
+        fun seed(i: Int) {
+            if (!region[i] && kotlin.math.abs(depth[i] - focus) < band) {
+                region[i] = true
+                queue[tail++] = i
+            }
+        }
+        if (subject != null) {
+            for (i in 0 until n) if (subject[i] > 0.6f) seed(i)
+        }
+        if (tail == 0) {
+            for (y in (wh * 0.42f).toInt() until (wh * 0.58f).toInt()) {
+                for (x in (ww * 0.42f).toInt() until (ww * 0.58f).toInt()) seed(y * ww + x)
+            }
+        }
+        while (head < tail) {
+            val i = queue[head++]
+            val x = i % ww
+            val y = i / ww
+            fun grow(j: Int) {
+                if (!region[j] && kotlin.math.abs(depth[j] - focus) < band && kotlin.math.abs(depth[j] - depth[i]) < stepLimit) {
+                    region[j] = true
+                    queue[tail++] = j
+                }
+            }
+            if (x > 0) grow(i - 1)
+            if (x < ww - 1) grow(i + 1)
+            if (y > 0) grow(i - ww)
+            if (y < wh - 1) grow(i + ww)
+        }
+        val grown = FloatArray(n) { if (region[it]) 1f else 0f }
+        // Snap the grown region to the picture's own edges, and keep the person model's shape too.
+        val regionMask = refine(lum, grown, ww, wh)
+        val keep = FloatArray(n) { i -> max(regionMask[i], subject?.get(i) ?: 0f) }
+
         // Blur size per pixel (0..1), and whether it is in front of or behind the focus plane.
+        // Behind the subject there is always a clear minimum blur (so nothing back there stays
+        // crisp) that deepens with distance, as Apple's portrait does; in front of the subject the
+        // blur is much lighter, as Google's is.
         val coc = FloatArray(n)
         val inFront = BooleanArray(n)
         var sharp = 0
         for (i in 0 until n) {
             val s = depth[i] - focus
-            var c = smooth(((kotlin.math.abs(s) - 0.06f) / 0.6f).coerceIn(0f, 1f))
-            if (subject != null) c = max(c, 0.12f) * (1f - subject[i])
-            coc[i] = c
-            inFront[i] = s > 0f && (subject == null || subject[i] < 0.5f)
-            if (c < 0.05f) sharp++
+            val ramp = smooth(((kotlin.math.abs(s) - 0.04f) / 0.5f).coerceIn(0f, 1f))
+            val c = if (s > 0f) 0.3f * ramp else 0.38f + 0.62f * ramp
+            coc[i] = c * (1f - keep[i])
+            inFront[i] = s > 0f && keep[i] < 0.5f
+            if (coc[i] < 0.05f) sharp++
         }
         val sharpShare = sharp.toFloat() / n
         if (sharpShare < 0.03f || sharpShare > 0.97f) return null
