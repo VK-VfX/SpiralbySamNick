@@ -64,7 +64,7 @@ object PortraitEffect {
             }
         }
         val radius = (2 + (8 * strength).toInt())
-        repeat(3) { boxBlur(smallPixels, bw, bh, radius) }
+        repeat(3) { ImageOps.boxBlur(smallPixels, bw, bh, radius) }
         val blurredSmall = Bitmap.createBitmap(smallPixels, bw, bh, Bitmap.Config.ARGB_8888)
         val blurredFull = Bitmap.createScaledBitmap(blurredSmall, w, h, true)
         blurredSmall.recycle()
@@ -99,44 +99,5 @@ object PortraitEffect {
             }
         }
         return true
-    }
-
-    private fun boxBlur(px: IntArray, w: Int, h: Int, r: Int) {
-        val tmp = IntArray(px.size)
-        val div = 2 * r + 1
-        for (y in 0 until h) {
-            var sr = 0
-            var sg = 0
-            var sb = 0
-            for (i in -r..r) {
-                val p = px[y * w + i.coerceIn(0, w - 1)]
-                sr += (p shr 16) and 0xFF; sg += (p shr 8) and 0xFF; sb += p and 0xFF
-            }
-            for (x in 0 until w) {
-                tmp[y * w + x] = (0xFF shl 24) or ((sr / div) shl 16) or ((sg / div) shl 8) or (sb / div)
-                val add = px[y * w + (x + r + 1).coerceIn(0, w - 1)]
-                val sub = px[y * w + (x - r).coerceIn(0, w - 1)]
-                sr += ((add shr 16) and 0xFF) - ((sub shr 16) and 0xFF)
-                sg += ((add shr 8) and 0xFF) - ((sub shr 8) and 0xFF)
-                sb += (add and 0xFF) - (sub and 0xFF)
-            }
-        }
-        for (x in 0 until w) {
-            var sr = 0
-            var sg = 0
-            var sb = 0
-            for (i in -r..r) {
-                val p = tmp[i.coerceIn(0, h - 1) * w + x]
-                sr += (p shr 16) and 0xFF; sg += (p shr 8) and 0xFF; sb += p and 0xFF
-            }
-            for (y in 0 until h) {
-                px[y * w + x] = (0xFF shl 24) or ((sr / div) shl 16) or ((sg / div) shl 8) or (sb / div)
-                val add = tmp[(y + r + 1).coerceIn(0, h - 1) * w + x]
-                val sub = tmp[(y - r).coerceIn(0, h - 1) * w + x]
-                sr += ((add shr 16) and 0xFF) - ((sub shr 16) and 0xFF)
-                sg += ((add shr 8) and 0xFF) - ((sub shr 8) and 0xFF)
-                sb += (add and 0xFF) - (sub and 0xFF)
-            }
-        }
     }
 }

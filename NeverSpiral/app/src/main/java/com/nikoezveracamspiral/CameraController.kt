@@ -81,6 +81,8 @@ class CameraController(private val context: Context) {
     var nightSeconds by mutableIntStateOf(3)
     var videoConfig by mutableStateOf(VideoConfig())
     var histogramEnabled by mutableStateOf(false)
+    /** Zoomed shots (2x and up) are taken as a short burst and merged for detail. */
+    var zoomEnhance by mutableStateOf(true)
     var qrEnabled by mutableStateOf(true)
     /** Bumped when a saved photo is rewritten in place (instant save, then the processed result),
      * so the thumbnail reloads even though its Uri is unchanged. */
@@ -140,11 +142,17 @@ class CameraController(private val context: Context) {
      * transform when the view is resized. */
     val previewSize: Size? get() = currentPreviewSize
 
-    private val controllerScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val backgroundErrors = kotlinx.coroutines.CoroutineExceptionHandler { _, error ->
+        // A failure on a background coroutine is reported, never allowed to take the app down.
+        Log.e(TAG, "Background task failed", error)
+        lastError = "Something went wrong in the background: ${error.message ?: error::class.simpleName}"
+    }
+
+    private val controllerScope = CoroutineScope(SupervisorJob() + Dispatchers.Default + backgroundErrors)
 
     /** Post-capture work runs one job at a time on its own thread: bounded memory, and the
      * shutter never waits for it. */
-    private val processingScope = CoroutineScope(SupervisorJob() + Executors.newSingleThreadExecutor().asCoroutineDispatcher())
+    private val processingScope = CoroutineScope(SupervisorJob() + Executors.newSingleThreadExecutor().asCoroutineDispatcher() + backgroundErrors)
     private var recordingTimerJob: Job? = null
 
     /** Whether the on-screen preview should be flipped: the front camera, when selfies are set to
@@ -217,25 +225,29 @@ class CameraController(private val context: Context) {
         } catch (e: Exception) {
             Log.w(TAG, "Couldn't load saved settings", e)
         }
-        controllerScope.launch {
-            snapshotFlow { settingsSnapshot() }.collectLatest { snapshot ->
-                delay(400)
-                saveSettings(snapshot)
-            }
+    }
+
+    /** Saves settings a moment after each change. Runs from the viewfinder's own coroutine (the
+     * main thread, once the controller is fully built): starting this from a background thread
+     * inside the constructor raced the state objects being created and crashed the app. */
+    suspend fun keepSettingsSaved() {
+        snapshotFlow { settingsSnapshot() }.collectLatest { snapshot ->
+            delay(400)
+            saveSettings(snapshot)
         }
     }
 
     private data class Persisted(
         val timer: Int, val grid: Int, val ratio: Int, val quality: Int, val mirror: Boolean,
         val hdr: Boolean, val hdrStrength: Int, val night: Int, val blur: Float, val raw: Boolean,
-        val histogram: Boolean, val qr: Boolean, val videoRes: Int, val videoFps: Int, val hevc: Boolean,
+        val histogram: Boolean, val qr: Boolean, val zoomEnhance: Boolean, val videoRes: Int, val videoFps: Int, val hevc: Boolean,
         val look: Look,
     )
 
     private fun settingsSnapshot() = Persisted(
         timerSeconds, gridStyle.ordinal, aspectRatio.ordinal, jpegQuality, mirrorSelfies,
         hdrEnabled, hdrStrength, nightSeconds, portraitBlurStrength, isRawEnabled,
-        histogramEnabled, qrEnabled, videoConfig.res.ordinal, videoConfig.fps, videoConfig.hevc, look,
+        histogramEnabled, qrEnabled, zoomEnhance, videoConfig.res.ordinal, videoConfig.fps, videoConfig.hevc, look,
     )
 
     private fun saveSettings(s: Persisted) {
@@ -244,7 +256,7 @@ class CameraController(private val context: Context) {
             .putInt("timer", s.timer).putInt("grid", s.grid).putInt("ratio", s.ratio).putInt("quality", s.quality)
             .putBoolean("mirror", s.mirror).putBoolean("hdr", s.hdr).putInt("hdrStrength", s.hdrStrength)
             .putInt("night", s.night).putFloat("blur", s.blur).putBoolean("raw", s.raw)
-            .putBoolean("histogram", s.histogram).putBoolean("qr", s.qr)
+            .putBoolean("histogram", s.histogram).putBoolean("qr", s.qr).putBoolean("zoomEnhance", s.zoomEnhance)
             .putInt("videoRes", s.videoRes).putInt("videoFps", s.videoFps).putBoolean("hevc", s.hevc)
             .putString("filter", l.filter.name).putString("lut", l.lut?.name ?: "").putFloat("strength", l.strength)
             .putFloat("exposure", l.exposure).putFloat("contrast", l.contrast).putFloat("saturation", l.saturation)
@@ -268,6 +280,7 @@ class CameraController(private val context: Context) {
         isRawEnabled = p.getBoolean("raw", false)
         histogramEnabled = p.getBoolean("histogram", false)
         qrEnabled = p.getBoolean("qr", true)
+        zoomEnhance = p.getBoolean("zoomEnhance", true)
         videoConfig = VideoConfig(
             VideoRes.entries.getOrElse(p.getInt("videoRes", 1)) { VideoRes.P1080 },
             p.getInt("videoFps", 30),
@@ -542,6 +555,11 @@ class CameraController(private val context: Context) {
                     exposures = List(4) { engine.bracketExposure(base, underEv) }
                     tone = PhotoProcessor.ToneMode.HdrPlus(strength, underEv)
                 }
+                zoomEnhance && zoomRatio >= 2f && !manualExposure && !flashActive && !mode.isVideo -> {
+                    // Zoomed in: several normal frames merged for detail instead of one soft one.
+                    exposures = List(5) { null }
+                    tone = PhotoProcessor.ToneMode.Stack
+                }
                 else -> {
                     exposures = listOf(null)
                     tone = PhotoProcessor.ToneMode.None
@@ -578,7 +596,8 @@ class CameraController(private val context: Context) {
                 aperture = first?.get(android.hardware.camera2.CaptureResult.LENS_APERTURE),
                 focalLengthMm = first?.get(android.hardware.camera2.CaptureResult.LENS_FOCAL_LENGTH),
                 software = "Niko's Cam ${UpdateManager.installedVersionName(context)}",
-                description = "Quality ${jpegQuality}; $summary; ${look.lut?.name ?: look.filter.label}",
+                description = "Quality ${jpegQuality}; $summary; ${look.lut?.name ?: look.filter.label}; " +
+                    "zoom ${String.format(java.util.Locale.US, "%.1f", zoomRatio)}x; lens ${first?.get(android.hardware.camera2.CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID) ?: "-"}",
             )
             val ratioNow = aspectRatio
             val mirrorNow = mirrorSelfies && engine.lensFacing == CameraCharacteristics.LENS_FACING_FRONT
@@ -592,7 +611,7 @@ class CameraController(private val context: Context) {
                 lastCaptureIsVideo = false
                 captureRevision += 1
             }
-            val needsProcessing = tone != PhotoProcessor.ToneMode.None || !look.isNeutral || mirrorNow || blurNow > 0f ||
+            val needsProcessing = tone != PhotoProcessor.ToneMode.None || !look.isNeutral || zoomRatio >= 2f || mirrorNow || blurNow > 0f ||
                 !(ratioNow == AspectOption.R4_3 && sensorIsFourThree)
             if (instant == null || !needsProcessing) return
             val job = PhotoJob(
@@ -607,6 +626,7 @@ class CameraController(private val context: Context) {
                 stamp = stamp,
                 meta = meta,
                 noiseScale = sqrt((meta.iso ?: 400) / 400f).coerceIn(0.8f, 2.2f),
+                zoomRatio = zoomRatio,
             )
             adjustPending(1)
             processingScope.launch { runPhotoJob(job) }
@@ -635,13 +655,14 @@ class CameraController(private val context: Context) {
         val stamp: String,
         val meta: PhotoMeta,
         val noiseScale: Float,
+        val zoomRatio: Float,
     )
 
     private suspend fun runPhotoJob(job: PhotoJob) {
         try {
             // On any failure the camera's own JPEG, already saved, simply stays as the photo.
             val jpeg = try {
-                PhotoProcessor.processShots(job.frames, job.tone, job.look, job.ratio, job.mirror, job.quality, job.portraitBlur, job.noiseScale)
+                PhotoProcessor.processShots(job.frames, job.tone, job.look, job.ratio, job.mirror, job.quality, job.portraitBlur, job.noiseScale, job.zoomRatio)
             } catch (e: Exception) {
                 Log.e(TAG, "Processing failed; keeping the camera's own JPEG", e)
                 null

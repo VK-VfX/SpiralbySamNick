@@ -794,7 +794,12 @@ class CameraEngine(private val context: Context) {
      * advertises support, plus near-lossless JPEG encoding. */
     private fun applyStillQuality(builder: CaptureRequest.Builder, chars: CameraCharacteristics) {
         fun supports(key: CameraCharacteristics.Key<IntArray>, mode: Int) = chars.get(key)?.contains(mode) == true
-        if (supports(CameraCharacteristics.NOISE_REDUCTION_AVAILABLE_NOISE_REDUCTION_MODES, CaptureRequest.NOISE_REDUCTION_MODE_HIGH_QUALITY)) {
+        // Zoomed shots keep more detail with minimal in-camera noise reduction (the frames are
+        // merged afterwards, which cleans the noise without smearing the detail).
+        val nrModes = chars.get(CameraCharacteristics.NOISE_REDUCTION_AVAILABLE_NOISE_REDUCTION_MODES)
+        if (zoomRatio >= 2f && nrModes?.contains(CaptureRequest.NOISE_REDUCTION_MODE_MINIMAL) == true) {
+            builder.set(CaptureRequest.NOISE_REDUCTION_MODE, CaptureRequest.NOISE_REDUCTION_MODE_MINIMAL)
+        } else if (supports(CameraCharacteristics.NOISE_REDUCTION_AVAILABLE_NOISE_REDUCTION_MODES, CaptureRequest.NOISE_REDUCTION_MODE_HIGH_QUALITY)) {
             builder.set(CaptureRequest.NOISE_REDUCTION_MODE, CaptureRequest.NOISE_REDUCTION_MODE_HIGH_QUALITY)
         }
         if (supports(CameraCharacteristics.EDGE_AVAILABLE_EDGE_MODES, CaptureRequest.EDGE_MODE_HIGH_QUALITY)) {

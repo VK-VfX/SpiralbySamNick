@@ -250,6 +250,7 @@ private fun CameraContent(controller: CameraController, deviceRotation: Int, onO
     LaunchedEffect(Unit) {
         if (controller.autoCheckUpdates) controller.checkForUpdates(silent = true)
     }
+    LaunchedEffect(Unit) { controller.keepSettingsSaved() }
 
     BoxWithConstraints(
         modifier = Modifier
@@ -474,9 +475,6 @@ private fun Viewfinder(controller: CameraController, showControls: Boolean, stri
             controller.videoProgress?.let { InfoPill("Applying filter to video: ${(it * 100).toInt()}%") }
             if (controller.holdStillMs > 0) {
                 HoldStillPill(controller.holdStillMs, controller.shutterTick)
-            }
-            if (controller.pendingProcessing > 0) {
-                InfoPill("Processing ${controller.pendingProcessing}...")
             }
             (controller.update as? UpdateStatus.Available)?.let { available ->
                 InfoPill("Update ${available.info.versionName} available: tap to open", onClick = onOpenSettings)
@@ -1374,6 +1372,12 @@ private fun SettingsSheet(controller: CameraController) {
                 selected = controller.videoConfig.hevc,
             ) { controller.videoConfig = controller.videoConfig.copy(hevc = it) }
         }
+
+        SheetSection("Zoom enhance (multi-frame)", if (controller.zoomEnhance) "On" else "Off")
+        SegmentRow(
+            options = listOf(true to "On", false to "Off").map { Triple(it.first, it.second, null as ImageVector?) },
+            selected = controller.zoomEnhance,
+        ) { controller.zoomEnhance = it }
 
         SheetSection("Histogram", if (controller.histogramEnabled) "On" else "Off")
         SegmentRow(

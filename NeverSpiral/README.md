@@ -206,3 +206,10 @@ Not built yet (needs on-device testing): a YUV/RAW burst with zero-shutter-lag, 
 - Fixed: Night mode washed bright scenes out to white. The viewfinder boost is now +1 EV (not the camera's maximum), the capture is based on the scene's real exposure with the boost removed, and each frame keeps the auto exposure's total light but trades ISO for a longer shutter, so brightness stays right and noise drops. Dark scenes are lifted by the tone curve.
 - Fixed: zoom chips read 4.5 / 9 / 18 on a Pixel 9 Pro XL. The same lens appeared under several ids and the telephoto ratio was not rounded the way phones label it; lenses are now de-duplicated by focal length and a 4.5 ratio shows as 5 (with 10 as its double).
 - Fixed: viewfinder snapshots (filter thumbnails, histogram, QR scanner, the flying capture) failed with "Unable to draw content from GPU" whenever a filter was active. The layer paint is lifted for the instant of the read.
+
+## v2.3.0
+
+- Fixed a launch crash from the settings saver (a coroutine started on a background thread inside the controller's constructor read state objects that did not exist yet). Saving now runs from the viewfinder's own coroutine, and background coroutines report errors instead of crashing the app.
+- Removed the "Processing N..." pill; the thumbnail's orbiting ring is the only processing cue.
+- Zoom quality: from 2x up, a shot is a 5-frame merged burst with minimal in-camera noise reduction (Settings: Zoom enhance), followed by a wider-radius unsharp mask that grows with the zoom level. Each photo's description now records the zoom and which physical lens captured it, so a telephoto shot can be told from a cropped main-lens one.
+- Predictive-back callback enabled for Android 13+.

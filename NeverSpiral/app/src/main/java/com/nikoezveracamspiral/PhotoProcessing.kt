@@ -417,6 +417,8 @@ object PhotoProcessor {
         /** Underexposed burst (by [underEv] stops) merged and tone-mapped; [strength] is 0..1. */
         data class HdrPlus(val strength: Float, val underEv: Float) : ToneMode
         data object Night : ToneMode
+        /** Frames at normal exposure aligned and averaged (less noise, more detail), no tone change. */
+        data object Stack : ToneMode
     }
 
     private fun loadFrame(bytes: ByteArray, ratio: AspectOption, mirror: Boolean, maxPixels: Int): DecodedFrame? {
@@ -443,6 +445,7 @@ object PhotoProcessor {
         quality: Int,
         portraitBlur: Float,
         noiseScale: Float = 1f,
+        zoomRatio: Float = 1f,
     ): ByteArray {
         val refIndex = frames.size / 2
         val maxPixels = if (frames.size > 1) burstMaxPixels else singleMaxPixels
@@ -454,7 +457,7 @@ object PhotoProcessor {
                     when (tone) {
                         is ToneMode.HdrPlus -> ToneMap.hdrPlus(tone.strength, tone.underEv)
                         ToneMode.Night -> ToneMap.night(refMean)
-                        ToneMode.None -> IntArray(1024) { (it / 4).coerceIn(0, 255) }
+                        ToneMode.None, ToneMode.Stack -> IntArray(1024) { (it / 4).coerceIn(0, 255) }
                     }
                 },
                 noiseScale = noiseScale,
@@ -475,6 +478,12 @@ object PhotoProcessor {
         }
         LookProcessor.apply(pixels, w, h, look)
         LookProcessor.sharpen(pixels, w, h, 0.2f + look.sharpness * 0.8f)
+        if (zoomRatio >= 2f) {
+            // Digital zoom leaves a soft, upscaled image: a wider-radius unsharp mask brings the
+            // detail back, more of it the further in the shot was zoomed.
+            val strength = (0.35f * (kotlin.math.ln(zoomRatio) / kotlin.math.ln(2f))).coerceAtMost(1.1f)
+            ImageOps.unsharp(pixels, w, h, radius = 2, amount = strength, threshold = 3)
+        }
         return encode(pixels, w, h, quality)
     }
 
