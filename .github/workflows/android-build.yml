@@ -31,9 +31,32 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+          cache: gradle
 
+      # v3's default package list still requested the legacy "tools" meta-package, which Google
+      # has since removed from the SDK repository entirely (the action now only documents this
+      # as a known, no-longer-requestable package) -- v3's setup step therefore started failing
+      # outright with "Failed to find package 'tools'" on every run, unrelated to anything in this
+      # repo. v4 defaults to just platform-tools, so the platform/build-tools this project's
+      # compileSdk 34 needs are requested explicitly instead of relying on legacy defaults.
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          packages: "platform-tools platforms;android-34 build-tools;34.0.0"
+
+      # Optional private release key. Add these repository secrets to sign releases with it;
+      # without them releases are signed with the committed debug key (see app/build.gradle.kts).
+      - name: Prepare release signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            echo "KEYSTORE_FILE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+            echo "KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"
+            echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> "$GITHUB_ENV"
+            echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> "$GITHUB_ENV"
+          fi
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
@@ -43,6 +66,16 @@ jobs:
 
       - name: Build debug APK
         run: ./gradlew assembleDebug --stacktrace
+
+      - name: Build release APK
+        run: ./gradlew assembleRelease --stacktrace
+
+      - name: Upload release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: niko-cam-release-apk
+          path: NeverSpiral/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
@@ -67,23 +100,35 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.appversion.outputs.versionName }}
-          name: "Sam's Music Viz v${{ steps.appversion.outputs.versionName }}"
+          name: "Niko's Cam v${{ steps.appversion.outputs.versionName }}"
           body: |
             Automated debug build from commit ${{ github.sha }} on branch `${{ github.ref_name }}`.
           generate_release_notes: true
-          files: NeverSpiral/app/build/outputs/apk/debug/app-debug.apk
+          files: |
+            NeverSpiral/app/build/outputs/apk/release/app-release.apk
+            NeverSpiral/app/build/outputs/apk/debug/app-debug.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publish APK to build-artifacts branch
+      - name: Publish APKs to build-artifacts branch
         working-directory: ${{ github.workspace }}
         run: |
           cp NeverSpiral/app/build/outputs/apk/debug/app-debug.apk /tmp/never-spiral-debug.apk
+          cp NeverSpiral/app/build/outputs/apk/release/app-release.apk /tmp/niko-cam-release.apk
+          # version.json is what the app's over-the-air updater reads; it carries the release
+          # APK's SHA-256 so the download can be verified before it is handed to the installer.
+          VERSION_CODE=$(grep -oP 'versionCode\s*=\s*\K[0-9]+' NeverSpiral/app/build.gradle.kts)
+          VERSION_NAME="${{ steps.appversion.outputs.versionName }}"
+          SHA=$(sha256sum /tmp/niko-cam-release.apk | cut -d' ' -f1)
+          BASE="https://raw.githubusercontent.com/${{ github.repository }}/never-spiral-apk-builds"
+          printf '{"versionCode": %s, "versionName": "%s", "apkUrl": "%s/niko-cam-release.apk", "sha256": "%s", "debugApkUrl": "%s/never-spiral-debug.apk", "notes": ""}\n' "$VERSION_CODE" "$VERSION_NAME" "$BASE" "$SHA" "$BASE" > /tmp/version.json
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout --orphan never-spiral-apk-builds
           git rm -rf . > /dev/null 2>&1 || true
           cp /tmp/never-spiral-debug.apk ./never-spiral-debug.apk
-          git add never-spiral-debug.apk
-          git commit -m "Publish built APK from ${{ github.sha }}"
+          cp /tmp/niko-cam-release.apk ./niko-cam-release.apk
+          cp /tmp/version.json ./version.json
+          git add never-spiral-debug.apk niko-cam-release.apk version.json
+          git commit -m "Publish built APKs from ${{ github.sha }}"
           git push --force origin HEAD:never-spiral-apk-builds

@@ -1,304 +1,344 @@
-# Sam's Music Viz
+# Never Spiral
 
-Ten audio-reactive visualizer modes, styled as a modern dark mastering-suite instrument panel --
-flat near-black panels, thin hairline dividers, a cool desaturated accent, and red reserved strictly
-for clip/overload warnings, the way studio metering looks. All driven by whatever music is playing
-on the device: Spotify, YouTube Music, or anything else.
+A camera app built on Android's `android.hardware.camera2` API directly (not CameraX), because
+Pro mode's manual controls and true RAW capture both need `CaptureRequest`-level access CameraX's
+stable public API doesn't expose. Distributed as a sideloaded APK via GitHub Releases, the same
+OTA pattern the author's other apps use -- not published on the Play Store.
 
-## Navigation
+## What it does (v1.1.0)
 
-- A persistent, horizontally-scrollable strip of mode chips below the visualizer is the primary
-  way to switch -- tap the specific mode you want directly, rather than repeatedly tapping the
-  canvas to cycle through them one at a time. The strip auto-scrolls to keep the current mode's
-  chip in view.
-- **Swipe** left or right on the visualization to move either direction, for quick cycling without
-  looking down at the strip.
-- Eight modes (VU Meter, Spectrum, Goniometer, Loudness, Graphic EQ, Rainbow Spectrum, Neon Cyan
-  Pulse, Circular Spectrum) have their own tunable settings behind a gear icon in the top-right
-  corner; every setting persists across app restarts.
-- A hamburger icon (top-right, above the visualizer) opens app-wide Settings -- see below. Its
-  **Modes** section lets you hide modes you don't use and reorder the rest; both the mode strip and
-  swipe cycling follow that customized order (`ModePreferences`, backed by `SettingsStore`). There
-  are ten modes total when nothing's hidden.
-- **Landscape** only works for Spectrum, Rainbow Spectrum, and Neon Cyan Pulse -- the modes that
-  actually gain something from the extra width. Every other mode (a circular gauge, a radial
-  layout, a scrolling history trend, and so on) is locked back to portrait the instant it's
-  selected, via `Activity.requestedOrientation` set per mode in `MainScreen`, not a single
-  manifest-wide lock. The manifest's `configChanges="orientation|screenSize"` means switching
-  never recreates the Activity or interrupts capture, it just physically rotates the display.
+- **Photo**: tap-to-focus/meter, pinch-to-zoom, flash (off/on/torch), self-timer (off/3s/10s), a
+  3x3 grid overlay, front/back camera switch.
+- **Pro mode**: independently toggleable manual exposure (ISO + shutter speed, each picked from
+  the sensor's real supported range, snapped to the same discrete stops a physical camera dial
+  uses) and manual focus (a diopter slider from infinity to the lens's closest focus distance),
+  plus white-balance presets (Auto/Daylight/Cloudy/Tungsten/Fluorescent) and EV compensation while
+  exposure stays automatic.
+- **RAW**: a one-tap toggle that captures a `.dng` alongside the JPEG on devices whose sensor
+  advertises the RAW capability, written via `DngCreator` straight from the sensor's raw Bayer
+  buffer -- not a post-processed approximation.
+- **Video**: H.264/AAC MP4 recording through `MediaRecorder`, using the device's own best
+  available `CamcorderProfile` (1080p, falling back to 720p or the device's default "high"
+  profile).
+- Every capture lands in the shared MediaStore `Pictures/Never Spiral` (and `.../RAW`,
+  `Movies/Never Spiral`) collections, so it shows up in the system gallery immediately like any
+  other camera app's output.
 
-- **VU Meter**: an analog needle meter with correctly calibrated ballistics (not a fake wobble), a
-  digital dB readout alongside the needle, and a peak LED that hard-flashes to full brightness the
-  instant it hits the top of the scale, then decays -- like a real hardware peak indicator, not a
-  soft continuous pulse. *Settings: calibration reference (12-24 dBFS).*
-- **Spectrum**: a real-time FFT bar spectrum, log-spaced across the audible range, with a dB
-  reference grid and frequency labels for orientation across the range. *Settings: Cool (blue-to-
-  white), Classic (green-yellow-red), or Frequency (Neon Cyan Pulse's frequency-reactive coloring,
-  applied to Spectrum's own upward bars) color scheme.*
-- **Goniometer**: a stereo phase scope -- plots left/right on the mid/side axes, so mono content
-  collapses to a vertical line and phase problems fan out sideways -- plus a running phase
-  correlation readout. *Settings: trail persistence.*
-- **Loudness**: a BS.1770-style LUFS meter (momentary, short-term, integrated, plus loudness
-  range) against a selectable normalization target, alongside a scrolling history trend. *Settings:
-  target standard (Streaming -14, Apple Music -16, EBU R128 -23).*
-- **Graphic EQ**: a classic discrete-LED equalizer bank -- the kind of spectrum display built into
-  receivers and separates -- with per-band peak-hold segments and the same dB/frequency axes as
-  Spectrum, built on the same FFT bands. *Settings: Classic (green/amber/red-by-height) or
-  Frequency (same frequency-reactive coloring as Spectrum/Neon Cyan Pulse, with the top segment
-  always flashing red as a clip warning regardless of scheme) color scheme.*
-- **Peak / RMS**: a hardware-style dual bar meter (fast peak with a hold cap, next to RMS) with a
-  crest-factor readout -- the gap between the two shows how dynamic or compressed a master is.
-- **Tonal Balance**: a long-averaged spectral curve against a dashed reference curve tracking the
-  same bands with a much longer time constant, showing whether what's playing right now trends
-  brighter/darker/bassier than the last minute or so, rather than a comparison to an arbitrary line.
-- **Rainbow Spectrum**: a mirrored FFT bar spectrum -- bars reflect top and bottom off a horizontal
-  center axis instead of growing from the bottom only -- with a fixed horizontal rainbow gradient
-  (blue/purple through magenta and orange to yellow) and a soft glow, on pure black. *Settings:
-  Scale, Stroke Weight, Height.*
-- **Neon Cyan Pulse**: the same mirrored-bar idea, denser and thinner, with a stronger glow for a
-  nightclub LED-wall feel. Frequency-reactive color: each bar rests at cyan when quiet and blends
-  toward a color keyed to its own frequency band as its level rises -- bass flashes red, low-mid
-  orange, mids yellow-green, presence stays cyan, treble goes violet -- rather than one flat color
-  across the whole row. *Settings: Scale, Stroke Weight, Height.*
-- **Circular Spectrum**: Rainbow Spectrum bent into a ring -- the same bands, the same fixed
-  rainbow gradient and glow, but bars grow radially outward from a circle instead of reflecting
-  top/bottom off a horizontal axis. Band 0 (bass) starts at 12 o'clock and sweeps clockwise through
-  to the highest band. Portrait only -- a circular layout doesn't gain anything from extra width.
-  *Settings: Scale, Stroke Weight, Height.*
+**Portrait background blur, panorama, slow-motion, and a color filter pack are mode entries
+already in the carousel but not yet wired to a capture pipeline** -- see
+[What's next](#whats-next) below. Shipping the core capture pipeline first and layering these in
+mirrors how the author's other Android project (a music visualizer) grew mode by mode rather than
+landing every feature in one pass.
 
-## How the meter works
+## Why Camera2, not CameraX
 
-- **Capture**: audio is captured via Android's `AudioPlaybackCaptureConfiguration` (Android 10+),
-  which taps the device's internal audio mix rather than the microphone. That means it reacts the
-  same way whether you're on speaker, wired headphones, or Bluetooth. It requires a `RECORD_AUDIO`
-  grant plus a one-time system "start recording or casting" consent screen -- that wording is a
-  quirk of the underlying API; the app only ever reads audio, never video, and only while the
-  visualizer is toggled on (shown by a persistent notification while it runs).
-- **Ballistics**: a real VU meter is not a peak meter. ANSI C16.5-1942 defines its response as
-  reaching 99% of a step change in 300ms, applied *symmetrically* on the way up and down (unlike a
-  peak meter's fast-attack/slow-release). That's what makes the needle read average program energy
-  and ignore brief transients, instead of jumping to every instantaneous sample. `VuMeterEngine`
-  implements this as a single-pole exponential filter in the dB domain with `tau = 300ms / ln(100)`.
-- **Calibration**: 0 dBVU is set to -18 dBFS, the standard professional reference level that leaves
-  headroom above 0 for transients to peak into before the digital signal clips.
-- **Scale layout**: tick marks (-20, -10, -7, -5, -3, -2, -1, 0, 1, 2, 3) are spaced *evenly by
-  position*, not by dB value -- matching a real VU meter's dial, where the wide -20-to-10 gap and
-  the narrow 0-to-1 gap take up roughly the same arc. The needle interpolates smoothly between
-  whichever two ticks bracket the current reading. Tick label font size scales with the meter's own
-  rendered height (tracked via `Modifier.onSizeChanged`) rather than staying a fixed sp value --
-  the meter renders much smaller in landscape (and on some narrower portrait screens), and a fixed
-  font size didn't shrink with it, so the widest labels ("-20", "-10") could crowd or overlap at
-  smaller sizes. The scaling fraction is derived from the actual tick-label arc geometry (see
-  `VuMeterScreen.kt`'s `TICK_FONT_HEIGHT_FRACTION` doc comment), not just eyeballed.
-- **Peak LED**: a hard flash, not a gradual pulse -- brightness snaps to full the instant the
-  needle hits the top of the scale, then decays smoothly on its own, independent of the needle's
-  own much slower ballistic fall, so a single loud hit still reads as a crisp flash.
-- **Glow**: the needle gets a soft blurred glow behind it, drawn as a single blurred copy of just
-  the needle composited before the crisp native needle/panel/ticks/readout -- the same
-  single-bitmap-blur technique described under Rainbow Spectrum and Neon Cyan Pulse below.
+CameraX's public API has no supported path to `ImageFormat.RAW_SENSOR` capture, and Pro mode's
+manual sensor controls (`SENSOR_SENSITIVITY`, `SENSOR_EXPOSURE_TIME`, `LENS_FOCUS_DISTANCE`) are
+`CaptureRequest` keys CameraX only exposes piecemeal through `Camera2Interop`, if at all. Since
+both are core to this app rather than a nice-to-have, `CameraEngine` is built directly on
+`CameraManager`/`CameraDevice`/`CameraCaptureSession` instead -- more boilerplate (manual
+background-thread handling, manual output-size selection, a hand-rolled TextureView transform
+matrix) in exchange for actual control over what the sensor does.
 
-## How the spectrum view works
+## Architecture
 
-`SpectrumAnalyzer` runs a plain iterative radix-2 FFT (1024-point, Hann-windowed) on the same
-captured PCM buffers, buckets the result into 28 log-spaced bands from 40Hz to 16kHz, and
-`SpectrumEngine` smooths each band with a fast rise / slower fall filter plus a peak-hold cap --
-so bars react instantly to transients but settle down smoothly instead of jittering. `SpectrumScreen`
-colors each bar per the selected `SpectrumColorScheme` (a cool blue-to-cyan-to-white gradient, or a
-classic green-to-red one -- red is always reserved for the clip zone right at the top rather than
-spread across the whole range), and draws a dB reference grid plus frequency labels (60Hz, 250Hz,
-1kHz, 4kHz, 16kHz) for orientation. Bars get the same single-composited-bitmap blur glow described
-under Rainbow Spectrum and Neon Cyan Pulse below, drawn once behind the crisp bars/grid/labels
-rather than blurred individually.
+- **`CameraEngine`**: owns exactly one open `CameraDevice` at a time and everything that talks to
+  it directly -- opening/closing, building capture sessions, still/video/RAW capture, zoom (via
+  `SCALER_CROP_REGION`, which works uniformly from API 21 up rather than needing a
+  `CONTROL_ZOOM_RATIO`-vs-crop-region version split), tap-to-focus region mapping, and applying
+  Pro mode's manual controls to every repeating preview request so the viewfinder itself reflects
+  manual exposure live, not just the next capture.
 
-FFT band levels are properly normalized by FFT size before being converted to dB (see
-`SpectrumAnalyzer.computeBands`) -- without that division, raw magnitude scales with FFT size, so
-every band read pinned near the 0dB ceiling regardless of what was actually playing. That bug had
-been present since Spectrum was first built; it just never produced an obviously-wrong picture
-until other modes started depending on genuine per-band contrast to work at all.
+  Pro mode's manual exposure/focus controls lean on a specific, easy-to-get-wrong Camera2 detail:
+  `CONTROL_MODE` stays `AUTO` throughout, with `CONTROL_AE_MODE` and `CONTROL_AF_MODE`
+  independently switched to `OFF`. Setting `CONTROL_MODE` itself to `OFF` disables all three of
+  AE/AF/AWB at once and would force manual color-correction math just to keep white balance
+  working, which manual exposure or manual focus alone has no reason to need.
 
-## How the newer instruments work
+- **`CameraController`**: the Compose-observable orchestration layer `CameraScreen` reads and
+  writes directly -- mode, Pro settings, zoom, flash, recording state, last capture URI -- the
+  same "a plain class holding `mutableStateOf` properties" shape the visualizer's engines already
+  used, rather than an `AndroidViewModel` this single-Activity app has no real need for. Camera2's
+  callback-based APIs are bridged into suspend functions via `suspendCancellableCoroutine`, called
+  from `CameraScreen` through `rememberCoroutineScope()`.
 
-- **Goniometer**: plots left/right on mid/side axes -- `x = (L-R)/2`, `y = (L+R)/2` -- rather than
-  raw L/R, matching the convention hardware phase scopes use, so mono content collapses to a
-  vertical line instead of a diagonal one. `GoniometerEngine` also tracks a running phase
-  correlation coefficient (a leaky-integrator Pearson correlation over L and R power/cross-power)
-  from +1 (perfectly in phase) through 0 (uncorrelated/wide) to -1 (out of phase, will cancel when
-  summed to mono).
-- **Loudness**: `LoudnessEngine` is a practical real-time approximation of ITU-R BS.1770 / EBU
-  R128, not a certified meter -- K-weighting is a proper high-pass + high-shelf biquad pair (RBJ
-  cookbook DSP) tuned to the same intent as the standard's filters, and integrated-loudness gating
-  uses a single-pass absolute-threshold approximation rather than BS.1770's two-pass absolute +
-  relative block gating, since this runs continuously on a live stream rather than analyzing a
-  fixed file. Loudness range (LRA) is the 95th-minus-10th-percentile spread of a rolling short-term
-  history.
-- **Graphic EQ**: `GraphicEqScreen` renders the same [SpectrumEngine] bands and peak-hold caps as
-  the Spectrum view, but as a bank of discrete lit/unlit segments per band instead of continuous
-  bars -- the classic look of a receiver's built-in spectrum display -- so it's a different
-  rendering treatment of already-proven data rather than a new capture or DSP path. Lit segments
-  (unlit ones are skipped) get the same single-composited-bitmap blur glow as the other bar-based
-  modes. Its `GraphicEqSettings.colorScheme` picks between the classic height-based coloring and
-  the shared frequency-reactive treatment (Neon Cyan Pulse, Spectrum's Frequency scheme) -- in
-  that mode the top segment still hard-flashes red as a clip warning regardless of frequency zone.
-- **Peak / RMS**: `PeakRmsEngine` gives peak a near-instant attack and a slower release (unlike the
-  VU meter's symmetric ballistics), so it actually catches transients, plus a hold cap that latches
-  and slowly falls. RMS uses the same ~300ms window as the VU meter. The gap between them, the
-  crest factor, is a genuinely useful number: wide means dynamic, narrow means compressed/limited.
-- **Tonal Balance**: `TonalBalanceEngine` smooths the same bands as Spectrum with a multi-second
-  time constant instead of a fast one, so it settles into overall tonal character rather than
-  reacting to transients.
-- **Rainbow Spectrum**, **Neon Cyan Pulse**, and **Circular Spectrum**: `RainbowSpectrumScreen`,
-  `NeonCyanPulseScreen`, and `CircularSpectrumScreen` all render the same [SpectrumEngine] bands
-  directly, with no engine or DSP of their own -- the mirrored/radial layout, colors, bar density,
-  and glow are pure rendering choices on already-smoothed data, tunable through their own
-  `BarSpectrumSettings` (Scale, Stroke Weight, Height). Neon Cyan Pulse's denser row comes from
-  linearly interpolating between adjacent bands rather than a higher-resolution FFT. Neon Cyan
-  Pulse's color is frequency-reactive rather than fixed: a bar's position in the row stands in for
-  its frequency band (bands are laid out log-spaced low-to-high), so `frequencyZoneColor` (in
-  `GradientColors.kt`) maps that position to a color -- red for bass through violet for treble --
-  and each bar blends from resting cyan toward its zone color as its own level rises, rather than
-  every bar sharing one flat gradient. Circular Spectrum instead reuses Rainbow Spectrum's fixed
-  `rainbowColor` gradient exactly, just mapped around the ring by angular position (band 0 at 12
-  o'clock, sweeping clockwise) instead of left-to-right. All three draw their bars solid into one
-  bitmap, then blur *that
-  whole composited layer once* for the glow, rather than blurring each bar individually --
-  `BlurMaskFilter`'s cost is dominated by per-call overhead, so one blur pass over the full row is
-  far cheaper than 28-56 separate ones while looking effectively identical, which is what keeps
-  all three modes smooth on mid-range devices. (The bitmap itself, cleared rather than faded each
-  frame, exists purely so `BlurMaskFilter` has a software canvas to blur against -- Android
-  silently ignores mask filters on Compose's hardware-accelerated canvas, the same reason
-  Goniometer's trail goes through a bitmap.) Bar count, sensitivity gamma, and glow radius/alpha
-  for all three are named constants at the top of each file.
+- **`CaptureStore`**: writes JPEG/DNG/MP4 output into the shared MediaStore collections. Every
+  write sets `IS_PENDING` on API 29+ (scoped storage) so a half-written file never shows up as a
+  zero-byte/corrupt entry to anything else watching the collection. `MediaRecorder` needs a real
+  file path, not a MediaStore `Uri`, so video always records to a private cache file first and
+  gets copied into the shared `Movies/Never Spiral` collection once recording stops.
 
-Every engine is stepped every frame regardless of which mode is showing, so switching among most
-modes shows a live reading immediately instead of a frozen one -- the two exceptions are Loudness
-(two IIR K-weighting filters run over every sample in every buffer) and Goniometer (a per-sample
-correlation sum), the heaviest per-sample work in the app, which only run while their own screen is
-actually visible; both settle back to a live reading within their own ballistic time constant
-(under a second) after switching back. The app also reads the display's actual supported modes and
-requests whichever one has the highest refresh rate -- the device's true native max (90Hz, 120Hz,
-144Hz, whatever it happens to support) rather than a fixed number that would cap a faster display
-or do nothing useful on a slower one (Android ties refresh rate to the whole window, not to
-individual views, so this benefits every mode).
+- **`CameraScreen`**: full-bleed live preview (a `TextureView` wrapped in `AndroidView`, chosen
+  over `SurfaceView` because its transform matrix is what lets the preview buffer be
+  center-crop-scaled and rotated to fill a portrait view) with the mode carousel, shutter, and Pro
+  mode's manual dials floating on top -- the same layout every modern flagship camera app uses,
+  rather than letterboxing the preview behind a separate control bar.
 
-## App Settings
+### Preview orientation
 
-Distinct from each visualizer mode's own gear-icon tuning panel, the hamburger icon opens an
-app-wide settings screen:
+The sensor always delivers preview frames in its own landscape-native orientation. This app locks
+its single Activity to portrait (`android:screenOrientation="portrait"` in the manifest), so the
+general device-rotation-aware transform math a rotatable Activity would need collapses to a fixed
+case: a center-crop scale plus a 90-degree rotation (−90 for the front camera, to also account for
+its horizontal mirroring), covering the two sensor orientations every phone camera actually ships.
+JPEG/video orientation uses the same fixed-portrait assumption in `CameraEngine`'s
+`sensorToJpegOrientation`, rather than reading a live `OrientationEventListener`.
 
-- **Players**: Sam's Music Viz already captures whatever's playing system-wide -- Spotify,
-  YouTube Music, Tidal, anything -- with no account, API key, or per-app setup. This section is
-  just quick-launch shortcuts to jump straight to those apps (or their Play Store listing if not
-  installed); it deliberately does *not* do OAuth account linking, since that wouldn't improve the
-  visualizer and would mean embedding API credentials in the app for no real benefit.
-- **Display**: a "Keep Screen On" toggle (`View.keepScreenOn` -- Android doesn't let third-party
-  apps change the system screen-timeout duration directly, that needs the sensitive
-  `WRITE_SETTINGS` permission) and an "Immersive Mode" toggle that hides the status/navigation bars
-  while the visualizer is running (`WindowInsetsControllerCompat`, with
-  `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE` so a swipe from an edge still reveals them temporarily).
-  The app also isn't locked to portrait anymore -- it follows whatever the device's own
-  rotation-lock setting allows, rather than forcing one orientation.
-- **Appearance**: a custom accent color, expressed as Hue/Saturation/Brightness sliders (via
-  `android.graphics.Color.HSVToColor`) rather than RGB so three sliders cover the whole range, with
-  a live preview swatch. `VisualizerTheme.ACCENT` is mutable Compose state rather than a fixed
-  constant specifically so this can override it -- and since nearly every mode already reads
-  `ACCENT` (chips, the VU needle's glow, Spectrum's Cool and Frequency schemes, Graphic EQ's lit
-  segments, and more), one custom color cascades across the whole app instead of needing a picker
-  per mode. `ACCENT_DIM` derives from `ACCENT` rather than being independent, so it stays coherent
-  with whatever's picked.
-- **Modes**: hide modes you don't use, and reorder the rest via up/down arrows next to each one
-  (drag-to-reorder felt riskier on a touchscreen than arrows for a list this short). At least one
-  mode always stays visible. Persisted through `ModePreferences` as an ordered mode-name list plus
-  a hidden set, so a future app update that adds a new mode just appends it to the end rather than
-  losing the user's customization.
-- **Updates**: a GitHub-Releases-based OTA update path, the same pattern F-Droid-style apps use
-  outside the Play Store. `UpdateChecker` queries the repo's latest release via GitHub's public
-  REST API, and "Download & Install" fetches the attached APK through `DownloadManager` into the
-  app's private external-files directory, then hands it to the system installer via a `FileProvider`
-  content URI (declared in the manifest, paths in `res/xml/file_paths.xml`) -- `DownloadManager`'s
-  own `getUriForDownloadedFile()` is built for the public Downloads collection and returns an
-  unusable URI for a private-directory download, which is why installs could silently do nothing.
-  The download wait is capped at two minutes rather than polling forever, a stale file from a
-  previous attempt is cleared before retrying, and a failed/timed-out download surfaces a "Try
-  Again" state instead of quietly resetting as if nothing happened. This only works while the repo
-  is public -- an unauthenticated request to a private repo's releases API returns 404/403, so a
-  failed check just says so rather than crashing. An "Check Automatically" toggle runs the same
-  check silently once when Settings opens. `UpdateChecker.isNewerThanInstalled` compares the
-  release's version against the installed app's `versionName` component-by-component, so a release
-  that matches what's already installed correctly shows "You're on the latest version" instead of
-  always offering to reinstall the same build -- that comparison only works because the CI workflow
-  tags each release `v<versionName>` (extracted straight from `build.gradle.kts`) instead of the
-  old run-number-based `build-<N>` tag, which had no relationship to the app's actual version at all.
-- **Diagnostics**: the most recent uncaught exception, if any -- `VisualizerApplication` installs a
-  custom `Thread.UncaughtExceptionHandler` that writes the crash's stack trace to a local file
-  (`CrashLog`) before re-raising to the system default handler, so the app still crashes normally,
-  it just leaves a note behind first. There's no crash-reporting backend, so during solo on-device
-  testing this is the only way to see what actually broke after the app dies and relaunches.
-- **About**: version number and "vibe coded with love by Samuel Nicholas Salvador/Veera Krishnan."
+This is the one area of the app that's genuinely hard to verify without a physical device --
+there's no camera hardware in the sandboxed build environment this was developed in, so while the
+transform follows the standard Camera2 sample pattern (Google's own `Camera2Basic` sample uses the
+same `configureTransform` shape), **preview framing and front-camera mirroring are worth a visual
+check on an actual device** before trusting them fully.
 
-## Home screen widget & Quick Settings tile
+### Manual control ranges
 
-Both are tap-to-open shortcuts rather than live mini-visualizers or remote controls, for the same
-underlying reason: `RemoteViews` (what both widgets and notifications render through) can't host a
-live Compose `Canvas`, and starting capture requires [`MediaProjection`](https://developer.android.com/reference/android/media/projection/MediaProjection)'s
-system "start recording or casting" consent dialog, which needs a foreground `Activity` to show and
-isn't persisted across app restarts -- so neither surface can silently start visualizing on its own.
-- **Widget** (`VisualizerWidgetProvider`): a branded `RemoteViews` layout that opens the app on tap.
-  The bar icon still animates, though: `widget_launcher.xml` uses a `ViewFlipper` with
-  `autoStart="true"` cycling through four bar-height frames (`ic_widget_bars_1..4`). This isn't a
-  push-updated bitmap or a background service -- once the widget host (the launcher) inflates the
-  layout, `ViewFlipper` drives its own flip loop entirely inside the launcher's own process, so it
-  keeps animating with zero ongoing cost to our app, whether or not it's even running.
-- **Quick Settings tile** (`VisualizerTileService`): reflects whether capture is currently running
-  via `AudioCaptureService.isRunning` (a small Compose-state flag set in `onStartCommand`/`onDestroy`
-  specifically so the tile can read it without binding to the service), and opens the app on tap.
-  Unlike the widget, the tile's icon can't animate -- `Tile.icon` is a single static
-  `android.graphics.drawable.Icon`, and `TileService`'s API has no `RemoteViews`-style layout or
-  frame-cycling mechanism to hook into; it's a fixed system-rendered icon/label/subtitle/state
-  format, not an inflatable view hierarchy. There's no legitimate way around that within the public
-  API, so the tile's icon just stays static.
+Pro mode's ISO and shutter speed sliders snap to a fixed list of standard camera stops (ISO
+50/100/200/400/.../25600; shutter 1/8000 down to 30") intersected with whatever range the
+connected sensor's `CameraCharacteristics` actually reports, rather than a continuous slider over
+raw sensor values nobody reads intuitively. `ProFormatting.kt` holds this as plain,
+framework-independent Kotlin, so it's covered by a fast JVM unit test (`ProFormattingTest`) rather
+than needing an on-device/Robolectric run -- the same "pure math gets a plain-Kotlin unit test"
+split the visualizer's own DSP engines used.
 
-## App icon
+## What's next
 
-A proper Android adaptive icon (`mipmap-anydpi-v26/ic_launcher.xml`, layering
-`drawable/ic_launcher_background` and `ic_launcher_foreground`) rather than a single flat drawable
--- a plain flat icon gets wrapped in a launcher-synthesized white circle with the whole icon shrunk
-to fit inside it, which is why it used to show up as a small square VU gauge floating in an
-unrelated white circle. The foreground is a circular gauge face (ticks, needle, pivot) sized to sit
-within the adaptive icon's 66dp safe zone, so it reads as an intentional circular badge and isn't
-clipped regardless of which mask shape (circle, squircle, rounded square) a given launcher uses.
-`mipmap/ic_launcher.xml` (no density qualifier) is a flattened fallback for API 24-25, which can't
-load the adaptive icon format.
+Queued as follow-up rounds rather than attempted in the first pass:
 
-## Testing
-
-Every engine (`VuMeterEngine`, `SpectrumEngine`, `SpectrumAnalyzer`, `PeakRmsEngine`,
-`GoniometerEngine`, `LoudnessEngine`, `TonalBalanceEngine`) is plain Kotlin with no Android
-framework calls, so their ballistics/DSP math has plain-JVM JUnit coverage under
-`app/src/test/java/` -- no Robolectric or emulator needed. `SpectrumAnalyzerTest` in particular is
-a regression guard for the FFT-magnitude-normalization bug described above: without dividing raw
-FFT magnitude back down by `FFT_SIZE` before the dB conversion, every band reads pinned near the
-ceiling regardless of what's actually playing.
-
-```
-cd NeverSpiral
-./gradlew testDebugUnitTest
-```
+- **Filters**: a color-matrix filter pack (B&W, Vivid, Cool, Warm, Vintage) applied to the
+  captured JPEG.
+- **HDR**: a 3-shot AE-bracket capture (under/normal/over exposure) merged via exposure fusion.
+- **Panorama**: swipe-capture multiple frames while panning, stitched with cross-fade blending.
+- **Slow-motion**: high-frame-rate capture via `createConstrainedHighSpeedCaptureSession` on
+  devices that support it, encoded with a retimed playback frame rate.
+- **Portrait mode**: background blur via ML Kit's on-device Selfie Segmentation (a real, public,
+  no-network-required Google library), rather than anything requiring calibrated depth hardware.
 
 ## Building
 
-Open `NeverSpiral/` in Android Studio, or from the command line:
-
 ```
-cd NeverSpiral
 ./gradlew assembleDebug
 ```
 
-The debug APK will be at `app/build/outputs/apk/debug/app-debug.apk`.
+Signed with a committed debug keystore (`app/debug.keystore`) rather than Gradle's own
+auto-generated one, so every build -- CI or local -- signs with the same key and OTA updates over
+a previous install don't silently fail (Android refuses to install an update signed with a
+different key than the one already installed).
 
-CI (`.github/workflows/android-build.yml`) runs the unit tests and builds the debug APK on every
-push touching this directory, uploading it as a workflow artifact named `never-spiral-debug-apk`
-and publishing it as a GitHub Release and to the `never-spiral-apk-builds` branch. It intentionally
-does *not* also trigger on `pull_request` -- since this branch is developed via an always-open PR,
-a `pull_request` trigger would fire a second, redundant build for the same commit as the `push`
-trigger on every push, doubling CI time and racing the two runs to force-push the same APK to
-`never-spiral-apk-builds`.
+## Package
+
+`com.nikoezveracamspiral` -- a separate identity from the author's other apps on this account, so
+installing this one never collides with or gets confused for anything else already on a device.
+
+## v1.1.0 UI and preview
+
+- Pixel-style layout: rounded 3:4 viewfinder (matches the saved photo), JPEG/RAW pill and flash top corners, zoom chips, mode pills, ringed shutter with thumbnail and flip, bottom row with settings, Photo/Video toggle, manual controls.
+- Preview transform applies no rotation (the camera framework already delivers upright buffers); it only cover-crops and mirrors the front camera.
+- Capture animation: shutter blink on the viewfinder, shutter disc press/busy shrink, haptic tick, thumbnail pop.
+
+## v1.2.0
+
+- After-capture pipeline (`PhotoProcessing.kt`): EXIF rotation, selfie mirroring, crop to the chosen ratio, single-frame HDR tone curve (0-5), light sharpening, color style, re-encode at quality 97. The camera itself is asked for high-quality noise reduction, edge and tone-map modes.
+- Styles (Natural, Vivid, Portrait, Landscape, Moody, Mono) shown live on the preview and applied to the saved photo.
+- Settings sheet (flash, timer, ratio 4:3/16:9/1:1/2:1, grid off/thirds/golden/square, format, selfie mirroring), format popup, control strip (style, EV, shutter, ISO, WB, focus), level indicator.
+- Files are saved as `bynikezvera_<date>.jpeg` and `bynikezvera_<date>.dng` (DNG is the RAW container).
+
+## v1.3.0
+
+- Filters are independent of HDR: 30+ looks in six categories (Basic, Film, Cinema, Retro, Mono, Creative), each with its own strength slider, shown live on the preview and applied to the saved photo.
+- Develop sliders (exposure, contrast, saturation, warmth, tint, highlights, shadows, vignette, grain, sharpness) apply before capture and in the editor.
+- HDR is a real three-frame bracket (dark, normal, bright) fused with exposure fusion; strength 1-5. Skipped with flash or manual exposure.
+- Post-capture editor: tap the thumbnail to edit the last photo (filters, adjust, crop/rotate/flip, hold to compare) and save a new copy.
+- Deeper controls: flash Auto, timer up to 15 s, zoom slider, extra white-balance presets, JPEG quality.
+- New minimalist icon.
+- OTA updates: CI publishes `version.json` and the APK to the `never-spiral-apk-builds` branch; Settings has Check for updates, Download and install, and an automatic check at launch.
+
+## v1.4.0
+
+- Pixel-style capture: the shutter fires a quick burst and returns at once (no waiting); a background queue aligns, merges, tone-maps, applies the look and saves. The thumbnail shows a spinner while a photo is processing and several photos can queue.
+- HDR+: four deliberately underexposed frames, aligned (coarse-to-fine global shift search), merged with per-pixel rejection of anything that moved, then tone-mapped (exposure restored, shadows lifted, highlights rolled off).
+- Night Sight: nine long exposures (up to 1/6 s each) merged the same way with an automatic brightness target. Hold still while the bar fills.
+- Portrait: on-device person segmentation (ML Kit selfie segmenter) and a feathered background blur; strength slider.
+- Filters, develop sliders, zoom, white balance and the rest work in every mode. In video the colour part of the look (filter, exposure, contrast, saturation, warmth, tint) is rendered after recording by Media3 Transformer in the background.
+
+## v1.5.0
+
+- Custom LUTs: import 3D `.cube` files (Filters > My LUTs > Import). Saved photos and the editor use the exact table with trilinear interpolation and the strength slider; the live preview and video use a least-squares colour-matrix fit of the table. LUTs are kept in app storage and can be deleted from the same tab.
+
+## v1.6.0 (Niko's Cam)
+
+- Renamed to Niko's Cam, with the new glyph icon, a splash that zooms into the app, and fade/scale open and close animations.
+- Every slider is now a ruler-style wheel picker with a haptic tick per step.
+- Night Sight offers Wait 3 s or Wait 6 s and shows a "Hold your phone steady" toast.
+- Focus ring is a circle that springs in; the capture snapshot flies into the thumbnail, which orbits with a comet ring while the shot processes.
+- Tapping the picture (outside Pro) or the empty space closes the filter/control panel and returns to shooting; Back closes panels, then exits with an animation.
+- Photos carry EXIF (camera, exposure, ISO, aperture, focal length, processing, JPEG quality) and the editor has a Details tab (file, resolution, size, quality, compression, camera, exposure, date). Location will come later.
+
+## v2.0.0
+
+Reliability: the camera's own JPEG is saved the instant the shutter finishes and replaced by the processed version in place; a foreground service keeps processing alive if you leave the app; the queue is capped. Photos and video use the phone's real orientation (landscape works) and icons turn upright. Only the camera permission is required. RAW toggle fixed. Settings are remembered. AE/AF lock on long-press; tap-to-focus fires a single AF trigger.
+
+Quality and speed: pixel loops run on all cores; burst alignment is global plus per-tile refinement with ISO-aware rejection; real lens zoom (0.5x on multi-camera phones) through the zoom-ratio API; optical and electronic stabilisation; Night Sight previews brightened, detects a tripod and uses longer exposures; Portrait blooms bright highlights into bokeh.
+
+Video: resolution (720p / 1080p / 4K), 30/60 fps, H.264 or HEVC; filters render after recording with progress, and imported LUTs are applied exactly.
+
+Extras: live histogram, QR scanning, volume keys as shutter, editor undo/redo, "Report a problem" log share.
+
+Build and distribution: CI builds a minified arm64 release APK (and keeps the debug APK as a fallback), publishes a SHA-256 the updater verifies, caches Gradle, and signs with a private key if the repository secrets KEYSTORE_B64, KEYSTORE_PASSWORD, KEY_ALIAS and KEY_PASSWORD exist (otherwise the committed debug key, so existing installs update in place). Unit tests cover LUT parsing, tone curves and the burst merge.
+
+Not built yet (needs on-device testing): a YUV/RAW burst with zero-shutter-lag, a live GPU pipeline, panorama, slow-motion, Ultra HDR and motion photos.
+
+## v2.1.0
+
+- Fixed: choosing 0.5x never switched to the ultra-wide lens, because the engine clamped zoom to a minimum of 1x. The lower bound is now the camera's own minimum.
+- Macro mode (extreme close-up): uses the ultra-wide lens, close-focus AF where the camera offers it, and shows the live focus distance.
+- Fixed: preview surface leak (a Surface is now reused per SurfaceTexture and released on close); the camera now finishes closing before its callback thread stops; the QR scanner is created once and paused instead of recreated, and scans every 1.5 s.
+- The problem report now lists each physical lens with its focal length and closest focus distance.
+
+## v2.2.0 (Pixel family)
+
+- Zoom chips are built from each phone's own lenses: the widest zoom, 1x, the optical stop of every extra physical lens (5x on a Pixel 9 Pro XL, 4x on a 7 Pro, none on an 8a), a 2x crop and a doubled telephoto. Lens focal lengths are converted to 35 mm equivalents from the sensor size.
+- A device profile (`DeviceProfile.kt`) sizes burst and single-frame processing from the phone's memory: High (10.5 GB and up: Pixel 9 Pro XL, 8 Pro), Mid (7 GB and up: Pixel 8a, 7, 6), Basic. Large frames are now scaled to the budget instead of being halved twice (a 16 MP frame stays near 13 MP).
+- The control area scales with the screen height (6.1" to 6.8" and folds).
+- Settings shows "This phone" with its memory, performance tier and lenses; the problem report adds the SoC-independent facts the next features need: largest JPEG/YUV sizes, frame-rate ranges, high-speed video sizes, supported camera extensions (night, HDR, bokeh) and each physical lens with its closest focus distance.
+
+## v2.2.1
+
+- Fixed: Night mode washed bright scenes out to white. The viewfinder boost is now +1 EV (not the camera's maximum), the capture is based on the scene's real exposure with the boost removed, and each frame keeps the auto exposure's total light but trades ISO for a longer shutter, so brightness stays right and noise drops. Dark scenes are lifted by the tone curve.
+- Fixed: zoom chips read 4.5 / 9 / 18 on a Pixel 9 Pro XL. The same lens appeared under several ids and the telephoto ratio was not rounded the way phones label it; lenses are now de-duplicated by focal length and a 4.5 ratio shows as 5 (with 10 as its double).
+- Fixed: viewfinder snapshots (filter thumbnails, histogram, QR scanner, the flying capture) failed with "Unable to draw content from GPU" whenever a filter was active. The layer paint is lifted for the instant of the read.
+
+## v2.3.0
+
+- Fixed a launch crash from the settings saver (a coroutine started on a background thread inside the controller's constructor read state objects that did not exist yet). Saving now runs from the viewfinder's own coroutine, and background coroutines report errors instead of crashing the app.
+- Removed the "Processing N..." pill; the thumbnail's orbiting ring is the only processing cue.
+- Zoom quality: from 2x up, a shot is a 5-frame merged burst with minimal in-camera noise reduction (Settings: Zoom enhance), followed by a wider-radius unsharp mask that grows with the zoom level. Each photo's description now records the zoom and which physical lens captured it, so a telephoto shot can be told from a cropped main-lens one.
+- Predictive-back callback enabled for Android 13+.
+
+## v2.12.0
+
+- **Ultra HDR keeps its boost for highlights only.** The camera's HDR map came from one dark frame of the HDR+ burst, so after the merge it also brightened mid-tones and shadows (a green wall glowed in Google Photos). The boost now applies only to the picture's bright parts, with a smooth fade, so Photos looks like a plain copy except for real highlights. A shot with almost no bright part is saved as a plain JPEG.
+- **Watermark readability:** on a bright or busy part of the photo the text now sits on a soft dark pill; on a calm dark area it stays clean.
+- **Exposure numbers:** an HDR shot's watermark and details now show the metered exposure, not the settings of the four deliberately dark frames.
+
+## v2.11.0
+
+- **Sensor health** (Settings, Phone): a dark test for the camera sensor's hot pixels. Cover the lens, run it (three long, high-ISO frames), and it lists the bright dots it finds with a small map and a green/yellow/red status. Every run is saved so changes show over time, and **Share report** sends a plain-text report you can give to Google support.
+- **Spots tab in the editor:** tap a bright dot to paint it out (the tap snaps to the brightest point nearby), tap its circle again to put it back, or use **Auto-find** to mark isolated specks in dark areas for you to check. Applied on Save copy.
+- **Dark-scene guard** (Settings, Phone): Off, Warn, or Cap ISO. Warn shows a note when the scene pushes the ISO above your limit (800, 1600 or 3200); Cap keeps the ISO at the limit with a longer shutter (never slower than 1/15 s).
+- The developer's name is now spelled Nikezvera.
+
+## v2.10.0
+
+- **Location tagging** (Settings, Phone): off by default. Turning it on asks for location permission (foreground only, no background location) and saves where each photo was taken in its JPEG and DNG metadata. Uses the latest GPS/network fix so the shutter never waits.
+- **New About Niko's Cam page:** big profile card (Nikezvera, Developer of Niko's Cam), Telegram card with @xnzvix, in-app updates, log catcher, and a plain-words "How it's made" (Kotlin, Compose, Camera2, on-phone AI model, vibe coding with Claude Code).
+
+## v2.9.0
+
+- **Pixel looks.** A new **Pixel** tab in Filters with Pixel's four base styles (Original, Natural, Shadows, Vanilla) and six creative presets (Editorial, Velvet, Classic, Digi, Black Tie, Minimal). They apply to photos, the editor, Night Sight (Google engine too) and video. Red/green/blue-specific colour (Editorial's washed blues, Velvet's rich blues and reds with cool greens) is applied on the saved photo; the live preview shows the overall colour and tone. Minimal adds no extra sharpening.
+- **Fine-tuning** in Adjust now reads in Pixel's units: Warmth -10..+10, Sharpness 0..15, Grain None/Weak/Moderate/Strong, plus a new Vibrance slider (lifts muted colours more than strong ones). Contrast, Highlights, Shadows and Tint were already there.
+- **Flash fix.** Auto and On never fired on Pixels: the shot skipped the auto-exposure precapture (pre-flash) step the camera needs first. The shutter now runs it (up to 2.5 s) before a flash photo.
+- **Always use selected look** (Photo settings): on keeps the look every launch, off starts plain.
+
+## v2.8.0
+- **Watermark (Settings, Display).** A custom "Shot on Niko's Cam" watermark with the app logo (the N and camera, white on black) on every saved photo. Choose the style (small **on the photo**, or a **frame bar** added under it, light or dark), the position (left, centre, right), your own text, and whether to show the logo, the phone's name and the shot details (lens, f-stop, shutter, ISO). A live preview shows exactly what will be stamped. It applies to photos only (not video or RAW), also to Google Night photos and to a Portrait you re-edit. The bar style makes the photo a little taller, so it drops the Ultra HDR extra for that photo.
+- **Portrait has one look now.** The six styles are gone; the **Blur** slider (in the viewfinder and in the editor's Portrait tab) is the control. Photos taken as another style before still open and edit fine.
+- **No more sharp patch of background next to the subject.** The sharp region may take in things nearer than the subject (fingers) but only a little of what is farther (a seat back behind a hand), and for something that isn't a person it can grow less far.
+- **No more pale glow around the subject.** The widest blur layer underneath used to include the subject's own colours, which smeared outward as a glow; it is now made from the background only, and the edge-colour clean-up can darken an edge but only lighten it a little.
+- **A more compact About page** (Settings, the gear inside the gear). The three long bars (Telegram profile, update check, problem report) are now small buttons: your photo and name at the top, "@xnzvix" and "Report a problem" side by side, and the updates in one small card with a single Check or Install button and an On/Off for checking at launch.
+- Tests: the watermark's wording and the saved-Portrait record (including records from 2.7.0) are covered by unit tests, and the emulator job draws every watermark style with the real logo.
+
+## v2.7.0
+- **Change a Portrait's blur after the shot.** Every Portrait now keeps (privately, newest 40) the picture as it was before the blur and what Portrait worked out about it (the subject and the depth of everything). The editor gets a **Portrait** tab for those photos: pick another style, change the blur strength with a live preview, or **tap the photo to pick a different subject** (a face, a hand, an object: the blur is re-done around it). Apply, then Save copy. Deleting a photo from the app deletes its data.
+- **The original is saved too.** Settings, Photo: "Portrait: also save the original" (on by default) saves the photo as it was before the blur as `bynikezvera_<date>_original.jpeg`.
+- **Round bokeh.** The blur kernel is now a disc (an octagon built from a box blur and two diagonal ones) instead of a Gaussian-like triple box blur, so lights become evenly lit round discs like a real lens's, and background detail keeps its shape instead of going milky. It is also cheaper to compute.
+- **Cleaner edges.** In the soft edge around the subject (hair, shoulders) the photo's own pixels still carry a tint of the old background; Portrait now swaps that for the subject's colour from just inside, which removes the halo.
+- **Colour and sharpening happen before the blur**, so an edited Portrait and a fresh one are built from the same picture.
+- **Portrait fits phones with a small memory limit, like the Pixel 8a** (working size follows the app heap: about 1024 px on 512 MB, about 768 px on 256 MB; cues are fused in a separate step so their maps are freed before the blur; if memory still runs out the blur is retried a size smaller).
+- **No more square notches at the edge of hair.** The mask clean-up kept clearing a square around small pieces such as strands of hair; pieces that sit against the subject are now kept, and only pieces floating well away are dropped, with a thin rim.
+- **Unit tests** now cover Portrait's maths (mask clean-up, working size, the disc blur, refocusing, the saved record), which CI runs on every build.
+
+## v2.6.1 (folded into 2.7.0)
+- **Portrait fits phones with a small memory limit, like the Pixel 8a.** The Portrait blur keeps dozens of working maps in memory, which fit a Pixel 9 Pro XL's 512 MB app heap but not an 8a's roughly 256 MB. The working size now follows the phone's real heap (about 1024 px on 512 MB, about 750 px on 256 MB, never below 576), the depth, lens and focus cues are fused in a separate step so their maps are freed before the blur starts, and if memory still runs out the whole blur is retried a size smaller instead of failing. The radii scale with the working size, so the look is the same on every phone, and the log shows the size used.
+- **No more square notches at the edge of hair.** When the subject mask had small separate pieces (strands of hair, fringe), cleaning them up cleared a square margin around each, which cut rectangular bites out of the hair and shoulders. Pieces that sit against the subject are now kept, only pieces floating well away are dropped, and only with a thin rim.
+
+## v2.6.0
+- **Pixel-level Portrait on every phone.** Portrait now uses the same method everywhere: a learned depth map (MiDaS small, the same kind of network Pixel's Portrait relies on, 63 MB, downloaded once on Wi-Fi when you open Portrait and kept across updates) gives clean, smooth depth; the person model (or the object around your tap) sets the subject; the blur size follows the distance from the subject's depth; the background is blurred in layers, in linear light, and composited back over the sharp photo. The two-lens and focus-sweep cues now only refine the learned depth on phones that have them, and Portrait still works without the model (outline blur) until it has downloaded.
+- **Stronger, smoother background blur** by default (radii about 2.4x the old ones), sized to look like Pixel's.
+- **Same look on every phone:** only the working resolution of the blur changes with the phone's speed (768 / 896 / 1024 px), and the radii scale with it.
+- **Tap sets the subject in Portrait,** and the log says which depth sources a photo used ("learned depth", "two-lens stereo", "focus sweep").
+- Two-lens stereo now matches lenses by focal length (the Pixel 9 Pro XL lists its main lens under two ids), with a log line for every reason it is skipped.
+- Blur is done in linear light, so highlights keep their size and brightness.
+
+## v2.5.5
+- **Two-lens stereo now actually runs on the Pixel 9 Pro XL.** The phone lists its main lens under two ids (2 and 5, both 6.9 mm), and the app threw away the ultra-wide frame whenever the camera reported the other id. Lenses are now compared by focal length. The log (Report a problem) says why stereo was skipped, if it still is: wrong lens, no frame in time, focal ratio, or not enough texture.
+- **Tap to set the subject (Portrait).** Tapping the viewfinder sets focus as before and now also picks the subject: the person under your finger, or else the in-focus object around that spot (a patch around the touch if nothing stands out). That subject stays sharp and sets the focus plane; everything else is blurred around it. A hint pill shows until you tap; changing mode or zoom clears the tap.
+- **Lower memory use in Portrait:** the working picture is capped at 1024 pixels on the long side (was 1280), which cuts the garbage-collection stalls seen in the log.
+
+## v2.5.4
+- **Portrait viewfinder works like Pixel's.** The live view stays sharp and smooth (no blur overlay, no lag); the blur is applied after the shot, where the depth cues (outline, two lenses, focus sweep) make it accurate. The live preview experiment from 2.5.3 is removed.
+- **No more white blobs.** Bokeh used to swell every bright area before blurring, so a sheet of paper turned into a white smear. Now only small bright points (lights, reflections) swell into soft discs; big bright surfaces are left alone.
+- **No stray sharp patches.** Pieces of wall, sleeve or pillow that the subject model half-believed in (and noisy depth readings) used to stay sharp or turn dark as floating islands. Now only the main subject stays sharp, small separate pieces are dropped with a margin, and everything outside the subject gets at least the background blur; only something clearly and confidently in front is blurred lightly. The depth cues now adjust the blur less and are smoothed more.
+- **Report a problem in About**, below Updates (it is also still under Settings, Phone).
+- **Safer subject growth.** The sharp region can only grow from the subject across nearby pixels at the same measured depth (fingers, a held object); noisy depth can't flood it into the background, and a runaway growth is discarded in favour of the outline.
+
+## v2.5.3
+- **Portrait without a downloaded AI model.** The 63 MB depth model is gone (the app is smaller and nothing is downloaded). Depth now comes from what the phone can measure itself:
+  - **Subject outline plus distance ramp:** the person model (or the in-focus area for objects) is snapped to the picture's real edges and the blur deepens smoothly with distance from it.
+  - **Stereo from two lenses (1x, back camera):** each Portrait shot also takes the ultra-wide lens's view. It is cropped and enlarged to the main lens's field of view and matched pixel by pixel along the line between the lenses; nearer things shift more.
+  - **Depth from focus:** after the shot the lens steps from far to near (about 1.5 s, "Hold still") and the step at which each area looks sharpest says how far away it is.
+  The cues are used only where the picture has enough detail to trust; everywhere else the outline ramp decides. The photo's description in Details says which cues were used.
+- **Whole subject kept sharp:** the sharp region grows from the subject across connected pixels at the same measured depth (fingers, a held object), and is snapped to real edges.
+- **Google/Apple-style blur:** everything behind the subject gets a clear minimum blur that deepens with distance; things in front are blurred far less.
+- **Live preview:** each Portrait style (and the blur slider) shows in the viewfinder, using the person model on small frames about 10 times a second.
+- **Update button back in About:** Settings, the gear inside the gear: updates and the auto-check live there, and the update pill opens it.
+
+## v2.5.2
+- **Portrait with real depth.** (Replaced in 2.5.3 by the on-phone cues above.) An AI model (Intel's MiDaS, 63 MB, downloaded once and kept) turns the photo into a depth map. Portrait then simulates a large-aperture lens: every pixel is blurred by how far it is from the focus plane, in front of it or behind it; the picture is split into layers by blur size and stacked far to near, so a sharp subject can't bleed into the blur and a blurred foreground softens what is behind it. The depth map is snapped to the photo's real edges. The model downloads on Wi-Fi when you open Portrait (or when you tap to allow it on mobile data); until then the subject-outline blur from 2.5.1 is used.
+
+## v2.5.1
+- **Portrait rebuilt.** The subject outline is snapped to the picture's real edges (guided filter) instead of floating next to them, and leans slightly outward so hair and fine edges stay sharp. The blur uses background colours only, so the glow around the subject is gone, and it grows with distance from the subject like a real lens. Grain is put back into the blur so it doesn't look plastic.
+- **Works on objects too:** when no person is found, the part of the frame that is in focus becomes the subject.
+- **Looks:** Natural, Studio, Soft, Bokeh, Stage (dark backdrop) and Mono (black-and-white backdrop), chosen above the shutter in Portrait mode. The blur strength control stays, and the default is subtler.
+
+## v2.5.0
+- **RAW at 0.5x:** with RAW on, the ultra-wide shot now takes its RAW from the ultra-wide lens itself (it used to quietly come from the main lens). If the phone refuses that setup the shot falls back to JPEG only, with a note.
+- **Display P3:** photos are captured, processed and saved in the wider Display P3 colour range where the camera supports it.
+- **Ultra HDR:** photos keep an HDR gain map where the camera offers it (Settings > Photo > Ultra HDR). Re-processed shots carry the camera's gain map over, rotated, cropped and mirrored to match.
+- **Merged RAW:** with RAW on, multi-frame shots (HDR+, Night, zoom stacks) now capture several RAW frames and merge them in the RAW domain into one cleaner DNG. HDR+ DNGs are left underexposed on purpose (to keep highlight detail): lift the exposure in your RAW editor.
+- **Night Sight (Google):** a "Google" pill next to the 3 s / 6 s pills in Night mode uses the system's own Night extension where the phone offers it.
+- **Zoom dial:** long-press a zoom chip, then slide along the scale. A tick in your hand for every step, a firmer one at each lens.
+- **Brightness slider:** after tapping to focus, a sun appears beside the ring; drag it up or down.
+- **Smoother lens changes:** a blurred still of the old view fades out when the camera flips or jumps to another lens.
+- **Shutter ripple** and a **glowing thumbnail** while a photo develops.
+- **Settings** are grouped into Photo, Video, Display and Phone.
+- The problem report lists Ultra HDR and colour-space support per camera and what the current session is using.
+
+## v2.4.2
+- Lens distortion correction is now always requested (best quality for photos, fast for the viewfinder and video) wherever the camera supports it. The Pixel 9 Pro XL's ultra-wide only straightens the lens curve when asked; Google's camera asks, this app did not. It is part of how photos are processed, not a setting.
+- The problem report lists each camera's supported distortion correction modes.
+
+## v2.4.1
+- Fixed the JPEG / RAW switch in the viewfinder's format pill doing nothing: the popup closed the moment it was tapped and cancelled the switch half way. It now runs on the camera's own scope.
+- Settings has a small gear in its header that opens an About page: developer photo, Nikezvera, version and the Telegram contact (@xnzvix).
+- The DNG preview thumbnail is now sized within the 256 px limit, so it is actually written.
+
+## v2.4.0
+- New app icon and splash: the N + camera glyph, white on black.
+- Removed the QR scanner (and its barcode model) from the viewfinder and Settings.
+- RAW: DNG files now carry the capture's rotation (they used to open sideways), request the lens shading map (fixes the colour cast on the ultrawide) and embed a preview thumbnail.
+- Settings, reachable from every mode, now ends with an About section: developer Nikezvera, Telegram @xnzvix.
+
+## v2.3.3
+- Fixed the camera freezing after the app was in the background: the camera is now released when the app stops (finishing any recording first) and reopened when you return.
+
+## v2.3.2
+- Videos are saved the instant recording stops, so they can no longer vanish. With a filter on, the filtered copy is rendered in the background and replaces the original only when it finishes.
+- The thumbnail now opens recordings in a built-in player.
+
+## v2.3.1
+
+- Pixel 8a: the widest zoom chip (0.5x) was dropped because it was rounded down below the camera's real minimum (0.53x); the camera's own minimum is now used. With no telephoto, only the 2x crop is offered instead of an extra 5x.
+- Macro is only offered where a lens can focus close (about 5 cm or nearer): the 9 Pro XL's ultra-wide can; the 8a's ultra-wide is fixed-focus.
+- Processing budgets follow the app's real heap limit (about 16 bytes per merged pixel), so a Pixel 8a's smaller heap no longer risks running out of memory in a merge.
+- A lens readout above the zoom chips shows which physical lens is shooting (for example "Telephoto 17.9 mm · 10x").
+- The problem report lists the heap limit.

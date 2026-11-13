@@ -1,8 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Exposes the app-private Download subfolder of getExternalFilesDir() (where UpdateChecker
-     saves the OTA APK) through a content:// URI, since the system package installer can't be
-     granted read access to a plain file:// path in our private storage. Environment.DIRECTORY_DOWNLOADS
-     resolves to "Download" (singular), matching the path below. -->
+<!-- Exposes app-private storage through content:// URIs, since other apps (the share sheet, a
+     gallery-preview intent) can't be granted read access to a plain file:// path in our private
+     storage. -->
 <paths>
-    <external-files-path name="ota-downloads" path="Download/" />
+    <!-- Where CaptureStore stages a just-captured photo/video/RAW file before (and briefly after)
+         it's copied into the shared MediaStore collection: cache rather than files/, since once
+         the MediaStore copy exists this one is disposable. -->
+    <cache-path name="captures" path="captures/" />
+    <!-- Downloaded update APKs, handed to the package installer. -->
+    <cache-path name="updates" path="updates/" />
+    <!-- Problem reports shared from the settings sheet. -->
+    <cache-path name="logs" path="logs/" />
 </paths>
