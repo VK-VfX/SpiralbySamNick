@@ -1962,7 +1962,22 @@ private fun UpdateSection(controller: CameraController) {
         fontSize = 13.sp,
         modifier = Modifier.padding(horizontal = 4.dp),
     )
+    ReportBlock(controller)
+    Spacer(Modifier.height(24.dp))
+}
+
+/** "Something wrong?": shares the app's log (with the camera session details) so a problem can be diagnosed. */
+@Composable
+private fun ReportBlock(controller: CameraController) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     SheetSection("Something wrong?", "")
+    Text(
+        "Shares a log with this phone's camera details and what the app was doing, so a problem can be traced.",
+        color = CameraTheme.TEXT_SECONDARY,
+        fontSize = 13.sp,
+        modifier = Modifier.padding(horizontal = 4.dp),
+    )
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
         UpdateButton("Report a problem (share log)", Modifier.weight(1f)) {
             scope.launch {
@@ -1974,7 +1989,6 @@ private fun UpdateSection(controller: CameraController) {
             }
         }
     }
-    Spacer(Modifier.height(24.dp))
 }
 
 @Composable
@@ -2012,6 +2026,7 @@ private fun AboutPage(controller: CameraController) {
         Spacer(Modifier.height(10.dp))
         Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             UpdatesBlock(controller)
+            ReportBlock(controller)
         }
         Spacer(Modifier.height(16.dp))
     }

@@ -114,8 +114,9 @@ object PortraitEffect {
         val n = ww * wh
 
         // The subject: a person if the model finds one, otherwise whatever is in focus.
-        val person = personMask(work, ww, wh)?.let { refine(lum, it, ww, wh) }
-        val subject = person ?: focusMask(lum, ww, wh)?.let { refine(lum, it, ww, wh) }
+        val person = personMask(work, ww, wh)?.let { cleanMask(it, ww, wh) }?.let { refine(lum, it, ww, wh) }
+        val subject = (person ?: focusMask(lum, ww, wh)?.let { cleanMask(it, ww, wh) }?.let { refine(lum, it, ww, wh) })
+            ?.let { cleanMask(it, ww, wh) }
 
         // The outline cue: depth falls away smoothly with distance from the subject's edge.
         val ramp = FloatArray(n) { 1f }
@@ -167,9 +168,9 @@ object PortraitEffect {
         // Depth: the measured cues where they are trustworthy, the outline ramp everywhere as a
         // gentle prior, then snapped to the picture's own edges.
         var depth = FloatArray(n)
-        val rampWeight = if (hasCues) 0.25f else 1f
+        val rampWeight = if (hasCues) 0.6f else 1f
         for (i in 0 until n) depth[i] = (cueDepth[i] * cueConf[i] + ramp[i] * rampWeight) / (cueConf[i] + rampWeight)
-        depth = guidedFilter(lum, depth, ww, wh, max(3, max(ww, wh) / 100), 0.001f)
+        depth = guidedFilter(lum, depth, ww, wh, max(4, max(ww, wh) / 60), 0.002f)
 
         // Focus on the subject's depth, or on the middle of the frame.
         val hist = IntArray(256)
@@ -237,7 +238,7 @@ object PortraitEffect {
                 focusCueDepth = values[values.size / 2]
             }
         }
-        val reachLimit = 0.06f * max(ww, wh)
+        val reachLimit = 0.03f * max(ww, wh)
         val seedCount = tail
         if (focusCueDepth >= 0f) {
             while (head < tail) {
@@ -247,7 +248,7 @@ object PortraitEffect {
                 fun grow(j: Int) {
                     // Only things close to the subject can belong to it (a held object, fingers), so
                     // noisy depth can never flood the region out into the background.
-                    if (!region[j] && cueConf[j] > 0.35f && kotlin.math.abs(cueDepth[j] - focusCueDepth) < band &&
+                    if (!region[j] && cueConf[j] > 0.5f && kotlin.math.abs(cueDepth[j] - focusCueDepth) < band &&
                         kotlin.math.abs(cueDepth[j] - cueDepth[i]) < stepLimit &&
                         (subjectDistance == null || subjectDistance[j] < reachLimit)
                     ) {
@@ -269,7 +270,8 @@ object PortraitEffect {
         val grown = FloatArray(n) { if (region[it]) 1f else 0f }
         // Snap the grown region to the picture's own edges, and keep the subject's own shape too.
         val regionMask = refine(lum, grown, ww, wh)
-        val keep = FloatArray(n) { i -> max(regionMask[i], subject?.get(i) ?: 0f) }
+        // Nothing may stay sharp unless it is joined to the main subject: stray islands are dropped.
+        val keep = cleanMask(FloatArray(n) { i -> max(regionMask[i], subject?.get(i) ?: 0f) }, ww, wh)
         val bloom = bloomGain(lum, ww, wh, maxRadius, params.bloom)
 
         // Blur size per pixel (0..1), and whether it is in front of or behind the focus plane.
@@ -282,9 +284,12 @@ object PortraitEffect {
         for (i in 0 until n) {
             val s = depth[i] - focus
             val ramp = smooth(((kotlin.math.abs(s) - 0.04f) / 0.5f).coerceIn(0f, 1f))
-            val c = if (s > 0f) 0.3f * ramp else 0.38f + 0.62f * ramp
+            // Only something clearly and confidently in front of the subject gets the light blur;
+            // everything else outside the subject is background, however noisy the depth there is.
+            val front = s > 0.22f && cueConf[i] > 0.6f
+            val c = if (front) 0.3f * ramp else 0.38f + 0.62f * ramp
             coc[i] = c * (1f - keep[i])
-            inFront[i] = s > 0f && keep[i] < 0.5f
+            inFront[i] = front && keep[i] < 0.5f
             if (coc[i] < 0.05f) sharp++
         }
         val sharpShare = sharp.toFloat() / n
@@ -604,11 +609,52 @@ object PortraitEffect {
         return if (covered < 0.04f || covered > 0.8f) null else conf
     }
 
+    /**
+     * Keeps only the main subject of [mask]: pieces (above 0.5) that are far smaller than the
+     * biggest one are dropped, together with a margin around them, so stray patches of wall or
+     * clothing that the model half-believes in can't stay sharp.
+     */
+    internal fun cleanMask(mask: FloatArray, w: Int, h: Int): FloatArray {
+        val n = w * h
+        val label = IntArray(n)
+        val queue = IntArray(n)
+        val sizes = ArrayList<Int>()
+        var next = 0
+        for (start in 0 until n) {
+            if (mask[start] <= 0.5f || label[start] != 0) continue
+            next++
+            var head = 0
+            var tail = 0
+            queue[tail++] = start
+            label[start] = next
+            while (head < tail) {
+                val i = queue[head++]
+                val x = i % w
+                val y = i / w
+                if (x > 0 && mask[i - 1] > 0.5f && label[i - 1] == 0) { label[i - 1] = next; queue[tail++] = i - 1 }
+                if (x < w - 1 && mask[i + 1] > 0.5f && label[i + 1] == 0) { label[i + 1] = next; queue[tail++] = i + 1 }
+                if (y > 0 && mask[i - w] > 0.5f && label[i - w] == 0) { label[i - w] = next; queue[tail++] = i - w }
+                if (y < h - 1 && mask[i + w] > 0.5f && label[i + w] == 0) { label[i + w] = next; queue[tail++] = i + w }
+            }
+            sizes.add(tail)
+        }
+        if (sizes.size <= 1) return mask
+        val biggest = sizes.maxOrNull() ?: return mask
+        val keepLabel = BooleanArray(next + 1)
+        for (k in 0 until next) keepLabel[k + 1] = sizes[k] >= biggest * 0.15f
+        if (keepLabel.count { it } == next) return mask
+        // Everything within a margin of a dropped piece is cleared; the rest is untouched.
+        val dropped = FloatArray(n) { i -> if (label[i] != 0 && !keepLabel[label[i]]) 1f else 0f }
+        val tmp = FloatArray(n)
+        boxBlurF(dropped, tmp, w, h, max(3, max(w, h) / 120))
+        return FloatArray(n) { i -> if (dropped[i] > 0.001f) 0f else mask[i] }
+    }
+
     /** Snaps the rough mask to the picture's own edges with a guided filter, leaning outward. */
     internal fun refine(lum: FloatArray, rough: FloatArray, ww: Int, wh: Int): FloatArray {
         val radius = max(3, max(ww, wh) / 150)
         val q = guidedFilter(lum, rough, ww, wh, radius, 0.0006f)
-        return FloatArray(q.size) { i -> smooth(((q[i] - 0.16f) / 0.46f).coerceIn(0f, 1f)) }
+        return FloatArray(q.size) { i -> smooth(((q[i] - 0.22f) / 0.42f).coerceIn(0f, 1f)) }
     }
 
     /** Edge-aware smoothing of [p] guided by [guide] (He et al.'s guided filter, grayscale). */

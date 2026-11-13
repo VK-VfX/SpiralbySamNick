@@ -217,6 +217,8 @@ Not built yet (needs on-device testing): a YUV/RAW burst with zero-shutter-lag, 
 ## v2.5.4
 - **Portrait viewfinder works like Pixel's.** The live view stays sharp and smooth (no blur overlay, no lag); the blur is applied after the shot, where the depth cues (outline, two lenses, focus sweep) make it accurate. The live preview experiment from 2.5.3 is removed.
 - **No more white blobs.** Bokeh used to swell every bright area before blurring, so a sheet of paper turned into a white smear. Now only small bright points (lights, reflections) swell into soft discs; big bright surfaces are left alone.
+- **No stray sharp patches.** Pieces of wall, sleeve or pillow that the subject model half-believed in (and noisy depth readings) used to stay sharp or turn dark as floating islands. Now only the main subject stays sharp, small separate pieces are dropped with a margin, and everything outside the subject gets at least the background blur; only something clearly and confidently in front is blurred lightly. The depth cues now adjust the blur less and are smoothed more.
+- **Report a problem in About**, below Updates (it is also still under Settings, Phone).
 - **Safer subject growth.** The sharp region can only grow from the subject across nearby pixels at the same measured depth (fingers, a held object); noisy depth can't flood it into the background, and a runaway growth is discarded in favour of the outline.
 
 ## v2.5.3
