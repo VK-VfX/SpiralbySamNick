@@ -1264,12 +1264,17 @@ class CameraEngine(private val context: Context) {
             var stereoH = 0
             var stereoGiveUp = false
             var stereoWaiting = false
+            var stereoLogged = false
 
             fun maybeFinish() {
                 if (finished) return
                 if (completed + failed < total) return
                 if (jpegs.size < completed) return
                 if (wantsRaw && rawImages.size < rawResultsByIndex.size) return
+                if (wantsStereo && stereoLuma == null && stereoGiveUp && !stereoLogged) {
+                    stereoLogged = true
+                    android.util.Log.i("CameraEngine", "Stereo skipped: the second lens's frame didn't arrive in time")
+                }
                 if (wantsStereo && stereoLuma == null && !stereoGiveUp) {
                     // The second lens's frame normally lands with the others; if it never does, go on without it.
                     if (!stereoWaiting) {
@@ -1369,6 +1374,18 @@ class CameraEngine(private val context: Context) {
             }, backgroundHandler)
         }
 
+    /** True when two physical camera ids are the same lens (equal focal length), as on phones that list a lens twice. */
+    private fun sameLens(a: String, b: String): Boolean {
+        fun focal(id: String): Float? = try {
+            cameraManager.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.firstOrNull()
+        } catch (e: Exception) {
+            null
+        }
+        val fa = focal(a) ?: return false
+        val fb = focal(b) ?: return false
+        return abs(fa - fb) < 0.02f * max(fa, fb)
+    }
+
     /** What the stereo step needs to line the second lens's frame up with the main picture. */
     @SuppressLint("NewApi")
     private fun buildStereoFrame(luma: ByteArray, w: Int, h: Int, deviceRotationDegrees: Int, result: TotalCaptureResult?): StereoFrame? {
@@ -1377,7 +1394,11 @@ class CameraEngine(private val context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return null
         val active = result?.get(CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID)
         // If the camera had switched to another lens for this shot, the two views don't line up.
-        if (active != null && active != mainId) return null
+        // Some phones list one lens under two ids, so lenses are compared by focal length.
+        if (active != null && active != mainId && !sameLens(active, mainId)) {
+            android.util.Log.i("CameraEngine", "Stereo skipped: shot used lens $active, expected $mainId")
+            return null
+        }
         val wideChars = try { cameraManager.getCameraCharacteristics(wideId) } catch (e: Exception) { return null }
         val mainChars = try { cameraManager.getCameraCharacteristics(mainId) } catch (e: Exception) { characteristics ?: return null }
         fun focalNorm(c: CameraCharacteristics): Float? {

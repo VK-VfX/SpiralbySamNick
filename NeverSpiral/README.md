@@ -214,6 +214,10 @@ Not built yet (needs on-device testing): a YUV/RAW burst with zero-shutter-lag, 
 - Zoom quality: from 2x up, a shot is a 5-frame merged burst with minimal in-camera noise reduction (Settings: Zoom enhance), followed by a wider-radius unsharp mask that grows with the zoom level. Each photo's description now records the zoom and which physical lens captured it, so a telephoto shot can be told from a cropped main-lens one.
 - Predictive-back callback enabled for Android 13+.
 
+## v2.5.5
+- **Two-lens stereo now actually runs on the Pixel 9 Pro XL.** The phone lists its main lens under two ids (2 and 5, both 6.9 mm), and the app threw away the ultra-wide frame whenever the camera reported the other id. Lenses are now compared by focal length. The log (Report a problem) says why stereo was skipped, if it still is: wrong lens, no frame in time, focal ratio, or not enough texture.
+- **Lower memory use in Portrait:** the working picture is capped at 1024 pixels on the long side (was 1280), which cuts the garbage-collection stalls seen in the log.
+
 ## v2.5.4
 - **Portrait viewfinder works like Pixel's.** The live view stays sharp and smooth (no blur overlay, no lag); the blur is applied after the shot, where the depth cues (outline, two lenses, focus sweep) make it accurate. The live preview experiment from 2.5.3 is removed.
 - **No more white blobs.** Bokeh used to swell every bright area before blurring, so a sheet of paper turned into a white smear. Now only small bright points (lights, reflections) swell into soft discs; big bright surfaces are left alone.

@@ -95,7 +95,11 @@ object PortraitDepth {
         val uw = upright.width
         val uh = upright.height
         val k = f.focalWide / f.focalMain
-        if (k < 0.25f || k > 0.95f) return null
+        Log.i(TAG, "Stereo: wide frame ${f.width}x${f.height}, turn $turns, focal ratio %.2f, lenses %s".format(k, if (f.horizontal) "side by side" else "stacked"))
+        if (k < 0.25f || k > 0.95f) {
+            Log.i(TAG, "Stereo skipped: focal ratio out of range")
+            return null
+        }
 
         // Where the finished picture sits inside the lens's whole frame (it was cropped to the ratio).
         val fullAspect = uw.toFloat() / uh
@@ -136,7 +140,10 @@ object PortraitDepth {
             ea += a[i] * a[i]
             eb += b[i] * b[i]
         }
-        if (ea < 1e-3f || eb < 1e-3f) return null
+        if (ea < 1e-3f || eb < 1e-3f) {
+            Log.i(TAG, "Stereo skipped: not enough texture to compare")
+            return null
+        }
         val gain = sqrt(ea / eb)
         for (i in b.indices) b[i] *= gain
 

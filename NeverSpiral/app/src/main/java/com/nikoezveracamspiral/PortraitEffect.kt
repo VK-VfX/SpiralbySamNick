@@ -62,7 +62,7 @@ object PortraitEffect {
     fun apply(pixels: IntArray, w: Int, h: Int, strength: Float, style: PortraitStyle = PortraitStyle.NATURAL, cues: DepthCues? = null): Boolean {
         val params = paramsFor(style)
         val longSide = max(w, h)
-        val scale = min(1f, 1280f / longSide)
+        val scale = min(1f, 1024f / longSide)
         val ww = max(16, (w * scale).roundToInt())
         val wh = max(16, (h * scale).roundToInt())
         val n = ww * wh
