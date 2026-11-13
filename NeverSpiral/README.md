@@ -215,8 +215,9 @@ Not built yet (needs on-device testing): a YUV/RAW burst with zero-shutter-lag, 
 - Predictive-back callback enabled for Android 13+.
 
 ## v2.5.4
-- **Smooth live Portrait preview.** On Android 12+ the blur is now done by the phone's graphics chip instead of the processor; the processor only finds the subject (about 240 pixels wide, resampled smoothly so fingertips are no longer jagged). The viewfinder keeps its full frame rate and the lag is mostly gone. Older phones keep the processor blur.
-- **No more white blobs.** Bokeh used to swell every bright area before blurring, so a sheet of paper turned into a white smear. Now only small bright points (lights, reflections) swell into soft discs; big bright surfaces are left alone. This applies to the saved photo too.
+- **Portrait viewfinder works like Pixel's.** The live view stays sharp and smooth (no blur overlay, no lag); the blur is applied after the shot, where the depth cues (outline, two lenses, focus sweep) make it accurate. The live preview experiment from 2.5.3 is removed.
+- **No more white blobs.** Bokeh used to swell every bright area before blurring, so a sheet of paper turned into a white smear. Now only small bright points (lights, reflections) swell into soft discs; big bright surfaces are left alone.
+- **Safer subject growth.** The sharp region can only grow from the subject across nearby pixels at the same measured depth (fingers, a held object); noisy depth can't flood it into the background, and a runaway growth is discarded in favour of the outline.
 
 ## v2.5.3
 - **Portrait without a downloaded AI model.** The 63 MB depth model is gone (the app is smaller and nothing is downloaded). Depth now comes from what the phone can measure itself:

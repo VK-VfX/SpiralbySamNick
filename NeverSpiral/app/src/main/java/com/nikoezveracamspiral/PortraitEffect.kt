@@ -83,14 +83,6 @@ object PortraitEffect {
         return true
     }
 
-    /** How Portrait's live viewfinder dresses the blurred background for a style. */
-    internal class LiveStyle(val radius: Float, val gain: Float, val mono: Boolean)
-
-    internal fun liveStyle(style: PortraitStyle): LiveStyle {
-        val p = paramsFor(style)
-        return LiveStyle(p.radius, p.backgroundGain, p.mono)
-    }
-
     /**
      * Per-pixel gain that makes small bright points (lights, reflections) swell before they are
      * blurred into soft discs, while big bright surfaces such as a sheet of paper are left alone
@@ -107,27 +99,7 @@ object PortraitEffect {
         }
     }
 
-    /**
-     * The live viewfinder version: the blurred background for [style] as an ARGB picture whose alpha
-     * says how much of it to lay over the live view (0 over the subject). [segmentation] is the
-     * person mask at [ww] x [wh] if one is available; otherwise the in-focus area is used.
-     */
-    internal fun overlay(work: IntArray, ww: Int, wh: Int, strength: Float, style: PortraitStyle, segmentation: FloatArray?): IntArray? {
-        val params = paramsFor(style)
-        val lum = FloatArray(ww * wh) { i ->
-            val p = work[i]
-            (0.299f * ((p shr 16) and 0xFF) + 0.587f * ((p shr 8) and 0xFF) + 0.114f * (p and 0xFF)) / 255f
-        }
-        val factor = 0.2f + 0.8f * strength.coerceIn(0f, 1f)
-        val maxRadius = (params.radius * max(ww, wh) * factor * 1.5f).coerceAtLeast(2f)
-        val render = maskRender(work, lum, ww, wh, params, maxRadius, segmentation) ?: return null
-        return IntArray(ww * wh) { i ->
-            val a = (render.weight[i].coerceIn(0f, 1f) * 255f).toInt()
-            (a shl 24) or (render.image[i] and 0xFFFFFF)
-        }
-    }
-
-    // ---- AI depth renderer ----
+    // ---- depth renderer ----
 
     /**
      * Simulates a large-aperture lens from a depth map built out of what the camera can measure
@@ -147,10 +119,10 @@ object PortraitEffect {
 
         // The outline cue: depth falls away smoothly with distance from the subject's edge.
         val ramp = FloatArray(n) { 1f }
-        if (subject != null) {
-            val distance = distanceFromSubject(subject, ww, wh)
+        val subjectDistance: FloatArray? = if (subject != null) distanceFromSubject(subject, ww, wh) else null
+        if (subjectDistance != null) {
             val reach = 0.16f * max(ww, wh)
-            for (i in 0 until n) ramp[i] = 1f - 0.75f * smooth((distance[i] / reach).coerceIn(0f, 1f))
+            for (i in 0 until n) ramp[i] = 1f - 0.75f * smooth((subjectDistance[i] / reach).coerceIn(0f, 1f))
         }
 
         // The measured cues, each brought to 0..1 (larger = nearer) at working size.
@@ -265,14 +237,19 @@ object PortraitEffect {
                 focusCueDepth = values[values.size / 2]
             }
         }
+        val reachLimit = 0.06f * max(ww, wh)
+        val seedCount = tail
         if (focusCueDepth >= 0f) {
             while (head < tail) {
                 val i = queue[head++]
                 val x = i % ww
                 val y = i / ww
                 fun grow(j: Int) {
+                    // Only things close to the subject can belong to it (a held object, fingers), so
+                    // noisy depth can never flood the region out into the background.
                     if (!region[j] && cueConf[j] > 0.35f && kotlin.math.abs(cueDepth[j] - focusCueDepth) < band &&
-                        kotlin.math.abs(cueDepth[j] - cueDepth[i]) < stepLimit
+                        kotlin.math.abs(cueDepth[j] - cueDepth[i]) < stepLimit &&
+                        (subjectDistance == null || subjectDistance[j] < reachLimit)
                     ) {
                         region[j] = true
                         queue[tail++] = j
@@ -283,6 +260,11 @@ object PortraitEffect {
                 if (y > 0) grow(i - ww)
                 if (y < wh - 1) grow(i + ww)
             }
+        }
+        // If growth ran away anyway (far more than the subject itself), distrust it and keep the outline.
+        if (tail > max(seedCount * 3, n / 3) && seedCount > 0) {
+            region.fill(false)
+            for (k in 0 until seedCount) region[queue[k]] = true
         }
         val grown = FloatArray(n) { if (region[it]) 1f else 0f }
         // Snap the grown region to the picture's own edges, and keep the subject's own shape too.
@@ -438,10 +420,10 @@ object PortraitEffect {
 
     // ---- outline renderer (the last resort when no depth can be built) ----
 
-    private fun maskRender(work: IntArray, lum: FloatArray, ww: Int, wh: Int, params: Params, maxRadius: Float, given: FloatArray? = null): Render? {
+    private fun maskRender(work: IntArray, lum: FloatArray, ww: Int, wh: Int, params: Params, maxRadius: Float): Render? {
         val n = ww * wh
         // The subject, snapped to the picture's real edges.
-        val rough = given ?: personMask(work, ww, wh) ?: focusMask(lum, ww, wh) ?: return null
+        val rough = personMask(work, ww, wh) ?: focusMask(lum, ww, wh) ?: return null
         val mask = refine(lum, rough, ww, wh)
         var coverage = 0f
         for (m in mask) if (m > 0.5f) coverage += 1f
