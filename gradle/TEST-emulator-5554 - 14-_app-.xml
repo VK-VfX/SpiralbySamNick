@@ -1,0 +1,17 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuite name="com.nikoezveracamspiral.AppSmokeTest" tests="9" failures="0" errors="0" skipped="0" time="74.242" timestamp="2026-11-13T13:55:51" hostname="localhost">
+  <properties>
+    <property name="device" value="emulator-5554 - 14" />
+    <property name="flavor" value="" />
+    <property name="project" value=":app" />
+  </properties>
+  <testcase name="opensPortraitAndTakesAPicture" classname="com.nikoezveracamspiral.AppSmokeTest" time="52.707" />
+  <testcase name="blackTieIsMonochrome" classname="com.nikoezveracamspiral.PixelLooksRenderTest" time="0.371" />
+  <testcase name="velvetPushesBluesMoreThanGreens" classname="com.nikoezveracamspiral.PixelLooksRenderTest" time="0.02" />
+  <testcase name="vibranceLiftsMutedColoursMoreThanStrongOnes" classname="com.nikoezveracamspiral.PixelLooksRenderTest" time="0.005" />
+  <testcase name="everyStyleOnAPhotoThenEditingIt" classname="com.nikoezveracamspiral.PortraitPipelineTest" time="15.899" />
+  <testcase name="aPortraitOnAHeapTheSizeOfAnEightAs" classname="com.nikoezveracamspiral.PortraitPipelineTest" time="3.172" />
+  <testcase name="aPictureWithNothingBrightGetsNoHdrLayer" classname="com.nikoezveracamspiral.UltraHdrGainmapTest" time="0.006" />
+  <testcase name="darkPartsLoseTheBoostAndBrightPartsKeepIt" classname="com.nikoezveracamspiral.UltraHdrGainmapTest" time="0.001" />
+  <testcase name="everyStyleDrawsWithTheRealLogo" classname="com.nikoezveracamspiral.WatermarkRenderTest" time="0.156" />
+</testsuite>
