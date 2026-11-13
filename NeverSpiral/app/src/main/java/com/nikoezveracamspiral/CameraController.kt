@@ -90,6 +90,9 @@ class CameraController(private val context: Context) {
     var ultraHdrEnabled by mutableStateOf(true)
     /** Night mode uses Google's own Night Sight (the system extension) rather than this app's. */
     var nightGoogle by mutableStateOf(false)
+    /** Where the portrait depth model stands (downloaded once, then kept). */
+    var depthStatus by mutableStateOf<DepthStatus>(DepthStatus.Missing)
+        private set
     /** Whether the open camera offers Google's Night extension. */
     var googleNightAvailable by mutableStateOf(false)
         private set
@@ -228,6 +231,8 @@ class CameraController(private val context: Context) {
     }
 
     init {
+        DepthModel.init(context)
+        depthStatus = DepthModel.status()
         try {
             luts.addAll(LutStore.load(context))
         } catch (e: Exception) {
@@ -415,6 +420,7 @@ class CameraController(private val context: Context) {
             setZoom(1f)
         }
         engine.nightPreviewBoost = newMode == CaptureMode.NIGHT
+        if (newMode == CaptureMode.PORTRAIT) fetchDepthModel(userAsked = false)
         if (newMode == CaptureMode.NIGHT) startSteadyDetection() else stopSteadyDetection()
         engine.startRepeatingPreview()
         if (newMode == CaptureMode.NIGHT || previous == CaptureMode.NIGHT) applyNightEngine()
@@ -580,6 +586,38 @@ class CameraController(private val context: Context) {
     fun setExposureIndex(index: Int) {
         val range = engine.exposureCompensationRange ?: return
         updateProSettings { it.copy(exposureCompensation = index.coerceIn(range.lower, range.upper)) }
+    }
+
+    // ---- portrait depth model ----
+
+    private var depthJob: Job? = null
+
+    /** Downloads the portrait depth model. Automatic only on an unmetered (Wi-Fi) connection; on
+     * mobile data it waits for the user to ask, since the file is 63 MB. */
+    fun fetchDepthModel(userAsked: Boolean) {
+        if (DepthModel.isReady()) {
+            depthStatus = DepthStatus.Ready
+            return
+        }
+        if (depthJob?.isActive == true) return
+        if (!userAsked) {
+            val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+            val metered = manager?.isActiveNetworkMetered ?: true
+            if (metered || depthStatus is DepthStatus.Failed) return
+        }
+        depthStatus = DepthStatus.Downloading(0f)
+        depthJob = controllerScope.launch {
+            try {
+                DepthModel.download { progress -> depthStatus = DepthStatus.Downloading(progress) }
+                depthStatus = DepthStatus.Ready
+                lastError = "Portrait depth model ready: portraits now use AI depth"
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Depth model download failed", e)
+                depthStatus = DepthStatus.Failed(e.message ?: e::class.simpleName ?: "unknown error")
+            }
+        }
     }
 
     // ---- Google's own Night Sight (system extension) ----
@@ -839,7 +877,7 @@ class CameraController(private val context: Context) {
             val summary = when {
                 night -> "Night Sight, ${exposures.size} frames"
                 tone is PhotoProcessor.ToneMode.HdrPlus -> "HDR+, ${exposures.size} frames"
-                mode == CaptureMode.PORTRAIT -> "Portrait, ${portraitStyle.label}"
+                mode == CaptureMode.PORTRAIT -> "Portrait, ${portraitStyle.label} (${if (DepthModel.isReady()) "AI depth" else "subject outline"})"
                 mode == CaptureMode.MACRO -> "Macro"
                 else -> "Standard"
             }

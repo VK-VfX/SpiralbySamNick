@@ -214,6 +214,9 @@ Not built yet (needs on-device testing): a YUV/RAW burst with zero-shutter-lag, 
 - Zoom quality: from 2x up, a shot is a 5-frame merged burst with minimal in-camera noise reduction (Settings: Zoom enhance), followed by a wider-radius unsharp mask that grows with the zoom level. Each photo's description now records the zoom and which physical lens captured it, so a telephoto shot can be told from a cropped main-lens one.
 - Predictive-back callback enabled for Android 13+.
 
+## v2.5.2
+- **Portrait with real depth.** An AI model (Intel's MiDaS, 63 MB, downloaded once and kept) turns the photo into a depth map. Portrait then simulates a large-aperture lens: every pixel is blurred by how far it is from the focus plane, in front of it or behind it; the picture is split into layers by blur size and stacked far to near, so a sharp subject can't bleed into the blur and a blurred foreground softens what is behind it. The depth map is snapped to the photo's real edges. The model downloads on Wi-Fi when you open Portrait (or when you tap to allow it on mobile data); until then the subject-outline blur from 2.5.1 is used.
+
 ## v2.5.1
 - **Portrait rebuilt.** The subject outline is snapped to the picture's real edges (guided filter) instead of floating next to them, and leans slightly outward so hair and fine edges stay sharp. The blur uses background colours only, so the glow around the subject is gone, and it grows with distance from the subject like a real lens. Grain is put back into the blur so it doesn't look plastic.
 - **Works on objects too:** when no person is found, the part of the frame that is in focus becomes the subject.

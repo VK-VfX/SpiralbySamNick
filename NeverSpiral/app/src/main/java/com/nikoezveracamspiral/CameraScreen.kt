@@ -536,6 +536,14 @@ private fun Viewfinder(controller: CameraController, showControls: Boolean, stri
                 InfoPill(if (controller.mode.isVideo) "Slo-mo in progress: recording normal video" else "${controller.mode.label} in progress: taking a standard photo")
             }
             if (controller.mode == CaptureMode.MACRO) MacroPill(controller)
+            if (controller.mode == CaptureMode.PORTRAIT) {
+                when (val depth = controller.depthStatus) {
+                    is DepthStatus.Downloading -> InfoPill("Downloading the portrait depth model: ${(depth.progress * 100).toInt()}%")
+                    is DepthStatus.Missing -> InfoPill("Tap to get the AI depth model for portraits (63 MB)", onClick = { controller.fetchDepthModel(userAsked = true) })
+                    is DepthStatus.Failed -> InfoPill("Depth model download failed. Tap to retry", onClick = { controller.fetchDepthModel(userAsked = true) })
+                    is DepthStatus.Ready -> Unit
+                }
+            }
             if (controller.aeAfLocked) InfoPill("AE/AF locked: long-press to unlock")
             if (controller.mode == CaptureMode.NIGHT && controller.tripod && controller.holdStillMs == 0L) {
                 InfoPill("Steady: using longer exposures")
@@ -1910,6 +1918,28 @@ private fun UpdateSection(controller: CameraController) {
         fontSize = 13.sp,
         modifier = Modifier.padding(horizontal = 4.dp),
     )
+    SheetSection(
+        "Portrait depth model",
+        when (val depth = controller.depthStatus) {
+            is DepthStatus.Ready -> "Ready"
+            is DepthStatus.Downloading -> "Downloading ${(depth.progress * 100).toInt()}%"
+            is DepthStatus.Failed -> "Download failed"
+            is DepthStatus.Missing -> "Not downloaded"
+        },
+    )
+    Text(
+        when (val depth = controller.depthStatus) {
+            is DepthStatus.Ready -> "Portraits are blurred by real distance, from an AI depth map made on your phone."
+            is DepthStatus.Failed -> "Couldn't download it: ${depth.message}"
+            else -> "A one-time 63 MB download that lets Portrait blur by real distance, like a large lens. Until then Portrait blurs around the subject's outline."
+        },
+        color = CameraTheme.TEXT_SECONDARY,
+        fontSize = 13.sp,
+        modifier = Modifier.padding(horizontal = 4.dp),
+    )
+    if (controller.depthStatus is DepthStatus.Missing || controller.depthStatus is DepthStatus.Failed) {
+        UpdateButton("Download depth model (63 MB)", Modifier.fillMaxWidth()) { controller.fetchDepthModel(userAsked = true) }
+    }
     SheetSection("Updates", "v${UpdateManager.installedVersionName(context)}")
     val message = when (status) {
         UpdateStatus.Idle -> "Check for a newer build of Niko's Cam."

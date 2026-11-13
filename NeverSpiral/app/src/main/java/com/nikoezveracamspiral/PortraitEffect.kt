@@ -54,6 +54,10 @@ object PortraitEffect {
         PortraitStyle.MONO -> Params(0.011f, backgroundGain = 0.9f, mono = true)
     }
 
+    /** What a renderer hands to [composite]: the blurred picture at working size, and for every
+     * pixel how much of it to use (0 = keep the sharp original, 1 = fully the blurred one). */
+    private class Render(val image: IntArray, val weight: FloatArray)
+
     /** Returns true if a subject was found and the background was blurred. [strength] is 0..1. */
     fun apply(pixels: IntArray, w: Int, h: Int, strength: Float, style: PortraitStyle = PortraitStyle.NATURAL): Boolean {
         val params = paramsFor(style)
@@ -67,28 +71,218 @@ object PortraitEffect {
             val p = work[i]
             (0.299f * ((p shr 16) and 0xFF) + 0.587f * ((p shr 8) and 0xFF) + 0.114f * (p and 0xFF)) / 255f
         }
+        val strengthFactor = 0.3f + strength.coerceIn(0f, 1f)
+        val maxRadius = (params.radius * longSide * strengthFactor * (ww.toFloat() / w)).coerceAtLeast(2f)
 
-        // 1 + 2. The subject, snapped to the picture's real edges.
-        val rough = personMask(work, ww, wh) ?: focusMask(lum, ww, wh) ?: return false
+        // Preferred: a real depth map from the AI model. Otherwise the subject-outline blur.
+        val render = (if (DepthModel.isReady()) depthRender(work, lum, ww, wh, params, maxRadius) else null)
+            ?: maskRender(work, lum, ww, wh, params, maxRadius)
+            ?: return false
+        composite(pixels, w, h, render, ww, wh, params.subjectLift)
+        return true
+    }
+
+    // ---- AI depth renderer ----
+
+    /**
+     * Simulates a large-aperture lens from an AI depth map. Every pixel gets a blur size from how
+     * far its depth is from the focus plane (in front or behind), the picture is split into layers
+     * by blur size, each layer is blurred on its own, and the layers are stacked far to near. A
+     * sharp subject therefore can't bleed into the blur behind it (no halo), and a blurred
+     * foreground can soften what is behind it, as with a real lens.
+     */
+    private fun depthRender(work: IntArray, lum: FloatArray, ww: Int, wh: Int, params: Params, maxRadius: Float): Render? {
+        val n = ww * wh
+        val raw = DepthModel.estimate(work, ww, wh) ?: return null
+
+        // Depth at working size, normalised, then snapped to the picture's own edges.
+        var depth = resize(raw, 256, 256, ww, wh)
+        val sample = FloatArray(n / 16 + 1) { depth[min(it * 16, n - 1)] }
+        sample.sort()
+        val low = sample[(sample.size * 0.02f).toInt()]
+        val high = sample[min(sample.size - 1, (sample.size * 0.98f).toInt())]
+        if (high - low < 1e-6f) return null
+        for (i in 0 until n) depth[i] = ((depth[i] - low) / (high - low)).coerceIn(0f, 1f)
+        depth = guidedFilter(lum, depth, ww, wh, max(3, max(ww, wh) / 100), 0.001f)
+
+        // A person, if there is one, anchors the focus and stays sharp.
+        val subject = personMask(work, ww, wh)?.let { refine(lum, it, ww, wh) }
+
+        // Focus on the subject's depth, or on the middle of the frame.
+        val hist = IntArray(256)
+        var total = 0
+        if (subject != null) {
+            for (i in 0 until n) if (subject[i] > 0.6f) {
+                hist[(depth[i] * 255f).toInt()]++
+                total++
+            }
+        }
+        if (total < n / 200) {
+            hist.fill(0)
+            total = 0
+            for (y in (wh * 0.4f).toInt() until (wh * 0.6f).toInt()) {
+                for (x in (ww * 0.4f).toInt() until (ww * 0.6f).toInt()) {
+                    hist[(depth[y * ww + x] * 255f).toInt()]++
+                    total++
+                }
+            }
+        }
+        if (total == 0) return null
+        var seen = 0
+        var bin = 0
+        while (bin < 255 && seen + hist[bin] < total / 2) {
+            seen += hist[bin]
+            bin++
+        }
+        val focus = (bin + 0.5f) / 255f
+
+        // Blur size per pixel (0..1), and whether it is in front of or behind the focus plane.
+        val coc = FloatArray(n)
+        val inFront = BooleanArray(n)
+        var sharp = 0
+        for (i in 0 until n) {
+            val s = depth[i] - focus
+            var c = smooth(((kotlin.math.abs(s) - 0.06f) / 0.6f).coerceIn(0f, 1f))
+            if (subject != null) c = max(c, 0.12f) * (1f - subject[i])
+            coc[i] = c
+            inFront[i] = s > 0f && (subject == null || subject[i] < 0.5f)
+            if (c < 0.05f) sharp++
+        }
+        val sharpShare = sharp.toFloat() / n
+        if (sharpShare < 0.03f || sharpShare > 0.97f) return null
+
+        // Layers: the in-focus layer plus [steps] blur sizes on each side, stacked far to near.
+        val steps = 3
+        val upper = FloatArray(n)
+        val lowerStep = IntArray(n)
+        for (i in 0 until n) {
+            val u = coc[i] * steps
+            val j0 = min(u.toInt(), steps - 1)
+            lowerStep[i] = j0
+            upper[i] = u - j0
+        }
+        val tmp = FloatArray(n)
+        val accR = FloatArray(n)
+        val accG = FloatArray(n)
+        val accB = FloatArray(n)
+        for (i in 0 until n) {
+            val p = work[i]
+            accR[i] = ((p shr 16) and 0xFF).toFloat()
+            accG[i] = ((p shr 8) and 0xFF).toFloat()
+            accB[i] = (p and 0xFF).toFloat()
+        }
+        // Underneath everything: the whole picture at the widest blur, so no gap ever shows.
+        val baseRadius = maxRadius.roundToInt().coerceAtLeast(1)
+        repeat(3) {
+            boxBlurF(accR, tmp, ww, wh, baseRadius)
+            boxBlurF(accG, tmp, ww, wh, baseRadius)
+            boxBlurF(accB, tmp, ww, wh, baseRadius)
+        }
+        val layerR = FloatArray(n)
+        val layerG = FloatArray(n)
+        val layerB = FloatArray(n)
+        val layerA = FloatArray(n)
+
+        fun addLayer(front: Boolean, step: Int) {
+            var used = 0
+            for (i in 0 until n) {
+                val j0 = lowerStep[i]
+                val t = upper[i]
+                var wgt = 0f
+                if (step == 0) {
+                    if (j0 == 0) wgt = 1f - t
+                } else if (inFront[i] == front) {
+                    if (j0 == step) wgt += 1f - t
+                    if (j0 + 1 == step) wgt += t
+                }
+                if (wgt > 0f) {
+                    used++
+                    val p = work[i]
+                    var r = ((p shr 16) and 0xFF).toFloat()
+                    var g = ((p shr 8) and 0xFF).toFloat()
+                    var b = (p and 0xFF).toFloat()
+                    if (params.bloom && step > 0) {
+                        // Bright lights swell before they blur, so they melt into soft discs.
+                        val l = (0.299f * r + 0.587f * g + 0.114f * b) / 255f
+                        if (l > 0.78f) {
+                            val boost = 1f + 1.1f * (l - 0.78f) / 0.22f
+                            r *= boost; g *= boost; b *= boost
+                        }
+                    }
+                    layerR[i] = r * wgt
+                    layerG[i] = g * wgt
+                    layerB[i] = b * wgt
+                    layerA[i] = wgt
+                } else {
+                    layerR[i] = 0f
+                    layerG[i] = 0f
+                    layerB[i] = 0f
+                    layerA[i] = 0f
+                }
+            }
+            if (used == 0) return
+            val radius = (maxRadius * step / steps).roundToInt()
+            if (radius >= 1) {
+                repeat(3) {
+                    boxBlurF(layerR, tmp, ww, wh, radius)
+                    boxBlurF(layerG, tmp, ww, wh, radius)
+                    boxBlurF(layerB, tmp, ww, wh, radius)
+                    boxBlurF(layerA, tmp, ww, wh, radius)
+                }
+            }
+            for (i in 0 until n) {
+                val a = layerA[i].coerceIn(0f, 1f)
+                accR[i] = accR[i] * (1f - a) + layerR[i]
+                accG[i] = accG[i] * (1f - a) + layerG[i]
+                accB[i] = accB[i] * (1f - a) + layerB[i]
+            }
+        }
+        for (step in steps downTo 1) addLayer(false, step)
+        addLayer(false, 0)
+        for (step in 1..steps) addLayer(true, step)
+
+        // Style tint, only where the picture is actually blurred.
+        val image = IntArray(n)
+        val weight = FloatArray(n)
+        for (i in 0 until n) {
+            var r = accR[i]
+            var g = accG[i]
+            var b = accB[i]
+            val tint = smooth((coc[i] * 4f).coerceIn(0f, 1f))
+            if (params.mono) {
+                val gray = 0.299f * r + 0.587f * g + 0.114f * b
+                r += (gray - r) * tint; g += (gray - g) * tint; b += (gray - b) * tint
+            }
+            val gain = 1f + (params.backgroundGain - 1f) * tint
+            image[i] = (0xFF shl 24) or
+                ((r * gain).toInt().coerceIn(0, 255) shl 16) or
+                ((g * gain).toInt().coerceIn(0, 255) shl 8) or
+                (b * gain).toInt().coerceIn(0, 255)
+            weight[i] = smooth((coc[i] / 0.1f).coerceIn(0f, 1f))
+        }
+        return Render(image, weight)
+    }
+
+    // ---- outline renderer (used until the depth model is on the phone) ----
+
+    private fun maskRender(work: IntArray, lum: FloatArray, ww: Int, wh: Int, params: Params, maxRadius: Float): Render? {
+        val n = ww * wh
+        // The subject, snapped to the picture's real edges.
+        val rough = personMask(work, ww, wh) ?: focusMask(lum, ww, wh) ?: return null
         val mask = refine(lum, rough, ww, wh)
         var coverage = 0f
         for (m in mask) if (m > 0.5f) coverage += 1f
         coverage /= n
-        if (coverage < 0.02f || coverage > 0.97f) return false
+        if (coverage < 0.02f || coverage > 0.97f) return null
 
-        // 3. Blur grows with distance from the subject.
+        // Blur grows with distance from the subject.
         val distance = distanceFromSubject(mask, ww, wh)
         val reach = 0.16f * max(ww, wh)
         val depth = FloatArray(n) { i -> smooth((distance[i] / reach).coerceIn(0f, 1f)) }
-
-        val strengthFactor = 0.3f + strength.coerceIn(0f, 1f)
-        val maxRadius = (params.radius * longSide * strengthFactor * (ww.toFloat() / w)).coerceAtLeast(2f)
         val background = FloatArray(n) { i -> 1f - mask[i] }
         val levels = Array(3) { k ->
             blurredLevel(work, background, ww, wh, (maxRadius * (k + 1) / 3f).roundToInt().coerceAtLeast(1), params.bloom)
         }
-
-        // The blurred backdrop, blended between the three blur strengths by depth, with the style's tint.
         val backdrop = IntArray(n)
         parallelFor(wh) { y ->
             for (x in 0 until ww) {
@@ -112,8 +306,16 @@ object PortraitEffect {
                     (bl * gain).toInt().coerceIn(0, 255)
             }
         }
+        return Render(backdrop, FloatArray(n) { 1f - mask[it] })
+    }
 
-        // 4. Composite at full resolution: sharp subject, blurred backdrop with matching grain.
+    // ---- full-resolution composite ----
+
+    /** Mixes the blurred picture into the full-size photo by [Render.weight], with grain so the
+     * smooth part doesn't look plastic next to the sharp part. */
+    private fun composite(pixels: IntArray, w: Int, h: Int, render: Render, ww: Int, wh: Int, subjectLift: Boolean) {
+        val backdrop = render.image
+        val weight = render.weight
         val xs = (ww - 1).toFloat() / (w - 1).coerceAtLeast(1)
         val ys = (wh - 1).toFloat() / (h - 1).coerceAtLeast(1)
         parallelFor(h) { y ->
@@ -125,12 +327,13 @@ object PortraitEffect {
                 val x0 = fx.toInt().coerceAtMost(ww - 2)
                 val tx = fx - x0
                 val i00 = y0 * ww + x0
-                val m = (mask[i00] * (1 - tx) + mask[i00 + 1] * tx) * (1 - ty) +
-                    (mask[i00 + ww] * (1 - tx) + mask[i00 + ww + 1] * tx) * ty
+                val blurAmount = (weight[i00] * (1 - tx) + weight[i00 + 1] * tx) * (1 - ty) +
+                    (weight[i00 + ww] * (1 - tx) + weight[i00 + ww + 1] * tx) * ty
                 val i = y * w + x
                 var p = pixels[i]
-                if (params.subjectLift && m > 0.01f) p = lift(p, m)
-                if (m >= 0.999f) {
+                val sharpAmount = 1f - blurAmount
+                if (subjectLift && sharpAmount > 0.01f) p = lift(p, sharpAmount)
+                if (blurAmount <= 0.001f) {
                     pixels[i] = p
                     continue
                 }
@@ -143,18 +346,15 @@ object PortraitEffect {
                     val bottom = ((c01 shr shift) and 0xFF) * (1 - tx) + ((c11 shr shift) and 0xFF) * tx
                     return top * (1 - ty) + bottom * ty
                 }
-                // Grain, so the smooth backdrop doesn't look plastic next to the sharp subject.
-                val grain = (((hash(x, y) ushr 24) - 128) / 128f) * 1.4f
-                val inv = 1f - m
+                val grain = (((hash(x, y) ushr 24) - 128) / 128f) * 1.4f * blurAmount
                 fun mix(shift: Int): Int {
                     val sharp = (p shr shift) and 0xFF
                     val soft = channel(shift) + grain
-                    return (sharp * m + soft * inv).toInt().coerceIn(0, 255)
+                    return (sharp * sharpAmount + soft * blurAmount).toInt().coerceIn(0, 255)
                 }
                 pixels[i] = (0xFF shl 24) or (mix(16) shl 16) or (mix(8) shl 8) or mix(0)
             }
         }
-        return true
     }
 
     // ---- subject ----
@@ -414,7 +614,7 @@ object PortraitEffect {
     }
 
     /** Area-averaged shrink of [src] to [dw] x [dh]. */
-    private fun downscale(src: IntArray, sw: Int, sh: Int, dw: Int, dh: Int): IntArray {
+    internal fun downscale(src: IntArray, sw: Int, sh: Int, dw: Int, dh: Int): IntArray {
         if (sw == dw && sh == dh) return src.copyOf()
         val out = IntArray(dw * dh)
         val bx = max(1, sw / dw)

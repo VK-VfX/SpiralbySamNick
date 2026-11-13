@@ -11,8 +11,8 @@ android {
         applicationId = "com.nikoezveracamspiral"
         minSdk = 26
         targetSdk = 34
-        versionCode = 22
-        versionName = "2.5.1"
+        versionCode = 23
+        versionName = "2.5.2"
 
         // Phones that matter today are 64-bit ARM; dropping the 32-bit and x86 native libraries
         // (ML Kit and the video renderer carry several each) roughly halves the APK.
@@ -126,6 +126,9 @@ dependencies {
 
     // Portrait mode: bundled on-device person segmentation (no Play services, no network).
     implementation("com.google.mlkit:segmentation-selfie:16.0.0-beta6")
+
+    // Portrait mode's depth model (MiDaS, downloaded on first use) runs on the TensorFlow Lite runtime.
+    implementation("org.tensorflow:tensorflow-lite:2.14.0")
 
 
     // Filters on recorded video are rendered after recording by the Media3 transformer.
