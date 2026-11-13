@@ -214,6 +214,10 @@ Not built yet (needs on-device testing): a YUV/RAW burst with zero-shutter-lag, 
 - Zoom quality: from 2x up, a shot is a 5-frame merged burst with minimal in-camera noise reduction (Settings: Zoom enhance), followed by a wider-radius unsharp mask that grows with the zoom level. Each photo's description now records the zoom and which physical lens captured it, so a telephoto shot can be told from a cropped main-lens one.
 - Predictive-back callback enabled for Android 13+.
 
+## v2.4.2
+- Lens distortion correction is now always requested (best quality for photos, fast for the viewfinder and video) wherever the camera supports it. The Pixel 9 Pro XL's ultra-wide only straightens the lens curve when asked; Google's camera asks, this app did not. It is part of how photos are processed, not a setting.
+- The problem report lists each camera's supported distortion correction modes.
+
 ## v2.4.1
 - Fixed the JPEG / RAW switch in the viewfinder's format pill doing nothing: the popup closed the moment it was tapped and cancelled the switch half way. It now runs on the camera's own scope.
 - Settings has a small gear in its header that opens an About page: developer photo, Nikoezvera, version and the Telegram contact (@xnzvix).

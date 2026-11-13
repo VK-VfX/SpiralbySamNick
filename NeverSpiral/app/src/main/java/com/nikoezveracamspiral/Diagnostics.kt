@@ -41,6 +41,9 @@ object Diagnostics {
                     val fps = c.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)?.joinToString { "${it.lower}-${it.upper}" }
                     val fast = map?.highSpeedVideoSizes?.joinToString { "${it.width}x${it.height}" }
                     out.append("  largest JPEG $jpeg, largest YUV $yuv, fps ranges [$fps], high-speed sizes [$fast]\n")
+                    val dist = c.get(CameraCharacteristics.DISTORTION_CORRECTION_AVAILABLE_MODES)
+                    val distNames = mapOf(0 to "OFF", 1 to "FAST", 2 to "HIGH_QUALITY")
+                    out.append("  distortion correction modes [${dist?.joinToString { distNames[it] ?: it.toString() } ?: "none"}]\n")
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                         val names = mapOf(0 to "AUTOMATIC", 1 to "FACE_RETOUCH", 2 to "BOKEH", 3 to "HDR", 4 to "NIGHT")
                         val ext = manager.getCameraExtensionCharacteristics(id).supportedExtensions.joinToString { names[it] ?: it.toString() }

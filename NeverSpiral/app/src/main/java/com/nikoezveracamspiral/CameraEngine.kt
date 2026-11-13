@@ -554,6 +554,22 @@ class CameraEngine(private val context: Context) {
     private fun applyControls(builder: CaptureRequest.Builder, preview: Boolean = false) {
         val chars = characteristics ?: return
 
+        // Straighten the lens curve (most visible on an ultra-wide: bowed walls, stretched edges).
+        // Some phones do this by default and some, like the Pixel 9 Pro XL, only when asked. The
+        // preview and video use the cheaper mode; stills use the best the camera offers.
+        val distortionModes = chars.get(CameraCharacteristics.DISTORTION_CORRECTION_AVAILABLE_MODES)
+        if (distortionModes != null) {
+            val cheap = preview || mediaRecorder != null
+            val wanted = if (cheap) {
+                listOf(CameraMetadata.DISTORTION_CORRECTION_MODE_FAST, CameraMetadata.DISTORTION_CORRECTION_MODE_HIGH_QUALITY)
+            } else {
+                listOf(CameraMetadata.DISTORTION_CORRECTION_MODE_HIGH_QUALITY, CameraMetadata.DISTORTION_CORRECTION_MODE_FAST)
+            }
+            wanted.firstOrNull { distortionModes.contains(it) }?.let {
+                builder.set(CaptureRequest.DISTORTION_CORRECTION_MODE, it)
+            }
+        }
+
         val zoomRange = zoomRatioRange()
         if (zoomRange != null) {
             builder.set(CaptureRequest.CONTROL_ZOOM_RATIO, zoomRatio.coerceIn(zoomRange.lower, zoomRange.upper))
