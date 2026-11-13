@@ -409,8 +409,8 @@ private fun Viewfinder(controller: CameraController, showControls: Boolean, stri
     // Portrait's depth from focus reads small copies of the live picture through this.
     DisposableEffect(textureRef) {
         val view = textureRef
-        controller.previewGrabber = if (view == null) null else { width: Int ->
-            if (view.isAvailable && view.width > 0 && view.height > 0) {
+        val grabber: (Int) -> android.graphics.Bitmap? = { width ->
+            if (view != null && view.isAvailable && view.width > 0 && view.height > 0) {
                 try {
                     view.getBitmap(width, (width * view.height.toFloat() / view.width).toInt().coerceAtLeast(64))
                 } catch (e: Exception) {
@@ -418,6 +418,7 @@ private fun Viewfinder(controller: CameraController, showControls: Boolean, stri
                 }
             } else null
         }
+        controller.previewGrabber = if (view == null) null else grabber
         onDispose { controller.previewGrabber = null }
     }
     var dialOpen by remember { mutableStateOf(false) }
