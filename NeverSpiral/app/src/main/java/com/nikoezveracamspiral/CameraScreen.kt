@@ -476,7 +476,6 @@ private fun Viewfinder(controller: CameraController, showControls: Boolean, stri
             if (controller.mode == CaptureMode.NIGHT && controller.tripod && controller.holdStillMs == 0L) {
                 InfoPill("Steady: using longer exposures")
             }
-            QrPill(view = textureRef, enabled = controller.qrEnabled && !controller.isRecording && !showControls)
             controller.videoProgress?.let { InfoPill("Applying filter to video: ${(it * 100).toInt()}%") }
             if (controller.holdStillMs > 0) {
                 HoldStillPill(controller.holdStillMs, controller.shutterTick)
@@ -1438,12 +1437,6 @@ private fun SettingsSheet(controller: CameraController) {
             selected = controller.histogramEnabled,
         ) { controller.histogramEnabled = it }
 
-        SheetSection("Scan QR codes", if (controller.qrEnabled) "On" else "Off")
-        SegmentRow(
-            options = listOf(true to "On", false to "Off").map { Triple(it.first, it.second, null as ImageVector?) },
-            selected = controller.qrEnabled,
-        ) { controller.qrEnabled = it }
-
         SheetSection("Selfie", if (controller.mirrorSelfies) "Mirrored" else "As seen by lens")
         SegmentRow(
             options = listOf(
@@ -1508,6 +1501,25 @@ private fun UpdateSection(controller: CameraController) {
         options = listOf(true to "On", false to "Off").map { Triple(it.first, it.second, null as ImageVector?) },
         selected = controller.autoCheckUpdates,
     ) { controller.changeAutoCheckUpdates(it) }
+
+    SheetSection("About", "Niko's Cam")
+    Text(
+        text = "Developed by Nikoezvera",
+        color = Color.White,
+        fontSize = 14.sp,
+        modifier = Modifier.padding(horizontal = 4.dp),
+    )
+    Spacer(Modifier.height(8.dp))
+    UpdateButton("Telegram: @xnzvix", Modifier.fillMaxWidth()) {
+        try {
+            context.startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/xnzvix")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        } catch (e: Exception) {
+            // No app can open the link; nothing more to do.
+        }
+    }
+    Spacer(Modifier.height(24.dp))
 }
 
 @Composable

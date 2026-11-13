@@ -735,7 +735,7 @@ class CameraEngine(private val context: Context) {
     /** [deviceRotationDegrees] is the raw reading of an OrientationEventListener (degrees the
      * device is turned clockwise from upright), or negative if unknown. This is the pairing the
      * Camera2 documentation gives for SENSOR_ORIENTATION: the front camera's sense is mirrored. */
-    private fun sensorToJpegOrientation(deviceRotationDegrees: Int): Int {
+    fun sensorToJpegOrientation(deviceRotationDegrees: Int): Int {
         val sensorOrientation = characteristics?.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0
         val facingFront = lensFacing == CameraCharacteristics.LENS_FACING_FRONT
         val d = if (deviceRotationDegrees < 0) 0 else ((deviceRotationDegrees + 45) / 90 * 90) % 360
@@ -775,6 +775,14 @@ class CameraEngine(private val context: Context) {
                 builder.addTarget(jpeg.surface)
                 if (wantsRaw && i == rawIndex) builder.addTarget(raw!!.surface)
                 applyControls(builder)
+                if (wantsRaw && i == rawIndex) {
+                    // The DNG needs the lens shading map to correct the colour/brightness falloff of
+                    // each lens (most visible as a magenta/green cast on the ultrawide).
+                    val modes = chars.get(CameraCharacteristics.STATISTICS_INFO_AVAILABLE_LENS_SHADING_MAP_MODES)
+                    if (modes?.contains(CameraMetadata.STATISTICS_LENS_SHADING_MAP_MODE_ON) == true) {
+                        builder.set(CaptureRequest.STATISTICS_LENS_SHADING_MAP_MODE, CameraMetadata.STATISTICS_LENS_SHADING_MAP_MODE_ON)
+                    }
+                }
                 builder.set(CaptureRequest.JPEG_ORIENTATION, sensorToJpegOrientation(deviceRotationDegrees))
                 applyStillQuality(builder, chars)
                 if (exposure != null) {

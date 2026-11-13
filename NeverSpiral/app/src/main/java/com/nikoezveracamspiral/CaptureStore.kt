@@ -102,6 +102,8 @@ object CaptureStore {
         characteristics: CameraCharacteristics,
         captureResult: TotalCaptureResult,
         stamp: String = newStamp(),
+        orientationDegrees: Int = 0,
+        thumbnailJpeg: ByteArray? = null,
     ): Uri? {
         val resolver = context.contentResolver
         val values = ContentValues().apply {
@@ -118,6 +120,31 @@ object CaptureStore {
             return null
         }
         DngCreator(characteristics, captureResult).use { dngCreator ->
+            // Without this the file opens sideways: the DNG holds raw sensor rows, so the same
+            // rotation the JPEG gets has to be recorded as its orientation tag.
+            dngCreator.setOrientation(
+                when (((orientationDegrees % 360) + 360) % 360) {
+                    90 -> ExifInterface.ORIENTATION_ROTATE_90
+                    180 -> ExifInterface.ORIENTATION_ROTATE_180
+                    270 -> ExifInterface.ORIENTATION_ROTATE_270
+                    else -> ExifInterface.ORIENTATION_NORMAL
+                },
+            )
+            if (thumbnailJpeg != null) {
+                try {
+                    val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    android.graphics.BitmapFactory.decodeByteArray(thumbnailJpeg, 0, thumbnailJpeg.size, bounds)
+                    var sample = 1
+                    while (bounds.outWidth / (sample * 2) >= 256) sample *= 2
+                    val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+                    android.graphics.BitmapFactory.decodeByteArray(thumbnailJpeg, 0, thumbnailJpeg.size, opts)?.let { thumb ->
+                        dngCreator.setThumbnail(thumb)
+                        thumb.recycle()
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.w("CaptureStore", "No DNG thumbnail", e)
+                }
+            }
             resolver.openOutputStream(uri)?.use { out -> dngCreator.writeImage(out, rawImage) }
         }
         rawImage.close()

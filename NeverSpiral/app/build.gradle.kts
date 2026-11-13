@@ -11,8 +11,8 @@ android {
         applicationId = "com.nikoezveracamspiral"
         minSdk = 26
         targetSdk = 34
-        versionCode = 17
-        versionName = "2.3.3"
+        versionCode = 18
+        versionName = "2.4.0"
 
         // Phones that matter today are 64-bit ARM; dropping the 32-bit and x86 native libraries
         // (ML Kit and the video renderer carry several each) roughly halves the APK.
@@ -127,8 +127,6 @@ dependencies {
     // Portrait mode: bundled on-device person segmentation (no Play services, no network).
     implementation("com.google.mlkit:segmentation-selfie:16.0.0-beta6")
 
-    // QR codes in the viewfinder: bundled on-device barcode model.
-    implementation("com.google.mlkit:barcode-scanning:17.2.0")
 
     // Filters on recorded video are rendered after recording by the Media3 transformer.
     implementation("androidx.media3:media3-transformer:1.3.1")

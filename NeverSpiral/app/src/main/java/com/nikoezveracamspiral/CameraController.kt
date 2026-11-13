@@ -83,7 +83,6 @@ class CameraController(private val context: Context) {
     var histogramEnabled by mutableStateOf(false)
     /** Zoomed shots (2x and up) are taken as a short burst and merged for detail. */
     var zoomEnhance by mutableStateOf(true)
-    var qrEnabled by mutableStateOf(true)
     /** Bumped when a saved photo is rewritten in place (instant save, then the processed result),
      * so the thumbnail reloads even though its Uri is unchanged. */
     var captureRevision by mutableIntStateOf(0)
@@ -240,14 +239,14 @@ class CameraController(private val context: Context) {
     private data class Persisted(
         val timer: Int, val grid: Int, val ratio: Int, val quality: Int, val mirror: Boolean,
         val hdr: Boolean, val hdrStrength: Int, val night: Int, val blur: Float, val raw: Boolean,
-        val histogram: Boolean, val qr: Boolean, val zoomEnhance: Boolean, val videoRes: Int, val videoFps: Int, val hevc: Boolean,
+        val histogram: Boolean, val zoomEnhance: Boolean, val videoRes: Int, val videoFps: Int, val hevc: Boolean,
         val look: Look,
     )
 
     private fun settingsSnapshot() = Persisted(
         timerSeconds, gridStyle.ordinal, aspectRatio.ordinal, jpegQuality, mirrorSelfies,
         hdrEnabled, hdrStrength, nightSeconds, portraitBlurStrength, isRawEnabled,
-        histogramEnabled, qrEnabled, zoomEnhance, videoConfig.res.ordinal, videoConfig.fps, videoConfig.hevc, look,
+        histogramEnabled, zoomEnhance, videoConfig.res.ordinal, videoConfig.fps, videoConfig.hevc, look,
     )
 
     private fun saveSettings(s: Persisted) {
@@ -256,7 +255,7 @@ class CameraController(private val context: Context) {
             .putInt("timer", s.timer).putInt("grid", s.grid).putInt("ratio", s.ratio).putInt("quality", s.quality)
             .putBoolean("mirror", s.mirror).putBoolean("hdr", s.hdr).putInt("hdrStrength", s.hdrStrength)
             .putInt("night", s.night).putFloat("blur", s.blur).putBoolean("raw", s.raw)
-            .putBoolean("histogram", s.histogram).putBoolean("qr", s.qr).putBoolean("zoomEnhance", s.zoomEnhance)
+            .putBoolean("histogram", s.histogram).putBoolean("zoomEnhance", s.zoomEnhance)
             .putInt("videoRes", s.videoRes).putInt("videoFps", s.videoFps).putBoolean("hevc", s.hevc)
             .putString("filter", l.filter.name).putString("lut", l.lut?.name ?: "").putFloat("strength", l.strength)
             .putFloat("exposure", l.exposure).putFloat("contrast", l.contrast).putFloat("saturation", l.saturation)
@@ -279,7 +278,6 @@ class CameraController(private val context: Context) {
         portraitBlurStrength = p.getFloat("blur", 0.7f)
         isRawEnabled = p.getBoolean("raw", false)
         histogramEnabled = p.getBoolean("histogram", false)
-        qrEnabled = p.getBoolean("qr", true)
         zoomEnhance = p.getBoolean("zoomEnhance", true)
         videoConfig = VideoConfig(
             VideoRes.entries.getOrElse(p.getInt("videoRes", 1)) { VideoRes.P1080 },
@@ -586,7 +584,11 @@ class CameraController(private val context: Context) {
             burst.rawImage?.let { raw ->
                 val result = burst.rawResult
                 if (result != null) {
-                    withContext(Dispatchers.IO) { CaptureStore.saveDng(context, raw, burst.characteristics, result, stamp) }
+                    withContext(Dispatchers.IO) { CaptureStore.saveDng(
+                        context, raw, burst.characteristics, result, stamp,
+                        orientationDegrees = engine.sensorToJpegOrientation(rotationDegrees),
+                        thumbnailJpeg = burst.jpegs.firstOrNull(),
+                    ) }
                 } else {
                     raw.close()
                 }

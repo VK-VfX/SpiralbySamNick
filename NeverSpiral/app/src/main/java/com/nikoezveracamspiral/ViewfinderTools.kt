@@ -1,12 +1,7 @@
 package com.nikoezveracamspiral
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import android.view.TextureView
-import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -28,12 +23,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.google.android.gms.tasks.Tasks
-import com.google.mlkit.vision.barcode.BarcodeScanner
-import com.google.mlkit.vision.barcode.BarcodeScannerOptions
-import com.google.mlkit.vision.barcode.BarcodeScanning
-import com.google.mlkit.vision.barcode.common.Barcode
-import com.google.mlkit.vision.common.InputImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -49,7 +38,7 @@ internal object PreviewPaint {
  * A small copy of the viewfinder frame. With a colour-filter paint on the layer, reading the
  * layer back fails on current Android ("Unable to draw content from GPU into the provided
  * bitmap"), so the paint is lifted for the moment of the read; the frame is the camera's own,
- * unfiltered, which is also what the filter thumbnails, QR scanner and histogram want.
+ * unfiltered, which is also what the filter thumbnails and histogram want.
  */
 internal fun snapshot(view: TextureView, width: Int, height: Int): android.graphics.Bitmap? {
     if (!view.isAvailable) return null
@@ -125,81 +114,4 @@ internal fun HistogramOverlay(view: TextureView?, modifier: Modifier = Modifier)
             )
         }
     }
-}
-
-/** Looks for a QR code in the viewfinder; when one is found, shows its content as a tappable pill
- * (links open in the browser, anything else is copied). */
-@Composable
-internal fun QrPill(view: TextureView?, enabled: Boolean, modifier: Modifier = Modifier) {
-    val context = LocalContext.current
-    var found by remember { mutableStateOf<String?>(null) }
-    val enabledNow by rememberUpdatedState(enabled)
-    // One scanner for the life of the viewfinder: opening or closing a panel just pauses the
-    // loop instead of tearing the model down and loading it again.
-    LaunchedEffect(view) {
-        if (view == null) return@LaunchedEffect
-        var scanner: BarcodeScanner? = null
-        var misses = 0
-        try {
-            while (true) {
-                if (!enabledNow) {
-                    found = null
-                    delay(600)
-                    continue
-                }
-                val bitmap = try {
-                    snapshot(view, 360, 480)
-                } catch (e: Exception) {
-                    null
-                }
-                if (bitmap != null) {
-                    val client = scanner ?: BarcodeScanning.getClient(
-                        BarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build(),
-                    ).also { scanner = it }
-                    val value = withContext(Dispatchers.Default) {
-                        try {
-                            Tasks.await(client.process(InputImage.fromBitmap(bitmap, 0))).firstOrNull()?.rawValue
-                        } catch (e: Exception) {
-                            null
-                        }
-                    }
-                    bitmap.recycle()
-                    if (value != null) {
-                        found = value
-                        misses = 0
-                    } else if (++misses >= 3) {
-                        found = null
-                    }
-                }
-                delay(1500)
-            }
-        } finally {
-            scanner?.close()
-        }
-    }
-    val value = found ?: return
-    Text(
-        text = "QR: ${value.take(60)}  ›",
-        color = Color.White,
-        fontSize = 12.sp,
-        modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(Color(0xCC000000))
-            .clickable { openOrCopy(context, value) }
-            .padding(horizontal = 12.dp, vertical = 7.dp),
-    )
-}
-
-private fun openOrCopy(context: Context, value: String) {
-    if (value.startsWith("http://") || value.startsWith("https://")) {
-        try {
-            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(value)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            return
-        } catch (e: Exception) {
-            // Fall through to copying.
-        }
-    }
-    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    clipboard.setPrimaryClip(ClipData.newPlainText("QR code", value))
-    Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
 }

@@ -214,6 +214,12 @@ Not built yet (needs on-device testing): a YUV/RAW burst with zero-shutter-lag, 
 - Zoom quality: from 2x up, a shot is a 5-frame merged burst with minimal in-camera noise reduction (Settings: Zoom enhance), followed by a wider-radius unsharp mask that grows with the zoom level. Each photo's description now records the zoom and which physical lens captured it, so a telephoto shot can be told from a cropped main-lens one.
 - Predictive-back callback enabled for Android 13+.
 
+## v2.4.0
+- New app icon and splash: the N + camera glyph, white on black.
+- Removed the QR scanner (and its barcode model) from the viewfinder and Settings.
+- RAW: DNG files now carry the capture's rotation (they used to open sideways), request the lens shading map (fixes the colour cast on the ultrawide) and embed a preview thumbnail.
+- Settings, reachable from every mode, now ends with an About section: developer Nikoezvera, Telegram @xnzvix.
+
 ## v2.3.3
 - Fixed the camera freezing after the app was in the background: the camera is now released when the app stops (finishing any recording first) and reopened when you return.
 
