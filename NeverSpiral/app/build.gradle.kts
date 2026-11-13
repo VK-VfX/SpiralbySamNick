@@ -11,8 +11,8 @@ android {
         applicationId = "com.nikoezveracamspiral"
         minSdk = 26
         targetSdk = 34
-        versionCode = 30
-        versionName = "2.8.0"
+        versionCode = 31
+        versionName = "2.9.0"
 
         // Phones that matter today are 64-bit ARM; dropping the 32-bit and x86 native libraries
         // (ML Kit and the video renderer carry several each) roughly halves the APK.

@@ -195,7 +195,7 @@ internal fun AdjustPanel(look: Look, onLook: (Look) -> Unit) {
             value = selected.get(look),
             min = selected.min,
             max = selected.max,
-            steps = 40,
+            steps = selected.steps,
             format = { selected.display(selected.set(look, it)) },
         ) { onLook(selected.set(look, it)) }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

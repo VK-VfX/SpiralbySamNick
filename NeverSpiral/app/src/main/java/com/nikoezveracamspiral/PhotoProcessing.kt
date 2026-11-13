@@ -10,7 +10,7 @@ import java.io.ByteArrayOutputStream
 import kotlin.math.pow
 
 enum class FilterCategory(val label: String) {
-    BASIC("Basic"), FILM("Film"), CINEMA("Cinema"), RETRO("Retro"), MONO("Mono"), CREATIVE("Creative")
+    PIXEL("Pixel"), BASIC("Basic"), FILM("Film"), CINEMA("Cinema"), RETRO("Retro"), MONO("Mono"), CREATIVE("Creative")
 }
 
 /**
@@ -33,7 +33,24 @@ enum class PhotoFilter(
     val highR: Float = 0f, val highG: Float = 0f, val highB: Float = 0f,
     val grain: Float = 0f,
     val vignette: Float = 0f,
+    /** Extra saturation for the reds, greens and blues only (1 = untouched). Saved photo only. */
+    val satR: Float = 1f, val satG: Float = 1f, val satB: Float = 1f,
+    /** Leaves the picture as the pipeline made it: no extra sharpening on top. */
+    val minimal: Boolean = false,
 ) {
+    // Pixel's looks: four base styles, then six creative presets. The saved photo gets the whole
+    // recipe (including the red/green/blue saturation); the live preview shows the global part.
+    PX_ORIGINAL("Original", FilterCategory.PIXEL, saturation = 1.06f, contrast = 1.06f),
+    PX_NATURAL("Px Natural", FilterCategory.PIXEL, saturation = 0.88f, contrast = 0.92f, fade = 0.03f, highR = -3f, highG = -3f, highB = -3f),
+    PX_SHADOWS("Px Shadows", FilterCategory.PIXEL, saturation = 1.04f, contrast = 1.22f, brightness = -8f, shadowR = -12f, shadowG = -12f, shadowB = -10f, highR = -8f, highG = -8f, highB = -8f),
+    PX_VANILLA("Px Vanilla", FilterCategory.PIXEL, saturation = 1.3f, contrast = 0.97f, brightness = 6f, gainR = 1.07f, gainG = 1.03f, gainB = 0.9f, fade = 0.04f, highR = 10f, highG = 6f),
+    EDITORIAL("Editorial", FilterCategory.PIXEL, saturation = 0.95f, contrast = 1.2f, brightness = -6f, shadowR = -8f, shadowG = -8f, shadowB = -8f, satB = 0.55f, highB = 6f),
+    VELVET("Velvet", FilterCategory.PIXEL, saturation = 1.12f, contrast = 1.08f, gainR = 1.03f, satR = 1.25f, satG = 0.85f, satB = 1.3f, shadowB = 4f, highB = 4f),
+    PX_CLASSIC("Px Classic", FilterCategory.PIXEL, saturation = 0.85f, contrast = 0.9f, gainR = 1.07f, gainG = 1.01f, gainB = 0.9f, fade = 0.08f, shadowR = 6f, highR = 10f, highG = 4f, grain = 0.45f, vignette = 0.15f),
+    DIGI("Digi", FilterCategory.PIXEL, saturation = 0.7f, contrast = 1.35f),
+    BLACK_TIE("Black Tie", FilterCategory.PIXEL, saturation = 0f, contrast = 1.38f, brightness = -4f),
+    MINIMAL("Minimal", FilterCategory.PIXEL, saturation = 0.97f, contrast = 0.98f, brightness = 3f, fade = 0.02f, minimal = true),
+
     NATURAL("Natural", FilterCategory.BASIC),
     VIVID("Vivid", FilterCategory.BASIC, saturation = 1.4f, contrast = 1.1f),
     PORTRAIT("Portrait", FilterCategory.BASIC, saturation = 0.95f, brightness = 6f, gainR = 1.05f, gainB = 0.96f),
@@ -121,7 +138,12 @@ data class Look(
     val vignette: Float = 0f,
     val grain: Float = 0f,
     val sharpness: Float = 0f,
+    /** Boosts muted colours more than strong ones. */
+    val vibrance: Float = 0f,
 ) {
+    /** The sharpening every shot gets before its own slider; Minimal adds none. */
+    val baseSharpen: Float get() = if (lut == null && filter.minimal) 0f else 0.2f
+
     /** The color-matrix-expressible part: filter (scaled by strength) plus exposure, saturation,
      * contrast, warmth and tint. This is exactly what the live preview shows. */
     fun toColorMatrix(useLutFit: Boolean = true): ColorMatrix {
@@ -139,9 +161,11 @@ data class Look(
             0f, 0f, 2f.pow(exposure), 0f, 0f,
             0f, 0f, 0f, 1f, 0f,
         )))
-        if (saturation != 0f) {
+        // Vibrance is per pixel in the saved photo; the live preview approximates it with a little saturation.
+        val sat = saturation + vibrance * 0.4f
+        if (sat != 0f) {
             val s = ColorMatrix()
-            s.setSaturation((1f + saturation).coerceAtLeast(0f))
+            s.setSaturation((1f + sat).coerceAtLeast(0f))
             m.postConcat(s)
         }
         if (contrast != 0f) m.postConcat(contrastMatrix(1f + contrast * 0.6f, 0f))
@@ -162,26 +186,28 @@ data class Look(
     val isNeutral: Boolean
         get() = (filter == PhotoFilter.NATURAL || strength == 0f) && (lut == null || strength == 0f) && exposure == 0f && contrast == 0f &&
             saturation == 0f && warmth == 0f && tint == 0f && highlights == 0f && shadows == 0f &&
-            vignette == 0f && grain == 0f && sharpness == 0f
+            vignette == 0f && grain == 0f && sharpness == 0f && vibrance == 0f
 }
 
 /** One develop slider: which [Look] field it drives and its range. */
-enum class LookParam(val label: String, val min: Float, val max: Float) {
+enum class LookParam(val label: String, val min: Float, val max: Float, val steps: Int = 40) {
     EXPOSURE("Exposure", -2f, 2f),
     CONTRAST("Contrast", -1f, 1f),
     SATURATION("Saturation", -1f, 1f),
-    WARMTH("Warmth", -1f, 1f),
+    VIBRANCE("Vibrance", -1f, 1f),
+    WARMTH("Warmth", -1f, 1f, 20),
     TINT("Tint", -1f, 1f),
     HIGHLIGHTS("Highlights", -1f, 1f),
     SHADOWS("Shadows", -1f, 1f),
     VIGNETTE("Vignette", 0f, 1f),
-    GRAIN("Grain", 0f, 1f),
-    SHARPNESS("Sharpness", 0f, 1f);
+    GRAIN("Grain", 0f, 1f, 3),
+    SHARPNESS("Sharpness", 0f, 1f, 15);
 
     fun get(l: Look): Float = when (this) {
         EXPOSURE -> l.exposure
         CONTRAST -> l.contrast
         SATURATION -> l.saturation
+        VIBRANCE -> l.vibrance
         WARMTH -> l.warmth
         TINT -> l.tint
         HIGHLIGHTS -> l.highlights
@@ -195,6 +221,7 @@ enum class LookParam(val label: String, val min: Float, val max: Float) {
         EXPOSURE -> l.copy(exposure = v)
         CONTRAST -> l.copy(contrast = v)
         SATURATION -> l.copy(saturation = v)
+        VIBRANCE -> l.copy(vibrance = v)
         WARMTH -> l.copy(warmth = v)
         TINT -> l.copy(tint = v)
         HIGHLIGHTS -> l.copy(highlights = v)
@@ -206,7 +233,14 @@ enum class LookParam(val label: String, val min: Float, val max: Float) {
 
     fun display(l: Look): String {
         val v = get(l)
-        return if (this == EXPOSURE) String.format(java.util.Locale.US, "%+.1f EV", v) else "${(v * 100).toInt()}"
+        return when (this) {
+            EXPOSURE -> String.format(java.util.Locale.US, "%+.1f EV", v)
+            // Pixel's scales: warmth -10..+10, sharpness 0..15, grain in four steps.
+            WARMTH -> String.format(java.util.Locale.US, "%+d", Math.round(v * 10f))
+            SHARPNESS -> "${Math.round(v * 15f)}"
+            GRAIN -> listOf("None", "Weak", "Moderate", "Strong")[Math.round(v * 3f).coerceIn(0, 3)]
+            else -> "${(v * 100).toInt()}"
+        }
     }
 }
 
@@ -234,6 +268,11 @@ object LookProcessor {
         val vig = (f.vignette * s + look.vignette).coerceAtMost(1f)
         val shadowsAdd = look.shadows * 40f
         val highlightsAdd = look.highlights * 40f
+        val vib = look.vibrance
+        val sR = 1f + (f.satR - 1f) * s
+        val sG = 1f + (f.satG - 1f) * s
+        val sB = 1f + (f.satB - 1f) * s
+        val selective = sR != 1f || sG != 1f || sB != 1f
         val cx = (w - 1) / 2f
         val cy = (h - 1) / 2f
         val maxD2 = (cx * cx + cy * cy).coerceAtLeast(1f)
@@ -259,6 +298,27 @@ object LookProcessor {
                 var r = m[0] * ir + m[1] * ig + m[2] * ib + m[4]
                 var g = m[5] * ir + m[6] * ig + m[7] * ib + m[9]
                 var b = m[10] * ir + m[11] * ig + m[12] * ib + m[14]
+                if (selective || vib != 0f) {
+                    val mx = maxOf(r, g, b)
+                    val c = mx - minOf(r, g, b)
+                    if (c > 1f) {
+                        val lum = 0.299f * r + 0.587f * g + 0.114f * b
+                        var k = 1f
+                        if (selective) {
+                            val wr = ((r - maxOf(g, b)) / c).coerceIn(0f, 1f)
+                            val wg = ((g - maxOf(r, b)) / c).coerceIn(0f, 1f)
+                            val wb = ((b - maxOf(r, g)) / c).coerceIn(0f, 1f)
+                            k += wr * (sR - 1f) + wg * (sG - 1f) + wb * (sB - 1f)
+                        }
+                        if (vib != 0f) {
+                            val sat = c / mx.coerceAtLeast(1f)
+                            k *= (1f + vib * 0.9f * (if (vib > 0f) 1f - sat else 1f)).coerceAtLeast(0f)
+                        }
+                        r = lum + (r - lum) * k
+                        g = lum + (g - lum) * k
+                        b = lum + (b - lum) * k
+                    }
+                }
                 val l = ((0.299f * r + 0.587f * g + 0.114f * b) / 255f).coerceIn(0f, 1f)
                 val inv = 1f - l
                 val sw = inv * inv
@@ -544,7 +604,7 @@ object PhotoProcessor {
         // Colour, look and sharpening come first, so the Portrait blur (and the editable copy kept
         // before it) works on the finished picture.
         LookProcessor.apply(pixels, w, h, look)
-        LookProcessor.sharpen(pixels, w, h, 0.2f + look.sharpness * 0.8f)
+        LookProcessor.sharpen(pixels, w, h, look.baseSharpen + look.sharpness * 0.8f)
         if (zoomRatio >= 2f) {
             // Digital zoom leaves a soft, upscaled image: a wider-radius unsharp mask brings the
             // detail back, more of it the further in the shot was zoomed.
@@ -587,12 +647,18 @@ object PhotoProcessor {
     }
 
     /** A finished photo (a JPEG) with the watermark put on it, for photos that skip the usual processing. */
-    fun watermarkOnly(jpeg: ByteArray, quality: Int, logo: Bitmap?, settings: WatermarkSettings, details: String): ByteArray? {
+    fun watermarkOnly(jpeg: ByteArray, quality: Int, logo: Bitmap?, settings: WatermarkSettings, details: String, look: Look? = null): ByteArray? {
         val bitmap = decodeUpright(jpeg, singleMaxPixels) ?: return null
         val w = bitmap.width
         val h = bitmap.height
         val pixels = pixelsOf(bitmap)
         bitmap.recycle()
+        // A finished picture from the system's Night engine still gets the chosen look.
+        if (look != null && !look.isNeutral) {
+            LookProcessor.apply(pixels, w, h, look)
+            LookProcessor.sharpen(pixels, w, h, look.sharpness * 0.8f)
+        }
+        if (!settings.on) return encode(pixels, w, h, quality, null)
         val marked = Watermark.apply(logo, pixels, w, h, settings, details)
         return encode(marked.pixels, marked.width, marked.height, quality, null)
     }

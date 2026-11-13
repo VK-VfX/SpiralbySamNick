@@ -1806,6 +1806,18 @@ private fun SettingsSheet(controller: CameraController, startOnAbout: Boolean = 
             modifier = Modifier.padding(horizontal = 4.dp),
         )
 
+        SheetSection("Always use selected look", if (controller.keepLook) "On" else "Off")
+        SegmentRow(
+            options = listOf(true to "On", false to "Off").map { Triple(it.first, it.second, null as ImageVector?) },
+            selected = controller.keepLook,
+        ) { controller.keepLook = it }
+        Text(
+            "Keeps the filter and adjustments you picked (a Pixel look, for example) every time the camera opens. Off starts each launch plain.",
+            color = CameraTheme.TEXT_SECONDARY,
+            fontSize = 12.sp,
+            modifier = Modifier.padding(horizontal = 4.dp),
+        )
+
         SheetSection("Ultra HDR", if (controller.ultraHdrEnabled) "On" else "Off")
         SegmentRow(
             options = listOf(true to "On", false to "Off").map { Triple(it.first, it.second, null as ImageVector?) },

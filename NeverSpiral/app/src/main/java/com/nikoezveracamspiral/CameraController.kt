@@ -96,6 +96,9 @@ class CameraController(private val context: Context) {
     var zoomEnhance by mutableStateOf(true)
     /** Portrait: also save the photo as it was before the blur, as bynikezvera_<date>_original.jpeg. */
     var saveOriginals by mutableStateOf(true)
+
+    /** Keep the chosen look (filter and sliders) the next time the camera opens; off starts every launch plain. */
+    var keepLook by mutableStateOf(true)
     /** The "Shot on Niko's Cam" watermark put on saved photos (Settings, Display). */
     var watermark by mutableStateOf(WatermarkSettings())
     /** Photos keep an HDR gain map (Ultra HDR) where the camera offers it. */
@@ -269,14 +272,14 @@ class CameraController(private val context: Context) {
         val hdr: Boolean, val hdrStrength: Int, val night: Int, val blur: Float, val raw: Boolean,
         val histogram: Boolean, val zoomEnhance: Boolean, val videoRes: Int, val videoFps: Int, val hevc: Boolean,
         val ultraHdr: Boolean, val nightGoogle: Boolean, val portraitStyle: Int, val saveOriginals: Boolean,
-        val watermark: WatermarkSettings, val look: Look,
+        val watermark: WatermarkSettings, val look: Look, val keepLook: Boolean,
     )
 
     private fun settingsSnapshot() = Persisted(
         timerSeconds, gridStyle.ordinal, aspectRatio.ordinal, jpegQuality, mirrorSelfies,
         hdrEnabled, hdrStrength, nightSeconds, portraitBlurStrength, isRawEnabled,
         histogramEnabled, zoomEnhance, videoConfig.res.ordinal, videoConfig.fps, videoConfig.hevc,
-        ultraHdrEnabled, nightGoogle, portraitStyle.ordinal, saveOriginals, watermark, look,
+        ultraHdrEnabled, nightGoogle, portraitStyle.ordinal, saveOriginals, watermark, look, keepLook,
     )
 
     private fun saveSettings(s: Persisted) {
@@ -295,7 +298,7 @@ class CameraController(private val context: Context) {
             .putFloat("exposure", l.exposure).putFloat("contrast", l.contrast).putFloat("saturation", l.saturation)
             .putFloat("warmth", l.warmth).putFloat("tint", l.tint).putFloat("highlights", l.highlights)
             .putFloat("shadows", l.shadows).putFloat("vignette", l.vignette).putFloat("grain", l.grain)
-            .putFloat("sharpness", l.sharpness)
+            .putFloat("sharpness", l.sharpness).putFloat("vibrance", l.vibrance).putBoolean("keepLook", s.keepLook)
             .apply()
     }
 
@@ -343,7 +346,10 @@ class CameraController(private val context: Context) {
             tint = p.getFloat("tint", 0f), highlights = p.getFloat("highlights", 0f),
             shadows = p.getFloat("shadows", 0f), vignette = p.getFloat("vignette", 0f),
             grain = p.getFloat("grain", 0f), sharpness = p.getFloat("sharpness", 0f),
+            vibrance = p.getFloat("vibrance", 0f),
         )
+        keepLook = p.getBoolean("keepLook", true)
+        if (!keepLook) look = Look()
     }
 
     // ---- steadiness (tripod) detection for Night Sight ----
@@ -1072,11 +1078,12 @@ class CameraController(private val context: Context) {
             description = "Quality 98; Night Sight (Google); ${look.filter.label}; zoom ${String.format(java.util.Locale.US, "%.1f", zoomRatio)}x",
         )
         // The system's Night engine hands back a finished JPEG, so the watermark goes on it here.
-        val marked = if (watermark.on) {
+        val marked = if (watermark.on || !look.isNeutral) {
             val settings = watermark.copy(details = false) // the engine reports no exposure details
+            val nightLook = look
             withContext(Dispatchers.Default) {
                 try {
-                    PhotoProcessor.watermarkOnly(bytes, 98, if (settings.logo) Watermark.logo(context) else null, settings, "")
+                    PhotoProcessor.watermarkOnly(bytes, 98, if (settings.on && settings.logo) Watermark.logo(context) else null, settings, "", nightLook)
                 } catch (e: Exception) {
                     Log.w(TAG, "Couldn't watermark the Night photo", e)
                     null

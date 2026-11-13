@@ -214,6 +214,12 @@ Not built yet (needs on-device testing): a YUV/RAW burst with zero-shutter-lag, 
 - Zoom quality: from 2x up, a shot is a 5-frame merged burst with minimal in-camera noise reduction (Settings: Zoom enhance), followed by a wider-radius unsharp mask that grows with the zoom level. Each photo's description now records the zoom and which physical lens captured it, so a telephoto shot can be told from a cropped main-lens one.
 - Predictive-back callback enabled for Android 13+.
 
+## v2.9.0
+
+- **Pixel looks.** A new **Pixel** tab in Filters with Pixel's four base styles (Original, Natural, Shadows, Vanilla) and six creative presets (Editorial, Velvet, Classic, Digi, Black Tie, Minimal). They apply to photos, the editor, Night Sight (Google engine too) and video. Red/green/blue-specific colour (Editorial's washed blues, Velvet's rich blues and reds with cool greens) is applied on the saved photo; the live preview shows the overall colour and tone. Minimal adds no extra sharpening.
+- **Fine-tuning** in Adjust now reads in Pixel's units: Warmth -10..+10, Sharpness 0..15, Grain None/Weak/Moderate/Strong, plus a new Vibrance slider (lifts muted colours more than strong ones). Contrast, Highlights, Shadows and Tint were already there.
+- **Always use selected look** (Photo settings): on keeps the look every launch, off starts plain.
+
 ## v2.8.0
 - **Watermark (Settings, Display).** A custom "Shot on Niko's Cam" watermark with the app logo (the N and camera, white on black) on every saved photo. Choose the style (small **on the photo**, or a **frame bar** added under it, light or dark), the position (left, centre, right), your own text, and whether to show the logo, the phone's name and the shot details (lens, f-stop, shutter, ISO). A live preview shows exactly what will be stamped. It applies to photos only (not video or RAW), also to Google Night photos and to a Portrait you re-edit. The bar style makes the photo a little taller, so it drops the Ultra HDR extra for that photo.
 - **Portrait has one look now.** The six styles are gone; the **Blur** slider (in the viewfinder and in the editor's Portrait tab) is the control. Photos taken as another style before still open and edit fine.
