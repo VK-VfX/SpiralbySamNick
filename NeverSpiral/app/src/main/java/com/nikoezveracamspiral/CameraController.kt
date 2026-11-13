@@ -76,10 +76,10 @@ class CameraController(private val context: Context) {
         private set
     /** While Night Sight is exposing: how long the user should hold still, in ms. */
     var holdStillMs by mutableLongStateOf(0L)
+        private set
     /** Set by the viewfinder: a small copy of the live picture at the given width (for Portrait's depth from focus). */
     @Volatile
     var previewGrabber: ((Int) -> android.graphics.Bitmap?)? = null
-        private set
     var portraitBlurStrength by mutableStateOf(0.5f)
     /** How Portrait mode treats the background (Natural, Studio, Soft, Bokeh, Stage, Mono). */
     var portraitStyle by mutableStateOf(PortraitStyle.NATURAL)
