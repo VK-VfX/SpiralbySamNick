@@ -47,13 +47,13 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      # NASA's astronaut portrait, from scikit-image's test data (public domain). Fetched here
+      # NASA's astronaut portrait, from scikit-image v0.22.0's test data (public domain, pinned so it cannot move). Fetched here
       # rather than kept in the repository so no one's own photos are ever committed.
       - name: Fetch the test photo
         run: |
           mkdir -p NeverSpiral/app/src/androidTest/assets
           curl -fsSL -o NeverSpiral/app/src/androidTest/assets/person.png \
-            https://raw.githubusercontent.com/scikit-image/scikit-image/main/skimage/data/astronaut.png
+            https://raw.githubusercontent.com/scikit-image/scikit-image/v0.22.0/skimage/data/astronaut.png
           ls -l NeverSpiral/app/src/androidTest/assets
 
       - name: Grant execute permission for gradlew
