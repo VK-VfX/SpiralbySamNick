@@ -262,58 +262,70 @@ class CameraEngine(private val context: Context) {
     /** Longer exposures and a brightened viewfinder while Night Sight is selected. */
     var nightPreviewBoost: Boolean = false
 
+    /** How many stops brighter than "normal" the Night viewfinder currently is, so a capture can
+     * be based on the scene's real exposure rather than the boosted one. */
+    @Volatile
+    private var nightBoostEv: Float = 0f
+
     private var videoFps = 30
 
     private var stopsCache: Pair<String, List<Float>>? = null
     private var lensCache: Pair<String, String>? = null
 
-    /** 35 mm-equivalent focal length of each physical lens behind the current (logical) camera. */
+    /** 35 mm-equivalent focal length of each distinct physical lens behind the current (logical)
+     * camera. A phone can list the same lens under several ids, so lenses are de-duplicated by
+     * focal length. */
     private fun physicalLensEquivalents(): List<Float> {
         val chars = characteristics ?: return emptyList()
         if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.P) return emptyList()
-        return chars.physicalCameraIds.mapNotNull { id ->
+        val byFocal = LinkedHashMap<Int, Float>()
+        for (id in chars.physicalCameraIds) {
             try {
                 val c = cameraManager.getCameraCharacteristics(id)
-                val focal = c.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.firstOrNull()
-                val size = c.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
-                if (focal != null && size != null) focal * 43.27f / kotlin.math.hypot(size.width, size.height) else null
+                val focal = c.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.firstOrNull() ?: continue
+                val size = c.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE) ?: continue
+                byFocal.getOrPut(Math.round(focal * 10f)) { focal * 43.27f / kotlin.math.hypot(size.width, size.height) }
             } catch (e: Exception) {
-                null
+                // An unreadable lens is simply left out.
             }
-        }.sorted()
+        }
+        return byFocal.values.sorted()
     }
 
     /**
      * The zoom stops to offer as one-tap chips, built from what this particular phone's camera
-     * reports: its widest zoom, 1x, the optical stop of every extra lens (a Pixel 9 Pro XL's 5x
-     * telephoto, a Pixel 7 Pro's 4x, none on a Pixel 8a), a 2x sensor crop, and a doubled
-     * telephoto. Falls back to common stops when the lens data isn't readable.
+     * reports: its widest zoom, 1x, the optical stop of its telephoto (a Pixel 9 Pro XL's 5x, a
+     * Pixel 7 Pro's 4x, none on a Pixel 8a), a 2x sensor crop, and a doubled telephoto. Optical
+     * stops are rounded the way phones label them (4.5 becomes 5). Falls back to common stops
+     * when the lens data isn't readable.
      */
     fun zoomStops(): List<Float> {
-        val chars = characteristics ?: return listOf(1f)
         val cached = stopsCache
         if (cached != null && cached.first == currentCameraId) return cached.second
+        if (characteristics == null) return listOf(1f)
         val min = minZoomRatio()
         val max = maxZoomRatio()
         val stops = sortedSetOf(1f)
         if (min < 0.95f) stops.add(Math.round(min * 10f) / 10f)
         val equivalents = physicalLensEquivalents()
         var telephoto: Float? = null
+        var lensDataUsable = false
         if (equivalents.size >= 2) {
             val main = equivalents.minByOrNull { kotlin.math.abs(it - 24f) } ?: equivalents.first()
             for (eq in equivalents) {
                 val ratio = eq / main
-                if (ratio > 1.3f && ratio <= max) {
-                    val rounded = Math.round(ratio * 2f) / 2f
+                if (ratio in 1.3f..12f && ratio <= max) {
+                    val rounded = if (ratio >= 3f) Math.round(ratio + 0.25f).toFloat() else Math.round(ratio * 2f) / 2f
                     stops.add(rounded)
                     telephoto = rounded
+                    lensDataUsable = true
                 }
             }
         }
         if (max >= 2f && (telephoto == null || kotlin.math.abs(telephoto - 2f) > 0.4f)) stops.add(2f)
-        if (telephoto != null) {
+        if (telephoto != null && lensDataUsable) {
             if (telephoto * 2f <= max) stops.add(telephoto * 2f)
-        } else if (equivalents.size < 2) {
+        } else {
             if (max >= 5f) stops.add(5f)
             if (max >= 10f) stops.add(10f)
         }
@@ -410,7 +422,41 @@ class CameraEngine(private val context: Context) {
         val result = lastPreviewResult ?: return null
         val time = result.get(android.hardware.camera2.CaptureResult.SENSOR_EXPOSURE_TIME) ?: return null
         val iso = result.get(android.hardware.camera2.CaptureResult.SENSOR_SENSITIVITY) ?: return null
+        if (nightBoostEv > 0.05f) {
+            // Undo the viewfinder's own brightening: give back its exposure, shutter first.
+            val factor = Math.pow(2.0, nightBoostEv.toDouble())
+            var neutralTime = (time / factor).toLong()
+            var neutralIso = iso.toDouble()
+            val minTime = exposureTimeRange?.lower ?: 1_000L
+            if (neutralTime < minTime) {
+                neutralIso = iso * (neutralTime.toDouble() / minTime)
+                neutralTime = minTime
+            }
+            val isoLow = isoRange?.lower ?: 50
+            return neutralTime to neutralIso.toInt().coerceAtLeast(isoLow)
+        }
         return time to iso
+    }
+
+    /**
+     * A Night Sight frame that gathers the same total light as the scene's auto exposure but
+     * spends it on a longer shutter and a lower ISO (less noise per frame, same brightness).
+     * [shutterFactor] says how much longer than auto, up to [capNanos].
+     */
+    fun nightExposure(auto: Pair<Long, Int>, shutterFactor: Int, capNanos: Long): Pair<Long, Int> {
+        val product = auto.first.toDouble() * auto.second
+        val timeRange = exposureTimeRange
+        val isoLow = isoRange?.lower ?: 50
+        val isoHigh = isoRange?.upper ?: 3200
+        var time = minOf(auto.first * shutterFactor, capNanos)
+        if (timeRange != null) time = time.coerceIn(timeRange.lower, timeRange.upper)
+        var iso = (product / time).toInt()
+        if (iso < isoLow) {
+            iso = isoLow
+            time = (product / iso).toLong()
+            if (timeRange != null) time = time.coerceIn(timeRange.lower, timeRange.upper)
+        }
+        return time to iso.coerceIn(isoLow, isoHigh)
     }
 
     /** One bracket step: [evStops] away from [auto], shifting the shutter first (up to 1/10 s,
@@ -496,9 +542,17 @@ class CameraEngine(private val context: Context) {
             }
             builder.set(CaptureRequest.CONTROL_AE_MODE, aeMode)
             var compensation = proSettings.exposureCompensation
+            nightBoostEv = 0f
             if (preview && nightPreviewBoost) {
-                // Night Sight: show a brightened viewfinder and allow slower frame rates.
-                chars.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE)?.let { compensation = it.upper }
+                // Night Sight: a modestly brighter viewfinder (+1 EV, not the camera's maximum,
+                // which washed bright rooms out to white) and slower frame rates allowed.
+                val range = chars.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE)
+                val step = chars.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_STEP)?.toFloat() ?: 0f
+                if (range != null && step > 0f) {
+                    val boostIndex = Math.round(1f / step).coerceIn(range.lower, range.upper)
+                    compensation = maxOf(compensation, boostIndex)
+                    nightBoostEv = (compensation - proSettings.exposureCompensation) * step
+                }
                 chars.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
                     ?.filter { it.lower <= 12 }
                     ?.maxByOrNull { it.upper }

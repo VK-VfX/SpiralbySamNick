@@ -40,6 +40,46 @@ import kotlinx.coroutines.withContext
 
 private const val BINS = 32
 
+/** The filter paint currently on each preview layer, so [snapshot] can set it aside. */
+internal object PreviewPaint {
+    val paints = java.util.WeakHashMap<TextureView, android.graphics.Paint?>()
+}
+
+/**
+ * A small copy of the viewfinder frame. With a colour-filter paint on the layer, reading the
+ * layer back fails on current Android ("Unable to draw content from GPU into the provided
+ * bitmap"), so the paint is lifted for the moment of the read; the frame is the camera's own,
+ * unfiltered, which is also what the filter thumbnails, QR scanner and histogram want.
+ */
+internal fun snapshot(view: TextureView, width: Int, height: Int): android.graphics.Bitmap? {
+    if (!view.isAvailable) return null
+    val paint = PreviewPaint.paints[view]
+    if (paint != null) view.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+    val bitmap = try {
+        view.getBitmap(width, height)
+    } catch (e: Exception) {
+        null
+    } finally {
+        if (paint != null) view.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, paint)
+    }
+    if (bitmap == null) return null
+    // A failed read can still hand back a fully transparent bitmap.
+    var opaque = false
+    for (i in 0 until 16) {
+        val x = (bitmap.width - 1) * (i % 4) / 3
+        val y = (bitmap.height - 1) * (i / 4) / 3
+        if ((bitmap.getPixel(x, y) ushr 24) != 0) {
+            opaque = true
+            break
+        }
+    }
+    if (!opaque) {
+        bitmap.recycle()
+        return null
+    }
+    return bitmap
+}
+
 /** A small live luminance histogram of the viewfinder, refreshed a couple of times a second. */
 @Composable
 internal fun HistogramOverlay(view: TextureView?, modifier: Modifier = Modifier) {
@@ -47,7 +87,7 @@ internal fun HistogramOverlay(view: TextureView?, modifier: Modifier = Modifier)
     LaunchedEffect(view) {
         while (view != null) {
             val bitmap = try {
-                if (view.isAvailable) view.getBitmap(96, 128) else null
+                snapshot(view, 96, 128)
             } catch (e: Exception) {
                 null
             }
@@ -108,7 +148,7 @@ internal fun QrPill(view: TextureView?, enabled: Boolean, modifier: Modifier = M
                     continue
                 }
                 val bitmap = try {
-                    if (view.isAvailable) view.getBitmap(360, 480) else null
+                    snapshot(view, 360, 480)
                 } catch (e: Exception) {
                     null
                 }

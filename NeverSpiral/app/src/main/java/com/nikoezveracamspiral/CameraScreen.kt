@@ -498,7 +498,7 @@ private fun Viewfinder(controller: CameraController, showControls: Boolean, stri
 
         Box(modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp)) {
             if (showControls) {
-                ControlsContent(controller, strip) { textureRef?.takeIf { it.isAvailable }?.getBitmap(180, 240) }
+                ControlsContent(controller, strip) { textureRef?.let { snapshot(it, 180, 240) } }
             } else {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (controller.mode == CaptureMode.NIGHT) NightDurationPills(controller)
@@ -561,7 +561,9 @@ private fun CameraPreview(
             val filter = if (look.filter == PhotoFilter.NATURAL && look.lut == null && look.exposure == 0f && look.contrast == 0f &&
                 look.saturation == 0f && look.warmth == 0f && look.tint == 0f) null
             else ColorMatrixColorFilter(look.toColorMatrix())
-            view.setLayerType(View.LAYER_TYPE_HARDWARE, filter?.let { Paint().apply { colorFilter = it } })
+            val layerPaint = filter?.let { Paint().apply { colorFilter = it } }
+            PreviewPaint.paints[view] = layerPaint
+            view.setLayerType(View.LAYER_TYPE_HARDWARE, layerPaint)
             // Selfie mirroring is a setting; re-apply the transform whenever it flips.
             controller.previewSize?.let { applyPreviewTransform(view, it, controller.engine.sensorOrientation, controller.mirrorPreview()) }
         },
@@ -742,7 +744,7 @@ private fun FlyingCapture(
     LaunchedEffect(tick) {
         if (tick == 0 || view == null || from == null || to == null) return@LaunchedEffect
         val snapshot = try {
-            if (view.isAvailable) view.getBitmap(240, 320)?.asImageBitmap() else null
+            snapshot(view, 240, 320)?.asImageBitmap()
         } catch (e: Exception) {
             null
         } ?: return@LaunchedEffect

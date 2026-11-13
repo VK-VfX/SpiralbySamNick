@@ -200,3 +200,9 @@ Not built yet (needs on-device testing): a YUV/RAW burst with zero-shutter-lag, 
 - A device profile (`DeviceProfile.kt`) sizes burst and single-frame processing from the phone's memory: High (10.5 GB and up: Pixel 9 Pro XL, 8 Pro), Mid (7 GB and up: Pixel 8a, 7, 6), Basic. Large frames are now scaled to the budget instead of being halved twice (a 16 MP frame stays near 13 MP).
 - The control area scales with the screen height (6.1" to 6.8" and folds).
 - Settings shows "This phone" with its memory, performance tier and lenses; the problem report adds the SoC-independent facts the next features need: largest JPEG/YUV sizes, frame-rate ranges, high-speed video sizes, supported camera extensions (night, HDR, bokeh) and each physical lens with its closest focus distance.
+
+## v2.2.1
+
+- Fixed: Night mode washed bright scenes out to white. The viewfinder boost is now +1 EV (not the camera's maximum), the capture is based on the scene's real exposure with the boost removed, and each frame keeps the auto exposure's total light but trades ISO for a longer shutter, so brightness stays right and noise drops. Dark scenes are lifted by the tone curve.
+- Fixed: zoom chips read 4.5 / 9 / 18 on a Pixel 9 Pro XL. The same lens appeared under several ids and the telephoto ratio was not rounded the way phones label it; lenses are now de-duplicated by focal length and a 4.5 ratio shows as 5 (with 10 as its double).
+- Fixed: viewfinder snapshots (filter thumbnails, histogram, QR scanner, the flying capture) failed with "Unable to draw content from GPU" whenever a filter was active. The layer paint is lifted for the instant of the read.

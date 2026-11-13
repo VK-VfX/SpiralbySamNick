@@ -519,25 +519,23 @@ class CameraController(private val context: Context) {
             when {
                 night && base != null -> {
                     // 3 s: twelve frames of up to 1/6 s; 6 s: sixteen frames of up to 1/3 s.
+                    // On a tripod there is no shake to freeze, so frames can be far longer.
                     val long = nightSeconds >= 6
                     val onTripod = tripod
-                    val range = engine.exposureTimeRange
-                    // On a tripod there's no shake to freeze, so each frame can be far longer.
-                    var time = when {
-                        onTripod && long -> minOf(base.first * 12, 1_000_000_000L)
-                        onTripod -> minOf(base.first * 8, 500_000_000L)
-                        else -> minOf(base.first * (if (long) 6 else 4), if (long) 330_000_000L else 160_000_000L)
+                    val frame = when {
+                        onTripod && long -> engine.nightExposure(base, 12, 1_000_000_000L)
+                        onTripod -> engine.nightExposure(base, 8, 500_000_000L)
+                        long -> engine.nightExposure(base, 6, 330_000_000L)
+                        else -> engine.nightExposure(base, 4, 160_000_000L)
                     }
-                    if (range != null) time = time.coerceIn(range.lower, range.upper)
                     val frameCount = when {
-                        onTripod && long -> 6
                         onTripod -> 6
                         long -> 16
                         else -> 12
                     }
-                    exposures = List(frameCount) { time to base.second }
+                    exposures = List(frameCount) { frame }
                     tone = PhotoProcessor.ToneMode.Night
-                    holdStillMs = exposures.size * (time / 1_000_000L + 40L)
+                    holdStillMs = exposures.size * (frame.first / 1_000_000L + 40L)
                     Toast.makeText(context, "Hold your phone steady", Toast.LENGTH_SHORT).show()
                 }
                 hdrEnabled && !manualExposure && !flashActive && !mode.isVideo && base != null -> {
