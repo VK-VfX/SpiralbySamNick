@@ -309,9 +309,9 @@ object PortraitEffect {
         val accB = FloatArray(n)
         for (i in 0 until n) {
             val p = work[i]
-            accR[i] = ((p shr 16) and 0xFF).toFloat()
-            accG[i] = ((p shr 8) and 0xFF).toFloat()
-            accB[i] = (p and 0xFF).toFloat()
+            accR[i] = TO_LINEAR[(p shr 16) and 0xFF]
+            accG[i] = TO_LINEAR[(p shr 8) and 0xFF]
+            accB[i] = TO_LINEAR[p and 0xFF]
         }
         // Underneath everything: the whole picture at the widest blur, so no gap ever shows.
         val baseRadius = maxRadius.roundToInt().coerceAtLeast(1)
@@ -340,9 +340,9 @@ object PortraitEffect {
                 if (wgt > 0f) {
                     used++
                     val p = work[i]
-                    var r = ((p shr 16) and 0xFF).toFloat()
-                    var g = ((p shr 8) and 0xFF).toFloat()
-                    var b = (p and 0xFF).toFloat()
+                    var r = TO_LINEAR[(p shr 16) and 0xFF]
+                    var g = TO_LINEAR[(p shr 8) and 0xFF]
+                    var b = TO_LINEAR[p and 0xFF]
                     if (bloom != null && step > 0) {
                         // Bright lights swell before they blur, so they melt into soft discs.
                         val boost = bloom[i]
@@ -384,9 +384,10 @@ object PortraitEffect {
         val image = IntArray(n)
         val weight = FloatArray(n)
         for (i in 0 until n) {
-            var r = accR[i]
-            var g = accG[i]
-            var b = accB[i]
+            // Back from linear light to the picture's own encoding.
+            var r = toEncoded(accR[i])
+            var g = toEncoded(accG[i])
+            var b = toEncoded(accB[i])
             val tint = smooth((coc[i] * 4f).coerceIn(0f, 1f))
             if (params.mono) {
                 val gray = 0.299f * r + 0.587f * g + 0.114f * b
@@ -870,6 +871,19 @@ object PortraitEffect {
     }
 
     internal fun smooth(t: Float): Float = t * t * (3f - 2f * t)
+
+    // The blur is done in linear light, as a real lens does it: averaging encoded values darkens
+    // every bright-to-dark transition and shrinks highlights, which is what makes cheap blur look
+    // flat. Values are kept on a 0..255 scale.
+    private val TO_LINEAR = FloatArray(256) { v -> (255.0 * Math.pow(v / 255.0, 2.2)).toFloat() }
+    private val FROM_LINEAR = FloatArray(4097) { i -> (255.0 * Math.pow(i / 4096.0, 1.0 / 2.2)).toFloat() }
+
+    private fun toEncoded(linear: Float): Float {
+        val pos = (linear / 255f).coerceIn(0f, 1f) * 4096f
+        val i = pos.toInt().coerceAtMost(4095)
+        val t = pos - i
+        return FROM_LINEAR[i] * (1f - t) + FROM_LINEAR[i + 1] * t
+    }
 
     private fun lerp(a: Int, b: Int, t: Float): Float = a + (b - a) * t
 
