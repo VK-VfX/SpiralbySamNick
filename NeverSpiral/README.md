@@ -215,6 +215,7 @@ Not built yet (needs on-device testing): a YUV/RAW burst with zero-shutter-lag, 
 - Predictive-back callback enabled for Android 13+.
 
 ## v2.6.1
+- **Portrait fits phones with a small memory limit, like the Pixel 8a.** The Portrait blur keeps dozens of working maps in memory, which fit a Pixel 9 Pro XL's 512 MB app heap but not an 8a's roughly 256 MB. The working size now follows the phone's real heap (about 1024 px on 512 MB, about 750 px on 256 MB, never below 576), the depth, lens and focus cues are fused in a separate step so their maps are freed before the blur starts, and if memory still runs out the whole blur is retried a size smaller instead of failing. The radii scale with the working size, so the look is the same on every phone, and the log shows the size used.
 - **No more square notches at the edge of hair.** When the subject mask had small separate pieces (strands of hair, fringe), cleaning them up cleared a square margin around each, which cut rectangular bites out of the hair and shoulders. Pieces that sit against the subject are now kept, only pieces floating well away are dropped, and only with a thin rim.
 
 ## v2.6.0

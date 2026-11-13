@@ -953,11 +953,10 @@ class CameraController(private val context: Context) {
                 depth = depthCapture,
                 subjectTap = if (mode == CaptureMode.PORTRAIT) portraitSubject else null,
                 // The same look on every phone: only the working resolution of the blur changes with the phone's speed.
-                portraitWorkSize = when (deviceProfile.tier) {
-                    PerformanceTier.LOW -> 768
-                    PerformanceTier.MID -> 896
-                    PerformanceTier.HIGH -> 1024
-                },
+                portraitWorkSize = minOf(
+                    PortraitEffect.workSizeFor(Runtime.getRuntime().maxMemory()),
+                    if (deviceProfile.tier == PerformanceTier.LOW) 768 else 1024,
+                ),
                 noiseScale = sqrt((meta.iso ?: 400) / 400f).coerceIn(0.8f, 2.2f),
                 zoomRatio = zoomRatio,
                 keepUltraHdr = engine.ultraHdrActive,

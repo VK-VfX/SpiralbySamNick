@@ -62,6 +62,33 @@ object PortraitEffect {
 
     /** Returns true if a subject was found and the background was blurred. [strength] is 0..1. */
     fun apply(pixels: IntArray, w: Int, h: Int, strength: Float, style: PortraitStyle = PortraitStyle.NATURAL, cues: DepthCues? = null, tap: Pair<Float, Float>? = null, workLongSide: Int = 1024): Boolean {
+        // Nothing is written to [pixels] until the very end, so if memory runs out part-way (a
+        // phone with a small heap) the whole thing can simply be retried a size smaller.
+        var size = workLongSide
+        while (true) {
+            try {
+                return applyAt(pixels, w, h, strength, style, cues, tap, size)
+            } catch (e: OutOfMemoryError) {
+                val smaller = (size * 0.75f).toInt()
+                android.util.Log.w("PortraitEffect", "Out of memory at working size $size; retrying at $smaller", e)
+                if (smaller < 448) throw e
+                size = smaller
+            }
+        }
+    }
+
+    /**
+     * The working size (long side, in pixels) that Portrait's blur can afford on a phone whose app
+     * heap is [heapBytes]. The blur keeps about 45 float maps of that size in memory at once, so
+     * the size follows the heap: about 1024 on a 512 MB heap (Pixel 9 Pro XL), about 750 on a
+     * 256 MB heap (Pixel 8a), and never below 576. The look is the same at every size.
+     */
+    fun workSizeFor(heapBytes: Long): Int {
+        val side = kotlin.math.sqrt(heapBytes * 0.30 / 135.0)
+        return ((side / 32.0).toInt() * 32).coerceIn(576, 1024)
+    }
+
+    private fun applyAt(pixels: IntArray, w: Int, h: Int, strength: Float, style: PortraitStyle, cues: DepthCues?, tap: Pair<Float, Float>?, workLongSide: Int): Boolean {
         val params = paramsFor(style)
         val longSide = max(w, h)
         val scale = min(1f, workLongSide.toFloat() / longSide)
@@ -75,6 +102,7 @@ object PortraitEffect {
         }
         val strengthFactor = 0.2f + 0.8f * strength.coerceIn(0f, 1f)
         val maxRadius = (params.radius * longSide * strengthFactor * (ww.toFloat() / w)).coerceAtLeast(2f)
+        android.util.Log.i("PortraitEffect", "Working size ${ww}x$wh for ${w}x$h, heap ${Runtime.getRuntime().maxMemory() / (1024 * 1024)} MB")
 
         // Depth from the camera's own measurements plus the subject's outline; the plain
         // outline blur is the last resort.
@@ -128,57 +156,20 @@ object PortraitEffect {
             for (i in 0 until n) ramp[i] = 1f - 0.75f * smooth((subjectDistance[i] / reach).coerceIn(0f, 1f))
         }
 
-        // The measured cues, each brought to 0..1 (larger = nearer) at working size.
-        val stereo = cues?.stereo?.let { normalisedCue(it, ww, wh) }
-        val focusCue = cues?.focus?.let { normalisedCue(it, ww, wh) }
-        // The learned depth map (the same kind of network Pixel's Portrait relies on): clean and
-        // smooth everywhere, so it carries the depth and the other cues only refine it.
-        val learned = if (DepthModel.isReady()) learnedCue(work, ww, wh) else null
-        if (stereo != null) {
-            // Which way is "near" along the baseline isn't known up front; the sharpness cue or, failing
-            // that, the fact that the subject is nearer than its surroundings settles it.
-            var score = 0f
-            if (learned != null) {
-                for (i in 0 until n) score += stereo.second[i] * (stereo.first[i] - 0.5f) * (learned.first[i] - 0.5f)
-            } else if (focusCue != null) {
-                for (i in 0 until n) score += stereo.second[i] * focusCue.second[i] * (stereo.first[i] - 0.5f) * (focusCue.first[i] - 0.5f)
-            } else if (subject != null) {
-                var inside = 0f
-                var insideN = 0f
-                var outside = 0f
-                var outsideN = 0f
-                for (i in 0 until n) {
-                    val c = stereo.second[i]
-                    if (subject[i] > 0.7f) { inside += stereo.first[i] * c; insideN += c }
-                    else if (subject[i] < 0.2f) { outside += stereo.first[i] * c; outsideN += c }
-                }
-                if (insideN > 1f && outsideN > 1f) score = inside / insideN - outside / outsideN
-            }
-            if (score < 0f) for (i in 0 until n) stereo.first[i] = 1f - stereo.first[i]
-        }
-        val hasCues = stereo != null || focusCue != null || learned != null
-        val cueDepth = FloatArray(n)
-        val cueConf = FloatArray(n)
-        if (hasCues) {
-            for (i in 0 until n) {
-                val sw = if (stereo != null) 0.8f * stereo.second[i] else 0f
-                val fw = if (focusCue != null) 1.0f * focusCue.second[i] else 0f
-                val lw = if (learned != null) 4.0f * learned.second[i] else 0f
-                val total = sw + fw + lw
-                if (total > 1e-4f) {
-                    cueDepth[i] = ((if (stereo != null) sw * stereo.first[i] else 0f) +
-                        (if (focusCue != null) fw * focusCue.first[i] else 0f) +
-                        (if (learned != null) lw * learned.first[i] else 0f)) / total
-                    cueConf[i] = min(1f, total)
-                }
-            }
-        }
+        // The measured cues (learned depth, two lenses, focus sweep) fused into one depth and a
+        // confidence. Done in its own function so every intermediate map is freed before the
+        // heavy blur starts: memory is what limits Portrait on phones like the Pixel 8a.
+        val fused = fuseCues(work, ww, wh, cues, subject)
+        val hasCues = fused.hasCues
+        val hasLearned = fused.hasLearned
+        val cueDepth = fused.depth
+        val cueConf = fused.conf
         if (!hasCues && subject == null) return null
 
         // Depth: the measured cues where they are trustworthy, the outline ramp everywhere as a
         // gentle prior, then snapped to the picture's own edges.
         var depth = FloatArray(n)
-        val rampWeight = if (learned != null) 0.15f else if (hasCues) 0.6f else 1f
+        val rampWeight = if (hasLearned) 0.15f else if (hasCues) 0.6f else 1f
         for (i in 0 until n) depth[i] = (cueDepth[i] * cueConf[i] + ramp[i] * rampWeight) / (cueConf[i] + rampWeight)
         depth = guidedFilter(lum, depth, ww, wh, max(4, max(ww, wh) / 60), 0.002f)
 
@@ -216,8 +207,8 @@ object PortraitEffect {
         // a held object, a collar), the way Google's portrait keeps everything attached to the
         // subject crisp. Anything not connected (a pillow beside the hand) stays background even
         // at a similar depth. With no measured depth the outline alone is the subject.
-        val band = if (learned != null) 0.2f else 0.11f
-        val stepLimit = if (learned != null) 0.06f else 0.05f
+        val band = if (hasLearned) 0.2f else 0.11f
+        val stepLimit = if (hasLearned) 0.06f else 0.05f
         val region = BooleanArray(n)
         val queue = IntArray(n)
         var head = 0
@@ -489,8 +480,60 @@ object PortraitEffect {
         return out
     }
 
-    /** The depth model's map at working size, spread over 0..1 with full confidence (first = value, second = confidence), or null if it can't run. */
-    private fun learnedCue(work: IntArray, ww: Int, wh: Int): Pair<FloatArray, FloatArray>? {
+    private class FusedCues(val depth: FloatArray, val conf: FloatArray, val hasCues: Boolean, val hasLearned: Boolean)
+
+    private fun fuseCues(work: IntArray, ww: Int, wh: Int, cues: DepthCues?, subject: FloatArray?): FusedCues {
+        val n = ww * wh
+        val stereo = cues?.stereo?.let { normalisedCue(it, ww, wh) }
+        val focusCue = cues?.focus?.let { normalisedCue(it, ww, wh) }
+        // The learned depth map (the same kind of network Pixel's Portrait relies on): clean and
+        // smooth everywhere, so it carries the depth and the other cues only refine it.
+        val learned = if (DepthModel.isReady()) learnedCue(work, ww, wh) else null
+        if (stereo != null) {
+            // Which way is "near" along the baseline isn't known up front; the learned depth, the
+            // sharpness cue or, failing those, the fact that the subject is nearer than its
+            // surroundings settles it.
+            var score = 0f
+            if (learned != null) {
+                for (i in 0 until n) score += stereo.second[i] * (stereo.first[i] - 0.5f) * (learned[i] - 0.5f)
+            } else if (focusCue != null) {
+                for (i in 0 until n) score += stereo.second[i] * focusCue.second[i] * (stereo.first[i] - 0.5f) * (focusCue.first[i] - 0.5f)
+            } else if (subject != null) {
+                var inside = 0f
+                var insideN = 0f
+                var outside = 0f
+                var outsideN = 0f
+                for (i in 0 until n) {
+                    val c = stereo.second[i]
+                    if (subject[i] > 0.7f) { inside += stereo.first[i] * c; insideN += c }
+                    else if (subject[i] < 0.2f) { outside += stereo.first[i] * c; outsideN += c }
+                }
+                if (insideN > 1f && outsideN > 1f) score = inside / insideN - outside / outsideN
+            }
+            if (score < 0f) for (i in 0 until n) stereo.first[i] = 1f - stereo.first[i]
+        }
+        val hasCues = stereo != null || focusCue != null || learned != null
+        val depth = FloatArray(n)
+        val conf = FloatArray(n)
+        if (hasCues) {
+            for (i in 0 until n) {
+                val sw = if (stereo != null) 0.8f * stereo.second[i] else 0f
+                val fw = if (focusCue != null) 1.0f * focusCue.second[i] else 0f
+                val lw = if (learned != null) 4.0f else 0f
+                val total = sw + fw + lw
+                if (total > 1e-4f) {
+                    depth[i] = ((if (stereo != null) sw * stereo.first[i] else 0f) +
+                        (if (focusCue != null) fw * focusCue.first[i] else 0f) +
+                        (if (learned != null) lw * learned[i] else 0f)) / total
+                    conf[i] = min(1f, total)
+                }
+            }
+        }
+        return FusedCues(depth, conf, hasCues, learned != null)
+    }
+
+    /** The depth model's map at working size, spread over 0..1 (larger = nearer), or null if it can't run. */
+    private fun learnedCue(work: IntArray, ww: Int, wh: Int): FloatArray? {
         val raw = DepthModel.estimate(work, ww, wh) ?: return null
         val n = ww * wh
         val value = resize(raw, 256, 256, ww, wh)
@@ -500,7 +543,7 @@ object PortraitEffect {
         val high = sample[min(sample.size - 1, (sample.size * 0.98f).toInt())]
         if (high - low < 1e-6f) return null
         for (i in 0 until n) value[i] = ((value[i] - low) / (high - low)).coerceIn(0f, 1f)
-        return Pair(value, FloatArray(n) { 1f })
+        return value
     }
 
     /** A depth cue resized to the working size and spread over 0..1 (first = value, second = confidence), or null if it is too weak to use. */
