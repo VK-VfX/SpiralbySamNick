@@ -135,9 +135,16 @@ object CaptureStore {
                     val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
                     android.graphics.BitmapFactory.decodeByteArray(thumbnailJpeg, 0, thumbnailJpeg.size, bounds)
                     var sample = 1
-                    while (bounds.outWidth / (sample * 2) >= 256) sample *= 2
+                    while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 256) sample *= 2
                     val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
-                    android.graphics.BitmapFactory.decodeByteArray(thumbnailJpeg, 0, thumbnailJpeg.size, opts)?.let { thumb ->
+                    android.graphics.BitmapFactory.decodeByteArray(thumbnailJpeg, 0, thumbnailJpeg.size, opts)?.let { decoded ->
+                        // DngCreator wants both sides strictly under 256 px.
+                        val scale = minOf(1f, 255f / maxOf(decoded.width, decoded.height))
+                        val thumb = if (scale < 1f) {
+                            android.graphics.Bitmap.createScaledBitmap(
+                                decoded, (decoded.width * scale).toInt().coerceAtLeast(1), (decoded.height * scale).toInt().coerceAtLeast(1), true,
+                            ).also { if (it !== decoded) decoded.recycle() }
+                        } else decoded
                         dngCreator.setThumbnail(thumb)
                         thumb.recycle()
                     }

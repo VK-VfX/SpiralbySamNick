@@ -214,6 +214,11 @@ Not built yet (needs on-device testing): a YUV/RAW burst with zero-shutter-lag, 
 - Zoom quality: from 2x up, a shot is a 5-frame merged burst with minimal in-camera noise reduction (Settings: Zoom enhance), followed by a wider-radius unsharp mask that grows with the zoom level. Each photo's description now records the zoom and which physical lens captured it, so a telephoto shot can be told from a cropped main-lens one.
 - Predictive-back callback enabled for Android 13+.
 
+## v2.4.1
+- Fixed the JPEG / RAW switch in the viewfinder's format pill doing nothing: the popup closed the moment it was tapped and cancelled the switch half way. It now runs on the camera's own scope.
+- Settings has a small gear in its header that opens an About page: developer photo, Nikoezvera, version and the Telegram contact (@xnzvix).
+- The DNG preview thumbnail is now sized within the 256 px limit, so it is actually written.
+
 ## v2.4.0
 - New app icon and splash: the N + camera glyph, white on black.
 - Removed the QR scanner (and its barcode model) from the viewfinder and Settings.

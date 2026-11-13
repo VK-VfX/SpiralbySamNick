@@ -894,11 +894,11 @@ private fun FormatPopup(controller: CameraController, modifier: Modifier = Modif
         Text("Format", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FormatOption("JPEG", selected = !rawOn, enabled = true) {
-                if (controller.isRawEnabled) scope.launch { controller.toggleRaw() }
+                controller.setRaw(false)
                 onDismiss()
             }
             FormatOption("RAW + JPEG", selected = rawOn, enabled = rawSupported) {
-                if (!controller.isRawEnabled) scope.launch { controller.toggleRaw() }
+                controller.setRaw(true)
                 onDismiss()
             }
         }
@@ -1351,7 +1351,36 @@ private fun SettingsSheet(controller: CameraController) {
             modifier = Modifier.align(Alignment.CenterHorizontally).width(40.dp).height(4.dp)
                 .clip(RoundedCornerShape(2.dp)).background(Color(0x66FFFFFF)),
         )
-        Text("Camera", color = Color.White, fontSize = 22.sp, modifier = Modifier.padding(start = 4.dp, top = 6.dp))
+        var aboutOpen by remember { mutableStateOf(false) }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 4.dp, top = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (aboutOpen) {
+                Text(
+                    "‹  About",
+                    color = Color.White,
+                    fontSize = 22.sp,
+                    modifier = Modifier.weight(1f).clickable { aboutOpen = false },
+                )
+            } else {
+                Text("Camera", color = Color.White, fontSize = 22.sp, modifier = Modifier.weight(1f))
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(CameraTheme.SURFACE_RAISED)
+                        .clickable { aboutOpen = true },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Rounded.Settings, contentDescription = "About", tint = Color.White, modifier = Modifier.size(22.dp))
+                }
+            }
+        }
+        if (aboutOpen) {
+            AboutPage()
+            return@Column
+        }
 
         SheetSection("Flash", controller.flashMode.name.lowercase().replaceFirstChar { it.uppercase() })
         SegmentRow(
@@ -1396,7 +1425,7 @@ private fun SettingsSheet(controller: CameraController) {
             selected = controller.isRawEnabled && rawSupported,
         ) { wantRaw ->
             if (wantRaw && !rawSupported) return@SegmentRow
-            if (wantRaw != controller.isRawEnabled) scope.launch { controller.toggleRaw() }
+            controller.setRaw(wantRaw)
         }
 
         SheetSection("JPEG quality", "${controller.jpegQuality}")
@@ -1502,24 +1531,43 @@ private fun UpdateSection(controller: CameraController) {
         selected = controller.autoCheckUpdates,
     ) { controller.changeAutoCheckUpdates(it) }
 
-    SheetSection("About", "Niko's Cam")
-    Text(
-        text = "Developed by Nikoezvera",
-        color = Color.White,
-        fontSize = 14.sp,
-        modifier = Modifier.padding(horizontal = 4.dp),
-    )
-    Spacer(Modifier.height(8.dp))
-    UpdateButton("Telegram: @xnzvix", Modifier.fillMaxWidth()) {
-        try {
-            context.startActivity(
-                Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/xnzvix")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            )
-        } catch (e: Exception) {
-            // No app can open the link; nothing more to do.
-        }
-    }
     Spacer(Modifier.height(24.dp))
+}
+
+@Composable
+private fun AboutPage() {
+    val context = LocalContext.current
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Image(
+            painter = androidx.compose.ui.res.painterResource(R.drawable.dev_avatar),
+            contentDescription = "Nikoezvera",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.size(112.dp).clip(CircleShape),
+        )
+        Text("Nikoezvera", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+        Text("Developer of Niko's Cam", color = CameraTheme.TEXT_SECONDARY, fontSize = 14.sp)
+        Text(
+            "v${UpdateManager.installedVersionName(context)}",
+            color = CameraTheme.TEXT_SECONDARY,
+            fontSize = 12.sp,
+        )
+        Spacer(Modifier.height(6.dp))
+        SheetSection("Contact", "Telegram")
+        UpdateButton("@xnzvix", Modifier.fillMaxWidth()) {
+            try {
+                context.startActivity(
+                    Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/xnzvix")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            } catch (e: Exception) {
+                // No app can open the link; nothing more to do.
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+    }
 }
 
 @Composable

@@ -485,6 +485,15 @@ class CameraController(private val context: Context) {
         pushProSettings()
     }
 
+    /** Switches RAW on or off from the UI. It runs on the controller's own scope: a popup that
+     * closes right after the tap would otherwise cancel the coroutine that is mid-way through
+     * restarting the session, and the switch would silently do nothing. */
+    fun setRaw(enabled: Boolean) {
+        controllerScope.launch {
+            if (isRawEnabled != enabled) toggleRaw()
+        }
+    }
+
     /** Takes effect immediately by restarting just the capture session (not the whole camera
      * device), adding or dropping the RAW ImageReader from its target surfaces. */
     suspend fun toggleRaw() {
