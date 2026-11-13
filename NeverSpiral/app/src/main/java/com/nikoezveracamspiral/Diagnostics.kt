@@ -34,6 +34,18 @@ object Diagnostics {
                 val active = c.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
                 out.append("camera $id: $facing, hardware level $level, sensor orientation $orientation, ")
                     .append("zoom range $zoom, active array ${active?.width()}x${active?.height()}, capabilities [$caps]\n")
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    for (pid in c.physicalCameraIds) {
+                        try {
+                            val pc = manager.getCameraCharacteristics(pid)
+                            val focal = pc.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.joinToString()
+                            val minFocus = pc.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE)
+                            out.append("  physical $pid: focal [$focal] mm, closest focus $minFocus diopters\n")
+                        } catch (e: Exception) {
+                            out.append("  physical $pid: not readable\n")
+                        }
+                    }
+                }
             } catch (e: Exception) {
                 out.append("camera $id: unreadable (${e.message})\n")
             }

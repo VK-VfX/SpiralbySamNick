@@ -18,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -28,6 +29,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.android.gms.tasks.Tasks
+import com.google.mlkit.vision.barcode.BarcodeScanner
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
@@ -91,26 +93,32 @@ internal fun HistogramOverlay(view: TextureView?, modifier: Modifier = Modifier)
 internal fun QrPill(view: TextureView?, enabled: Boolean, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     var found by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(view, enabled) {
-        if (!enabled || view == null) {
-            found = null
-            return@LaunchedEffect
-        }
-        val scanner = BarcodeScanning.getClient(
-            BarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build(),
-        )
+    val enabledNow by rememberUpdatedState(enabled)
+    // One scanner for the life of the viewfinder: opening or closing a panel just pauses the
+    // loop instead of tearing the model down and loading it again.
+    LaunchedEffect(view) {
+        if (view == null) return@LaunchedEffect
+        var scanner: BarcodeScanner? = null
         var misses = 0
         try {
             while (true) {
+                if (!enabledNow) {
+                    found = null
+                    delay(600)
+                    continue
+                }
                 val bitmap = try {
-                    if (view.isAvailable) view.getBitmap(480, 640) else null
+                    if (view.isAvailable) view.getBitmap(360, 480) else null
                 } catch (e: Exception) {
                     null
                 }
                 if (bitmap != null) {
+                    val client = scanner ?: BarcodeScanning.getClient(
+                        BarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build(),
+                    ).also { scanner = it }
                     val value = withContext(Dispatchers.Default) {
                         try {
-                            Tasks.await(scanner.process(InputImage.fromBitmap(bitmap, 0))).firstOrNull()?.rawValue
+                            Tasks.await(client.process(InputImage.fromBitmap(bitmap, 0))).firstOrNull()?.rawValue
                         } catch (e: Exception) {
                             null
                         }
@@ -119,14 +127,14 @@ internal fun QrPill(view: TextureView?, enabled: Boolean, modifier: Modifier = M
                     if (value != null) {
                         found = value
                         misses = 0
-                    } else if (++misses >= 6) {
+                    } else if (++misses >= 3) {
                         found = null
                     }
                 }
-                delay(800)
+                delay(1500)
             }
         } finally {
-            scanner.close()
+            scanner?.close()
         }
     }
     val value = found ?: return

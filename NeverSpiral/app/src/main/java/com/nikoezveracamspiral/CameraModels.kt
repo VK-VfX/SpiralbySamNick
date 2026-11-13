@@ -17,6 +17,7 @@ enum class CaptureMode(val label: String) {
     PRO("Pro"),
     VIDEO("Video"),
     PORTRAIT("Portrait"),
+    MACRO("Macro"),
     PANORAMA("Pano"),
     SLOW_MOTION("Slo-mo");
 

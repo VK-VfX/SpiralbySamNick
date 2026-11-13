@@ -138,6 +138,10 @@ class CameraEngine(private val context: Context) {
                     if (cont.isActive) cont.resume(Unit)
                 }
 
+                override fun onClosed(camera: CameraDevice) {
+                    closedLatch?.countDown()
+                }
+
                 override fun onDisconnected(device: CameraDevice) {
                     device.close()
                     cameraDevice = null
@@ -166,7 +170,9 @@ class CameraEngine(private val context: Context) {
         jpegReader = null
         rawReader?.close()
         rawReader = null
-        previewSurface = null
+        // previewSurface is kept: it is tied to the SurfaceTexture, and creating a second Surface
+        // for a texture whose first one is still connected is what the log flagged as
+        // "createEvilTwin". It is released in closeCamera().
     }
 
     fun closeCamera() {
@@ -180,10 +186,31 @@ class CameraEngine(private val context: Context) {
         recorderSurface = null
 
         closeSessionResources()
-        cameraDevice?.close()
+        previewSurface?.release()
+        previewSurface = null
+        previewTexture = null
+
+        // Wait (briefly) for the camera to report it is closed before the caller stops the
+        // background thread its callbacks are delivered on.
+        val device = cameraDevice
         cameraDevice = null
         characteristics = null
+        if (device != null) {
+            val latch = java.util.concurrent.CountDownLatch(1)
+            closedLatch = latch
+            device.close()
+            try {
+                latch.await(700, java.util.concurrent.TimeUnit.MILLISECONDS)
+            } catch (_: InterruptedException) {
+                // Nothing more to wait for.
+            }
+            closedLatch = null
+        }
     }
+
+    @Volatile
+    private var closedLatch: java.util.concurrent.CountDownLatch? = null
+    private var previewTexture: SurfaceTexture? = null
 
     private fun chooseJpegSize(): Size {
         val map = characteristics?.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
@@ -237,6 +264,15 @@ class CameraEngine(private val context: Context) {
 
     private var videoFps = 30
 
+    /** Macro: prefers the camera's close-focus AF mode where it has one. */
+    var macroMode: Boolean = false
+
+    /** Where the lens is currently focused, in centimetres, from the latest preview frame. */
+    fun currentFocusDistanceCm(): Float? {
+        val diopters = lastPreviewResult?.get(android.hardware.camera2.CaptureResult.LENS_FOCUS_DISTANCE) ?: return null
+        return if (diopters > 0.3f) 100f / diopters else null
+    }
+
     /** AE/AF lock (long-press on the viewfinder). */
     var controlsLocked: Boolean = false
         private set
@@ -259,8 +295,16 @@ class CameraEngine(private val context: Context) {
 
         closeSessionResources()
         texture.setDefaultBufferSize(previewSize.width, previewSize.height)
-        val surface = Surface(texture)
-        previewSurface = surface
+        val existing = previewSurface
+        val surface = if (existing != null && previewTexture === texture && existing.isValid) {
+            existing
+        } else {
+            existing?.release()
+            Surface(texture).also {
+                previewSurface = it
+                previewTexture = texture
+            }
+        }
 
         val jpegSize = chooseJpegSize()
         val reader = ImageReader.newInstance(jpegSize.width, jpegSize.height, ImageFormat.JPEG, 4)
@@ -406,9 +450,14 @@ class CameraEngine(private val context: Context) {
             builder.set(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_OFF)
             builder.set(CaptureRequest.LENS_FOCUS_DISTANCE, proSettings.focusDistance)
         } else {
+            val afModes = chars.get(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES)
             builder.set(
                 CaptureRequest.CONTROL_AF_MODE,
-                if (controlsLocked) CameraMetadata.CONTROL_AF_MODE_AUTO else CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_PICTURE,
+                when {
+                    controlsLocked -> CameraMetadata.CONTROL_AF_MODE_AUTO
+                    macroMode && afModes?.contains(CameraMetadata.CONTROL_AF_MODE_MACRO) == true -> CameraMetadata.CONTROL_AF_MODE_MACRO
+                    else -> CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_PICTURE
+                },
             )
         }
 
@@ -424,7 +473,9 @@ class CameraEngine(private val context: Context) {
     }
 
     fun setZoom(ratio: Float) {
-        zoomRatio = ratio.coerceIn(1f, maxZoomRatio())
+        // The lower bound is the camera's own minimum (0.5x on phones with an ultra-wide lens),
+        // not 1x: clamping to 1x here is what kept the wide lens from ever being selected.
+        zoomRatio = ratio.coerceIn(minZoomRatio(), maxZoomRatio().coerceAtLeast(1f))
         startRepeatingPreview()
     }
 

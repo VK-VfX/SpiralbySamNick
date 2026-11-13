@@ -364,8 +364,20 @@ class CameraController(private val context: Context) {
 
     fun selectMode(newMode: CaptureMode) {
         if (isRecording || newMode == mode) return
+        val previous = mode
         mode = newMode
         pushProSettings()
+        engine.macroMode = newMode == CaptureMode.MACRO
+        if (newMode == CaptureMode.MACRO) {
+            // Macro uses the ultra-wide lens, which focuses much closer than the main one.
+            if (engine.minZoomRatio() < 1f) {
+                setZoom(engine.minZoomRatio())
+            } else {
+                Toast.makeText(context, "No ultra-wide lens on this camera: close focus is limited", Toast.LENGTH_SHORT).show()
+            }
+        } else if (previous == CaptureMode.MACRO) {
+            setZoom(1f)
+        }
         engine.nightPreviewBoost = newMode == CaptureMode.NIGHT
         if (newMode == CaptureMode.NIGHT) startSteadyDetection() else stopSteadyDetection()
         engine.startRepeatingPreview()
@@ -554,6 +566,7 @@ class CameraController(private val context: Context) {
                 night -> "Night Sight, ${exposures.size} frames"
                 tone is PhotoProcessor.ToneMode.HdrPlus -> "HDR+, ${exposures.size} frames"
                 mode == CaptureMode.PORTRAIT -> "Portrait"
+                mode == CaptureMode.MACRO -> "Macro"
                 else -> "Standard"
             }
             val meta = PhotoMeta(

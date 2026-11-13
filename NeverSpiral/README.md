@@ -186,3 +186,10 @@ Extras: live histogram, QR scanning, volume keys as shutter, editor undo/redo, "
 Build and distribution: CI builds a minified arm64 release APK (and keeps the debug APK as a fallback), publishes a SHA-256 the updater verifies, caches Gradle, and signs with a private key if the repository secrets KEYSTORE_B64, KEYSTORE_PASSWORD, KEY_ALIAS and KEY_PASSWORD exist (otherwise the committed debug key, so existing installs update in place). Unit tests cover LUT parsing, tone curves and the burst merge.
 
 Not built yet (needs on-device testing): a YUV/RAW burst with zero-shutter-lag, a live GPU pipeline, panorama, slow-motion, Ultra HDR and motion photos.
+
+## v2.1.0
+
+- Fixed: choosing 0.5x never switched to the ultra-wide lens, because the engine clamped zoom to a minimum of 1x. The lower bound is now the camera's own minimum.
+- Macro mode (extreme close-up): uses the ultra-wide lens, close-focus AF where the camera offers it, and shows the live focus distance.
+- Fixed: preview surface leak (a Surface is now reused per SurfaceTexture and released on close); the camera now finishes closing before its callback thread stops; the QR scanner is created once and paused instead of recreated, and scans every 1.5 s.
+- The problem report now lists each physical lens with its focal length and closest focus distance.

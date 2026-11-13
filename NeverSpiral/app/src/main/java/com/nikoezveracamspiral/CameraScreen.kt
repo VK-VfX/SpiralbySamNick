@@ -464,6 +464,7 @@ private fun Viewfinder(controller: CameraController, showControls: Boolean, stri
             if (controller.mode.isComingSoon) {
                 InfoPill(if (controller.mode.isVideo) "Slo-mo in progress: recording normal video" else "${controller.mode.label} in progress: taking a standard photo")
             }
+            if (controller.mode == CaptureMode.MACRO) MacroPill(controller)
             if (controller.aeAfLocked) InfoPill("AE/AF locked: long-press to unlock")
             if (controller.mode == CaptureMode.NIGHT && controller.tripod && controller.holdStillMs == 0L) {
                 InfoPill("Steady: using longer exposures")
@@ -976,6 +977,21 @@ private fun RecordingPill(elapsedMs: Long) {
     }
 }
 
+/** Macro: says which lens is in use and how close the lens is currently focused. */
+@Composable
+private fun MacroPill(controller: CameraController) {
+    var distance by remember { mutableStateOf<Float?>(null) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            distance = controller.engine.currentFocusDistanceCm()
+            delay(300)
+        }
+    }
+    val wide = controller.engine.minZoomRatio() < 1f
+    val focus = distance?.let { String.format(Locale.US, "%.1f cm", it) } ?: "searching"
+    InfoPill((if (wide) "Macro, ultra-wide lens" else "Macro") + "  ·  focus $focus")
+}
+
 @Composable
 private fun HoldStillPill(durationMs: Long, tick: Int) {
     val progress = remember(tick) { Animatable(0f) }
@@ -1037,7 +1053,7 @@ private fun ModeChips(controller: CameraController) {
     val modes = if (controller.mode.isVideo) {
         listOf(CaptureMode.VIDEO)
     } else {
-        listOf(CaptureMode.NIGHT, CaptureMode.PHOTO, CaptureMode.PORTRAIT, CaptureMode.PRO)
+        listOf(CaptureMode.NIGHT, CaptureMode.PHOTO, CaptureMode.PORTRAIT, CaptureMode.MACRO, CaptureMode.PRO)
     }
     LazyRow(
         modifier = Modifier.fillMaxWidth(),
