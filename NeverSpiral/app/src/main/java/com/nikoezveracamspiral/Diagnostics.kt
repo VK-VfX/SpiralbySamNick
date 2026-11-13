@@ -2,6 +2,7 @@ package com.nikoezveracamspiral
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.ImageFormat
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.os.Build
@@ -44,6 +45,21 @@ object Diagnostics {
                     val dist = c.get(CameraCharacteristics.DISTORTION_CORRECTION_AVAILABLE_MODES)
                     val distNames = mapOf(0 to "OFF", 1 to "FAST", 2 to "HIGH_QUALITY")
                     out.append("  distortion correction modes [${dist?.joinToString { distNames[it] ?: it.toString() } ?: "none"}]\n")
+                    if (Build.VERSION.SDK_INT >= 34) {
+                        try {
+                            val streamMap = c.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+                            val ultra = streamMap?.outputFormats?.contains(ImageFormat.JPEG_R) == true
+                            val spaces = c.get(CameraCharacteristics.REQUEST_AVAILABLE_COLOR_SPACE_PROFILES)
+                                ?.getSupportedColorSpaces(ImageFormat.JPEG)?.joinToString { it.name } ?: "none"
+                            val spacesUltra = if (ultra) {
+                                c.get(CameraCharacteristics.REQUEST_AVAILABLE_COLOR_SPACE_PROFILES)
+                                    ?.getSupportedColorSpaces(ImageFormat.JPEG_R)?.joinToString { it.name } ?: "none"
+                            } else "n/a"
+                            out.append("  ultra hdr (JPEG_R) $ultra; colour spaces JPEG [$spaces], JPEG_R [$spacesUltra]\n")
+                        } catch (e: Exception) {
+                            out.append("  ultra hdr / colour space info unavailable (${e.message})\n")
+                        }
+                    }
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                         val names = mapOf(0 to "AUTOMATIC", 1 to "FACE_RETOUCH", 2 to "BOKEH", 3 to "HDR", 4 to "NIGHT")
                         val ext = manager.getCameraExtensionCharacteristics(id).supportedExtensions.joinToString { names[it] ?: it.toString() }
@@ -94,6 +110,7 @@ object Diagnostics {
                 appendLine("Cameras:")
                 append(cameraSummary(context))
                 appendLine()
+                appendLine("Session: ${controller.engine.sessionSummary}; ultraHdr=${controller.ultraHdrEnabled}, nightGoogle=${controller.nightGoogle} (available ${controller.googleNightAvailable}), raw frames per burst ${controller.engine.rawFrameCapacity}")
                 appendLine("Settings: mode=${controller.mode}, raw=${controller.isRawEnabled}, hdr=${controller.hdrEnabled}/${controller.hdrStrength}, ")
                 appendLine("  ratio=${controller.aspectRatio}, quality=${controller.jpegQuality}, look=${controller.look.lut?.name ?: controller.look.filter}, ")
                 appendLine("  video=${controller.videoConfig}")

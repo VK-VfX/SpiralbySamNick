@@ -1,6 +1,7 @@
 package com.nikoezveracamspiral
 
 import android.content.Context
+import android.media.Image
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.CameraCharacteristics
 import android.content.Intent
@@ -83,6 +84,17 @@ class CameraController(private val context: Context) {
     var histogramEnabled by mutableStateOf(false)
     /** Zoomed shots (2x and up) are taken as a short burst and merged for detail. */
     var zoomEnhance by mutableStateOf(true)
+    /** Photos keep an HDR gain map (Ultra HDR) where the camera offers it. */
+    var ultraHdrEnabled by mutableStateOf(true)
+    /** Night mode uses Google's own Night Sight (the system extension) rather than this app's. */
+    var nightGoogle by mutableStateOf(false)
+    /** Whether the open camera offers Google's Night extension. */
+    var googleNightAvailable by mutableStateOf(false)
+        private set
+    /** Bumped when the lens changes (camera flip, a jump between zoom stops) so the screen can
+     * play its transition. */
+    var lensSwitchTick by mutableIntStateOf(0)
+        private set
     /** Bumped when a saved photo is rewritten in place (instant save, then the processed result),
      * so the thumbnail reloads even though its Uri is unchanged. */
     var captureRevision by mutableIntStateOf(0)
@@ -240,13 +252,15 @@ class CameraController(private val context: Context) {
         val timer: Int, val grid: Int, val ratio: Int, val quality: Int, val mirror: Boolean,
         val hdr: Boolean, val hdrStrength: Int, val night: Int, val blur: Float, val raw: Boolean,
         val histogram: Boolean, val zoomEnhance: Boolean, val videoRes: Int, val videoFps: Int, val hevc: Boolean,
+        val ultraHdr: Boolean, val nightGoogle: Boolean,
         val look: Look,
     )
 
     private fun settingsSnapshot() = Persisted(
         timerSeconds, gridStyle.ordinal, aspectRatio.ordinal, jpegQuality, mirrorSelfies,
         hdrEnabled, hdrStrength, nightSeconds, portraitBlurStrength, isRawEnabled,
-        histogramEnabled, zoomEnhance, videoConfig.res.ordinal, videoConfig.fps, videoConfig.hevc, look,
+        histogramEnabled, zoomEnhance, videoConfig.res.ordinal, videoConfig.fps, videoConfig.hevc,
+        ultraHdrEnabled, nightGoogle, look,
     )
 
     private fun saveSettings(s: Persisted) {
@@ -257,6 +271,7 @@ class CameraController(private val context: Context) {
             .putInt("night", s.night).putFloat("blur", s.blur).putBoolean("raw", s.raw)
             .putBoolean("histogram", s.histogram).putBoolean("zoomEnhance", s.zoomEnhance)
             .putInt("videoRes", s.videoRes).putInt("videoFps", s.videoFps).putBoolean("hevc", s.hevc)
+            .putBoolean("ultraHdr", s.ultraHdr).putBoolean("nightGoogle", s.nightGoogle)
             .putString("filter", l.filter.name).putString("lut", l.lut?.name ?: "").putFloat("strength", l.strength)
             .putFloat("exposure", l.exposure).putFloat("contrast", l.contrast).putFloat("saturation", l.saturation)
             .putFloat("warmth", l.warmth).putFloat("tint", l.tint).putFloat("highlights", l.highlights)
@@ -279,6 +294,8 @@ class CameraController(private val context: Context) {
         isRawEnabled = p.getBoolean("raw", false)
         histogramEnabled = p.getBoolean("histogram", false)
         zoomEnhance = p.getBoolean("zoomEnhance", true)
+        ultraHdrEnabled = p.getBoolean("ultraHdr", true)
+        nightGoogle = p.getBoolean("nightGoogle", false)
         videoConfig = VideoConfig(
             VideoRes.entries.getOrElse(p.getInt("videoRes", 1)) { VideoRes.P1080 },
             p.getInt("videoFps", 30),
@@ -397,6 +414,7 @@ class CameraController(private val context: Context) {
         engine.nightPreviewBoost = newMode == CaptureMode.NIGHT
         if (newMode == CaptureMode.NIGHT) startSteadyDetection() else stopSteadyDetection()
         engine.startRepeatingPreview()
+        if (newMode == CaptureMode.NIGHT || previous == CaptureMode.NIGHT) applyNightEngine()
     }
 
     /** [applyTransform] is invoked once the camera is open (so [CameraEngine.lensFacing] and
@@ -419,10 +437,14 @@ class CameraController(private val context: Context) {
             val previewSize = engine.choosePreviewSize(engine.captureAspect())
             currentPreviewSize = previewSize
             applyTransform(previewSize)
+            engine.ultraHdrWanted = ultraHdrEnabled
+            engine.rawFrameCapacity = rawFramesFor(deviceProfile.tier)
             engine.startPreviewSession(texture, previewSize, isRawEnabled)
+            afterSessionStarted()
             engine.setFlashMode(flashMode)
             pushProSettings()
             cameraEpoch += 1
+            applyNightEngine()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -449,6 +471,7 @@ class CameraController(private val context: Context) {
                 CameraCharacteristics.LENS_FACING_BACK
             }
             val targetId = engine.findCameraId(targetFacing) ?: return
+            lensSwitchTick += 1
             engine.closeCamera()
             engine.openCamera(targetId)
             val previewSize = engine.choosePreviewSize(engine.captureAspect())
@@ -457,7 +480,9 @@ class CameraController(private val context: Context) {
             engine.resetZoom()
             zoomRatio = 1f
             engine.startPreviewSession(texture, previewSize, isRawEnabled)
+            afterSessionStarted()
             cameraEpoch += 1
+            applyNightEngine()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -466,8 +491,153 @@ class CameraController(private val context: Context) {
     }
 
     fun setZoom(ratio: Float) {
+        val wasBelowOne = zoomRatio < 0.99f
         zoomRatio = ratio.coerceIn(engine.minZoomRatio(), engine.maxZoomRatio().coerceAtLeast(1f))
         engine.setZoom(zoomRatio)
+        // RAW below 1x comes from the ultra-wide lens itself, which needs its own stream, so the
+        // session is rebuilt when zoom crosses 1x with RAW on.
+        if (wasBelowOne != (zoomRatio < 0.99f) && isRawEnabled && !engine.extensionActive && !isRecording) {
+            restartStillSession()
+        }
+    }
+
+    /** A jump to a zoom stop (a chip tap or the zoom dial's end): plays the lens transition, then zooms. */
+    fun jumpZoom(ratio: Float) {
+        lensSwitchTick += 1
+        setZoom(ratio)
+    }
+
+    /** Frames a RAW merge may use on this phone: more on phones with memory to spare. */
+    private fun rawFramesFor(tier: PerformanceTier): Int = when (tier) {
+        PerformanceTier.HIGH -> 5
+        PerformanceTier.MID -> 4
+        PerformanceTier.LOW -> 1
+    }
+
+    /** True while a capture session is being rebuilt (a lens or format change); the shutter waits for it. */
+    @Volatile
+    private var sessionRestarting = false
+    private var restartRequested = false
+    private var restartRunning = false
+
+    /** Rebuilds the capture session in the background, coalescing quick repeats (a pinch that
+     * crosses 1x several times) into one rebuild after another. */
+    private fun restartStillSession() {
+        synchronized(this) {
+            restartRequested = true
+            if (restartRunning) return
+            restartRunning = true
+        }
+        controllerScope.launch {
+            try {
+                while (true) {
+                    val go = synchronized(this@CameraController) {
+                        val requested = restartRequested
+                        restartRequested = false
+                        requested
+                    }
+                    if (!go) break
+                    val texture = currentTexture
+                    val size = currentPreviewSize
+                    if (texture == null || size == null || isRecording || !cameraStarted || engine.extensionActive) continue
+                    sessionRestarting = true
+                    try {
+                        engine.startPreviewSession(texture, size, isRawEnabled)
+                        afterSessionStarted()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        fail("Switching lens", e)
+                    } finally {
+                        sessionRestarting = false
+                    }
+                }
+            } finally {
+                synchronized(this@CameraController) { restartRunning = false }
+            }
+        }
+    }
+
+    /** Reads what the new session turned out to support, and passes on any note about a dropped feature. */
+    private fun afterSessionStarted() {
+        googleNightAvailable = engine.extensionNightSupported()
+        engine.sessionNote?.let { note ->
+            engine.sessionNote = null
+            lastError = note
+        }
+    }
+
+    fun setUltraHdr(enabled: Boolean) {
+        ultraHdrEnabled = enabled
+        engine.ultraHdrWanted = enabled
+        restartStillSession()
+    }
+
+    /** Exposure compensation (the focus ring's sun slider), clamped to what the camera allows. */
+    fun setExposureIndex(index: Int) {
+        val range = engine.exposureCompensationRange ?: return
+        updateProSettings { it.copy(exposureCompensation = index.coerceIn(range.lower, range.upper)) }
+    }
+
+    // ---- Google's own Night Sight (system extension) ----
+
+    private val nightLock = kotlinx.coroutines.sync.Mutex()
+
+    fun changeNightGoogle(on: Boolean) {
+        nightGoogle = on
+        applyNightEngine()
+    }
+
+    /** Makes the open session match the mode: the system Night extension while Night mode is on
+     * with Google's engine chosen, a normal session otherwise. */
+    fun applyNightEngine() {
+        controllerScope.launch { applyNightEngineNow() }
+    }
+
+    private suspend fun applyNightEngineNow() {
+        nightLock.lock()
+        try {
+            val texture = currentTexture ?: return
+            if (!cameraStarted || isRecording) return
+            val wantExtension = mode == CaptureMode.NIGHT && nightGoogle && googleNightAvailable
+            if (wantExtension == engine.extensionActive) return
+            sessionRestarting = true
+            try {
+                if (wantExtension) {
+                    // The extension has no ultra-wide: it works from 1x up.
+                    if (zoomRatio < 1f) {
+                        zoomRatio = 1f
+                        engine.setZoom(1f)
+                    }
+                    val size = engine.startNightExtension(texture, engine.captureAspect())
+                    currentPreviewSize = size
+                    withContext(Dispatchers.Main) { applyTransform?.invoke(size) }
+                } else {
+                    val size = engine.choosePreviewSize(engine.captureAspect())
+                    currentPreviewSize = size
+                    engine.startPreviewSession(texture, size, isRawEnabled)
+                    withContext(Dispatchers.Main) { applyTransform?.invoke(size) }
+                    afterSessionStarted()
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                fail("Night Sight (Google)", e)
+                nightGoogle = false
+                try {
+                    val size = engine.choosePreviewSize(engine.captureAspect())
+                    currentPreviewSize = size
+                    engine.startPreviewSession(texture, size, isRawEnabled)
+                    withContext(Dispatchers.Main) { applyTransform?.invoke(size) }
+                } catch (inner: Exception) {
+                    fail("Restoring the camera", inner)
+                }
+            } finally {
+                sessionRestarting = false
+            }
+        } finally {
+            nightLock.unlock()
+        }
     }
 
     fun cycleFlash() {
@@ -500,19 +670,23 @@ class CameraController(private val context: Context) {
         val target = !isRawEnabled
         val texture = currentTexture
         val previewSize = currentPreviewSize
-        if (texture == null || previewSize == null || isRecording) {
+        if (texture == null || previewSize == null || isRecording || engine.extensionActive) {
             // No open camera to reconfigure right now: remember the choice; the next session
             // start picks it up.
             isRawEnabled = target
             return
         }
+        sessionRestarting = true
         try {
             engine.startPreviewSession(texture, previewSize, target)
             isRawEnabled = target
+            afterSessionStarted()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             fail("Toggling RAW", e)
+        } finally {
+            sessionRestarting = false
         }
     }
 
@@ -537,7 +711,19 @@ class CameraController(private val context: Context) {
         }
         isCapturing = true
         shutterTick += 1
+        // The images of a RAW burst that no one has taken over yet; closed if anything goes wrong.
+        var strayRaw: List<Image> = emptyList()
         try {
+            // A lens or format change rebuilds the session in the background; give it a moment.
+            var waited = 0
+            while (sessionRestarting && waited < 30) {
+                delay(100)
+                waited++
+            }
+            if (mode == CaptureMode.NIGHT && engine.extensionActive) {
+                captureGoogleNight(rotationDegrees)
+                return
+            }
             val night = mode == CaptureMode.NIGHT
             val manualExposure = mode == CaptureMode.PRO && proSettings.manualExposureEnabled
             val flashActive = flashMode != FlashMode.OFF && !night
@@ -583,23 +769,66 @@ class CameraController(private val context: Context) {
                 }
             }
 
-            val burst = withTimeout(15_000) {
-                engine.captureBurst(rotationDegrees, exposures, if (isRawEnabled) exposures.size / 2 else null)
+            val rawIndices: Set<Int>? = if (isRawEnabled && engine.rawActive) rawIndicesFor(exposures.size) else null
+            val burst = withTimeout(25_000) {
+                engine.captureBurst(rotationDegrees, exposures, rawIndices)
             }
+            strayRaw = burst.rawImages
             val stamp = CaptureStore.newStamp()
 
-            // RAW (if on) has to be written while its buffer is still ours, so that part isn't
-            // deferred.
-            burst.rawImage?.let { raw ->
-                val result = burst.rawResult
-                if (result != null) {
-                    withContext(Dispatchers.IO) { CaptureStore.saveDng(
-                        context, raw, burst.characteristics, result, stamp,
-                        orientationDegrees = engine.sensorToJpegOrientation(rotationDegrees),
-                        thumbnailJpeg = burst.jpegs.firstOrNull(),
-                    ) }
-                } else {
-                    raw.close()
+            // RAW (if on): several frames are merged in the background into one cleaner DNG;
+            // a single frame (or when a merge is already running) is written right now, while its
+            // buffer is still ours.
+            val dngOrientation = engine.sensorToJpegOrientation(rotationDegrees)
+            val dngThumbnail = burst.jpegs.firstOrNull()
+            var mergeRaw: (() -> Unit)? = null
+            val rawImages = burst.rawImages
+            if (rawImages.size >= 2 && !rawMergeBusy) {
+                rawMergeBusy = true
+                mergeRaw = {
+                    adjustPending(1)
+                    processingScope.launch {
+                        try {
+                            val refIndex = rawImages.size / 2
+                            val merged = try {
+                                RawMerge.merge(rawImages, burst.rawResults, burst.rawCharacteristics, refIndex)
+                            } catch (e: Exception) {
+                                Log.w(TAG, "RAW merge failed; saving one frame", e)
+                                null
+                            } catch (e: OutOfMemoryError) {
+                                Log.w(TAG, "RAW merge ran out of memory; saving one frame", e)
+                                null
+                            }
+                            if (merged != null) {
+                                CaptureStore.saveDng(
+                                    context, null, burst.rawCharacteristics, burst.rawResults[refIndex], stamp,
+                                    orientationDegrees = dngOrientation, thumbnailJpeg = dngThumbnail, merged = merged,
+                                )
+                            } else {
+                                CaptureStore.saveDng(
+                                    context, rawImages[refIndex], burst.rawCharacteristics, burst.rawResults[refIndex], stamp,
+                                    orientationDegrees = dngOrientation, thumbnailJpeg = dngThumbnail,
+                                )
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Couldn't save the RAW", e)
+                        } finally {
+                            rawImages.forEach { try { it.close() } catch (_: Exception) { } }
+                            rawMergeBusy = false
+                            adjustPending(-1)
+                        }
+                    }
+                }
+                strayRaw = emptyList()
+            } else if (rawImages.isNotEmpty()) {
+                val index = rawImages.size / 2
+                rawImages.forEachIndexed { i, image -> if (i != index) try { image.close() } catch (_: Exception) { } }
+                strayRaw = emptyList()
+                withContext(Dispatchers.IO) {
+                    CaptureStore.saveDng(
+                        context, rawImages[index], burst.rawCharacteristics, burst.rawResults[index], stamp,
+                        orientationDegrees = dngOrientation, thumbnailJpeg = dngThumbnail,
+                    )
                 }
             }
 
@@ -618,7 +847,9 @@ class CameraController(private val context: Context) {
                 focalLengthMm = first?.get(android.hardware.camera2.CaptureResult.LENS_FOCAL_LENGTH),
                 software = "Niko's Cam ${UpdateManager.installedVersionName(context)}",
                 description = "Quality ${jpegQuality}; $summary; ${look.lut?.name ?: look.filter.label}; " +
-                    "zoom ${String.format(java.util.Locale.US, "%.1f", zoomRatio)}x; lens ${first?.get(android.hardware.camera2.CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID) ?: "-"}",
+                    "zoom ${String.format(java.util.Locale.US, "%.1f", zoomRatio)}x; lens ${first?.get(android.hardware.camera2.CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID) ?: "-"}" +
+                    (if (engine.ultraHdrActive) "; Ultra HDR" else "") + (if (engine.p3Active) "; Display P3" else "") +
+                    (if (rawImages.size >= 2) "; RAW merged from ${rawImages.size} frames" else ""),
             )
             val ratioNow = aspectRatio
             val mirrorNow = mirrorSelfies && engine.lensFacing == CameraCharacteristics.LENS_FACING_FRONT
@@ -634,7 +865,10 @@ class CameraController(private val context: Context) {
             }
             val needsProcessing = tone != PhotoProcessor.ToneMode.None || !look.isNeutral || zoomRatio >= 2f || mirrorNow || blurNow > 0f ||
                 !(ratioNow == AspectOption.R4_3 && sensorIsFourThree)
-            if (instant == null || !needsProcessing) return
+            if (instant == null || !needsProcessing) {
+                mergeRaw?.invoke()
+                return
+            }
             val job = PhotoJob(
                 uri = instant,
                 frames = burst.jpegs,
@@ -648,9 +882,11 @@ class CameraController(private val context: Context) {
                 meta = meta,
                 noiseScale = sqrt((meta.iso ?: 400) / 400f).coerceIn(0.8f, 2.2f),
                 zoomRatio = zoomRatio,
+                keepUltraHdr = engine.ultraHdrActive,
             )
             adjustPending(1)
             processingScope.launch { runPhotoJob(job) }
+            mergeRaw?.invoke()
         } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
             fail("Taking photo", RuntimeException("the camera didn't deliver its frames in time"))
         } catch (e: CancellationException) {
@@ -658,9 +894,41 @@ class CameraController(private val context: Context) {
         } catch (e: Exception) {
             fail("Taking photo", e)
         } finally {
+            strayRaw.forEach { try { it.close() } catch (_: Exception) { } }
             isCapturing = false
             countdownRemaining = 0
             holdStillMs = 0L
+        }
+    }
+
+    /** Which requests of a burst of [frames] carry a RAW frame: the middle one alone, or an even
+     * spread of up to the phone's limit when the frames can be merged in the RAW domain. */
+    private fun rawIndicesFor(frames: Int): Set<Int> {
+        val capacity = engine.rawFrameCapacity
+        val wanted = if (frames > 1 && capacity >= 2 && !rawMergeBusy) minOf(capacity, frames) else 1
+        if (wanted <= 1) return setOf(frames / 2)
+        return (0 until wanted).map { it * (frames - 1) / (wanted - 1) }.toSet()
+    }
+
+    /** True while a RAW merge is running in the background (the next shot then saves a single RAW). */
+    @Volatile
+    private var rawMergeBusy = false
+
+    /** Night mode with Google's engine: the system does all the work and hands back a JPEG. */
+    private suspend fun captureGoogleNight(rotationDegrees: Int) {
+        holdStillMs = 4000L
+        Toast.makeText(context, "Hold your phone steady", Toast.LENGTH_SHORT).show()
+        val bytes = withTimeout(40_000) { engine.captureExtensionPhoto(rotationDegrees) }
+        val stamp = CaptureStore.newStamp()
+        val meta = PhotoMeta(
+            software = "Niko's Cam ${UpdateManager.installedVersionName(context)}",
+            description = "Quality 98; Night Sight (Google); ${look.filter.label}; zoom ${String.format(java.util.Locale.US, "%.1f", zoomRatio)}x",
+        )
+        val uri = withContext(Dispatchers.IO) { CaptureStore.saveJpeg(context, bytes, stamp, meta = meta) }
+        if (uri != null) {
+            lastCaptureUri = uri
+            lastCaptureIsVideo = false
+            captureRevision += 1
         }
     }
 
@@ -677,13 +945,14 @@ class CameraController(private val context: Context) {
         val meta: PhotoMeta,
         val noiseScale: Float,
         val zoomRatio: Float,
+        val keepUltraHdr: Boolean,
     )
 
     private suspend fun runPhotoJob(job: PhotoJob) {
         try {
             // On any failure the camera's own JPEG, already saved, simply stays as the photo.
             val jpeg = try {
-                PhotoProcessor.processShots(job.frames, job.tone, job.look, job.ratio, job.mirror, job.quality, job.portraitBlur, job.noiseScale, job.zoomRatio)
+                PhotoProcessor.processShots(job.frames, job.tone, job.look, job.ratio, job.mirror, job.quality, job.portraitBlur, job.noiseScale, job.zoomRatio, job.keepUltraHdr)
             } catch (e: Exception) {
                 Log.e(TAG, "Processing failed; keeping the camera's own JPEG", e)
                 null

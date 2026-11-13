@@ -78,6 +78,14 @@ class PhotoDetails(
                 processing = description
                 Regex("Quality (\\d+)").find(description)?.let { quality = it.groupValues[1].toIntOrNull() }
             }
+            if (processing.isBlank()) {
+                // Ultra HDR photos keep their details in a side record (see PhotoMetaStore).
+                PhotoMetaStore.load(context, name)?.let { meta ->
+                    processing = meta.description
+                    if (meta.software.isNotEmpty()) software = meta.software
+                    Regex("Quality (\\d+)").find(meta.description)?.let { quality = it.groupValues[1].toIntOrNull() }
+                }
+            }
             return PhotoDetails(name, size, bounds.outWidth, bounds.outHeight, camera, exposure, taken, software, processing, quality)
         }
     }

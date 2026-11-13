@@ -214,6 +214,19 @@ Not built yet (needs on-device testing): a YUV/RAW burst with zero-shutter-lag, 
 - Zoom quality: from 2x up, a shot is a 5-frame merged burst with minimal in-camera noise reduction (Settings: Zoom enhance), followed by a wider-radius unsharp mask that grows with the zoom level. Each photo's description now records the zoom and which physical lens captured it, so a telephoto shot can be told from a cropped main-lens one.
 - Predictive-back callback enabled for Android 13+.
 
+## v2.5.0
+- **RAW at 0.5x:** with RAW on, the ultra-wide shot now takes its RAW from the ultra-wide lens itself (it used to quietly come from the main lens). If the phone refuses that setup the shot falls back to JPEG only, with a note.
+- **Display P3:** photos are captured, processed and saved in the wider Display P3 colour range where the camera supports it.
+- **Ultra HDR:** photos keep an HDR gain map where the camera offers it (Settings > Photo > Ultra HDR). Re-processed shots carry the camera's gain map over, rotated, cropped and mirrored to match.
+- **Merged RAW:** with RAW on, multi-frame shots (HDR+, Night, zoom stacks) now capture several RAW frames and merge them in the RAW domain into one cleaner DNG. HDR+ DNGs are left underexposed on purpose (to keep highlight detail): lift the exposure in your RAW editor.
+- **Night Sight (Google):** a "Google" pill next to the 3 s / 6 s pills in Night mode uses the system's own Night extension where the phone offers it.
+- **Zoom dial:** long-press a zoom chip, then slide along the scale. A tick in your hand for every step, a firmer one at each lens.
+- **Brightness slider:** after tapping to focus, a sun appears beside the ring; drag it up or down.
+- **Smoother lens changes:** a blurred still of the old view fades out when the camera flips or jumps to another lens.
+- **Shutter ripple** and a **glowing thumbnail** while a photo develops.
+- **Settings** are grouped into Photo, Video, Display and Phone.
+- The problem report lists Ultra HDR and colour-space support per camera and what the current session is using.
+
 ## v2.4.2
 - Lens distortion correction is now always requested (best quality for photos, fast for the viewfinder and video) wherever the camera supports it. The Pixel 9 Pro XL's ultra-wide only straightens the lens curve when asked; Google's camera asks, this app did not. It is part of how photos are processed, not a setting.
 - The problem report lists each camera's supported distortion correction modes.

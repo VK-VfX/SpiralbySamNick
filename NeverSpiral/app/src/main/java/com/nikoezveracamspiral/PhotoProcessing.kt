@@ -339,6 +339,28 @@ object PhotoProcessor {
         burstMaxPixels = burst
     }
 
+    /** Display P3, the colour space photos are processed and saved in (null on very old Android). */
+    internal val wideGamut: android.graphics.ColorSpace? by lazy {
+        try {
+            android.graphics.ColorSpace.get(android.graphics.ColorSpace.Named.DISPLAY_P3)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** The matrix that turns pixels stored with this EXIF [orientation] upright. */
+    fun orientationMatrix(orientation: Int): Matrix {
+        val m = Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> m.postRotate(90f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> m.postRotate(180f)
+            ExifInterface.ORIENTATION_ROTATE_270 -> m.postRotate(270f)
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> m.postScale(-1f, 1f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> m.postScale(1f, -1f)
+        }
+        return m
+    }
+
     /** Decodes [bytes] upright (EXIF rotation applied), subsampled so it stays under [maxPixels]. */
     fun decodeUpright(bytes: ByteArray, maxPixels: Int): Bitmap? {
         val exif = ExifInterface(ByteArrayInputStream(bytes))
@@ -350,8 +372,14 @@ object PhotoProcessor {
         // dropping straight to 4 MP.
         var sample = 1
         while ((bounds.outWidth / sample).toLong() * (bounds.outHeight / sample) > maxPixels.toLong() * 2) sample *= 2
-        var decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
-            ?: return null
+        var decoded = BitmapFactory.decodeByteArray(
+            bytes, 0, bytes.size,
+            BitmapFactory.Options().apply {
+                inSampleSize = sample
+                // Decode into Display P3 so wide-gamut colours from the camera survive the whole pipeline.
+                wideGamut?.let { inPreferredColorSpace = it }
+            },
+        ) ?: return null
         if (decoded.width.toLong() * decoded.height > maxPixels) {
             val scale = kotlin.math.sqrt(maxPixels.toDouble() / (decoded.width.toDouble() * decoded.height))
             val scaled = Bitmap.createScaledBitmap(
@@ -363,14 +391,7 @@ object PhotoProcessor {
             if (scaled !== decoded) decoded.recycle()
             decoded = scaled
         }
-        val m = Matrix()
-        when (orientation) {
-            ExifInterface.ORIENTATION_ROTATE_90 -> m.postRotate(90f)
-            ExifInterface.ORIENTATION_ROTATE_180 -> m.postRotate(180f)
-            ExifInterface.ORIENTATION_ROTATE_270 -> m.postRotate(270f)
-            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> m.postScale(-1f, 1f)
-            ExifInterface.ORIENTATION_FLIP_VERTICAL -> m.postScale(1f, -1f)
-        }
+        val m = orientationMatrix(orientation)
         if (m.isIdentity) return decoded
         val rotated = Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, m, true)
         if (rotated !== decoded) decoded.recycle()
@@ -397,16 +418,58 @@ object PhotoProcessor {
         return out
     }
 
+    /** The bitmap's pixels as ARGB ints, in the bitmap's own colour space (Display P3 for photos
+     * decoded here). getPixels would convert them to sRGB and clip the wide-gamut colours. */
     private fun pixelsOf(bitmap: Bitmap): IntArray {
-        val p = IntArray(bitmap.width * bitmap.height)
-        bitmap.getPixels(p, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+        val n = bitmap.width * bitmap.height
+        val p = IntArray(n)
+        if (bitmap.config == Bitmap.Config.ARGB_8888) {
+            bitmap.copyPixelsToBuffer(java.nio.IntBuffer.wrap(p))
+            // Memory order is R, G, B, A; as a little-endian int that is 0xAABBGGRR.
+            parallelFor(bitmap.height) { y ->
+                val row = y * bitmap.width
+                for (i in row until row + bitmap.width) {
+                    val v = p[i]
+                    p[i] = (0xFF shl 24) or ((v and 0xFF) shl 16) or (v and 0xFF00) or ((v shr 16) and 0xFF)
+                }
+            }
+        } else {
+            bitmap.getPixels(p, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+        }
         return p
     }
 
-    private fun encode(pixels: IntArray, w: Int, h: Int, quality: Int): ByteArray {
-        val bitmap = Bitmap.createBitmap(pixels, w, h, Bitmap.Config.ARGB_8888)
+    private fun encode(pixels: IntArray, w: Int, h: Int, quality: Int, gainmap: android.graphics.Gainmap? = null): ByteArray {
+        val space = wideGamut
+        val bitmap: Bitmap
+        if (space != null) {
+            bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888, false, space)
+            val raw = IntArray(w * h)
+            parallelFor(h) { y ->
+                val row = y * w
+                for (i in row until row + w) {
+                    val v = pixels[i]
+                    raw[i] = (0xFF shl 24) or ((v and 0xFF) shl 16) or (v and 0xFF00) or ((v shr 16) and 0xFF)
+                }
+            }
+            bitmap.copyPixelsFromBuffer(java.nio.IntBuffer.wrap(raw))
+        } else {
+            bitmap = Bitmap.createBitmap(pixels, w, h, Bitmap.Config.ARGB_8888)
+        }
         val stream = ByteArrayOutputStream(1 shl 20)
-        bitmap.compress(Bitmap.CompressFormat.JPEG, quality, stream)
+        if (gainmap != null && android.os.Build.VERSION.SDK_INT >= 34) {
+            bitmap.gainmap = gainmap
+            bitmap.compress(Bitmap.CompressFormat.JPEG, quality, stream)
+            if (!UltraHdr.isUltraHdr(stream.toByteArray())) {
+                // This Android didn't write the HDR map; save the ordinary JPEG instead.
+                android.util.Log.w("PhotoProcessor", "Ultra HDR encode not supported here; saving a plain JPEG")
+                bitmap.gainmap = null
+                stream.reset()
+                bitmap.compress(Bitmap.CompressFormat.JPEG, quality, stream)
+            }
+        } else {
+            bitmap.compress(Bitmap.CompressFormat.JPEG, quality, stream)
+        }
         bitmap.recycle()
         return stream.toByteArray()
     }
@@ -446,6 +509,7 @@ object PhotoProcessor {
         portraitBlur: Float,
         noiseScale: Float = 1f,
         zoomRatio: Float = 1f,
+        keepUltraHdr: Boolean = false,
     ): ByteArray {
         val refIndex = frames.size / 2
         val maxPixels = if (frames.size > 1) burstMaxPixels else singleMaxPixels
@@ -484,7 +548,16 @@ object PhotoProcessor {
             val strength = (0.35f * (kotlin.math.ln(zoomRatio) / kotlin.math.ln(2f))).coerceAtMost(1.1f)
             ImageOps.unsharp(pixels, w, h, radius = 2, amount = strength, threshold = 3)
         }
-        return encode(pixels, w, h, quality)
+        var gainmap: android.graphics.Gainmap? = null
+        if (keepUltraHdr && android.os.Build.VERSION.SDK_INT >= 34 && UltraHdr.isUltraHdr(frames[refIndex])) {
+            gainmap = try {
+                UltraHdr.gainmapFor(frames[refIndex], ratio, mirror)
+            } catch (e: Exception) {
+                android.util.Log.w("PhotoProcessor", "Couldn't carry over the HDR gain map", e)
+                null
+            }
+        }
+        return encode(pixels, w, h, quality, gainmap)
     }
 
     // ---- post-capture editing ----

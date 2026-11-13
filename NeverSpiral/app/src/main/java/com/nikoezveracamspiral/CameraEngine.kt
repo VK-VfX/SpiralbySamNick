@@ -2,6 +2,7 @@ package com.nikoezveracamspiral
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.ColorSpace
 import android.graphics.ImageFormat
 import android.graphics.Rect
 import android.graphics.SurfaceTexture
@@ -10,14 +11,21 @@ import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CameraMetadata
+import android.hardware.camera2.CameraExtensionCharacteristics
+import android.hardware.camera2.CameraExtensionSession
 import android.hardware.camera2.CaptureFailure
+import android.hardware.camera2.CaptureResult
 import android.hardware.camera2.CaptureRequest
 import android.hardware.camera2.TotalCaptureResult
+import android.hardware.camera2.params.ExtensionSessionConfiguration
 import android.hardware.camera2.params.MeteringRectangle
+import android.hardware.camera2.params.OutputConfiguration
+import android.hardware.camera2.params.SessionConfiguration
 import android.media.CamcorderProfile
 import android.media.Image
 import android.media.ImageReader
 import android.media.MediaRecorder
+import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.util.Range
@@ -25,6 +33,7 @@ import android.util.Size
 import android.view.Surface
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.io.File
+import java.util.concurrent.Executor
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.math.abs
@@ -56,6 +65,9 @@ class CameraEngine(private val context: Context) {
     private var previewSurface: Surface? = null
     private var jpegReader: ImageReader? = null
     private var rawReader: ImageReader? = null
+    private var extensionSession: CameraExtensionSession? = null
+    private var extensionJpegReader: ImageReader? = null
+    private var extensionZoomSupported = false
     private var mediaRecorder: MediaRecorder? = null
     private var recorderSurface: Surface? = null
 
@@ -78,6 +90,10 @@ class CameraEngine(private val context: Context) {
         private set
     var flashMode: FlashMode = FlashMode.OFF
         private set
+
+    /** True when the current session has a RAW stream to capture into. */
+    val rawActive: Boolean
+        get() = rawReader != null
 
     val isRawSupported: Boolean
         get() = characteristics?.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES)
@@ -166,6 +182,12 @@ class CameraEngine(private val context: Context) {
     private fun closeSessionResources() {
         captureSession?.close()
         captureSession = null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try { extensionSession?.close() } catch (_: Exception) { }
+        }
+        extensionSession = null
+        extensionJpegReader?.close()
+        extensionJpegReader = null
         jpegReader?.close()
         jpegReader = null
         rawReader?.close()
@@ -212,14 +234,14 @@ class CameraEngine(private val context: Context) {
     private var closedLatch: java.util.concurrent.CountDownLatch? = null
     private var previewTexture: SurfaceTexture? = null
 
-    private fun chooseJpegSize(): Size {
+    private fun chooseJpegSize(format: Int = ImageFormat.JPEG): Size {
         val map = characteristics?.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
-        val sizes = map?.getOutputSizes(ImageFormat.JPEG)
+        val sizes = map?.getOutputSizes(format)
         return sizes?.maxByOrNull { it.width.toLong() * it.height } ?: Size(1920, 1080)
     }
 
-    private fun chooseRawSize(): Size? {
-        val map = characteristics?.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return null
+    private fun chooseRawSize(chars: CameraCharacteristics? = characteristics): Size? {
+        val map = chars?.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return null
         val sizes = map.getOutputSizes(ImageFormat.RAW_SENSOR) ?: return null
         return sizes.maxByOrNull { it.width.toLong() * it.height }
     }
@@ -407,56 +429,351 @@ class CameraEngine(private val context: Context) {
         startRepeatingPreview()
     }
 
+    // ---- Session features: Display P3, Ultra HDR, RAW from the ultra-wide lens -----------------
+    // Each is requested only where the phone says it supports it, and dropped one at a time (in
+    // the order below) if the camera refuses the combination, so a refusal never costs the shot.
+
+    /** How many RAW frames one burst may keep (1 = a single RAW). Set before a session starts. */
+    var rawFrameCapacity: Int = 1
+
+    /** Whether Ultra HDR (a JPEG carrying an HDR gain map) is wanted where the camera offers it. */
+    var ultraHdrWanted: Boolean = true
+
+    /** The format of the still stream in the current session: JPEG, or JPEG_R for Ultra HDR. */
+    var jpegFormat: Int = ImageFormat.JPEG
+        private set
+    val ultraHdrActive: Boolean
+        get() = Build.VERSION.SDK_INT >= 34 && jpegFormat == ImageFormat.JPEG_R
+
+    /** True when stills are captured in Display P3 rather than sRGB. */
+    var p3Active: Boolean = false
+        private set
+
+    /** The physical camera RAW comes from (the ultra-wide at 0.5x), or null for the logical one. */
+    var rawPhysicalId: String? = null
+        private set
+
+    /** Characteristics to build a DNG from: the physical lens's own when RAW comes from one. */
+    var rawCharacteristics: CameraCharacteristics? = null
+        private set
+
+    /** One line about a feature the session had to drop; the UI shows it once. */
+    @Volatile
+    var sessionNote: String? = null
+
+    /** Short description of what the current session ended up using, for the problem report. */
+    var sessionSummary: String = "not started"
+        private set
+
+    /** True when the session was built for zoom below 1x with RAW coming from the wide lens. */
+    var rawIsFromWideLens: Boolean = false
+        private set
+
+    private data class SessionPlan(val ultraHdr: Boolean, val p3: Boolean, val physicalRaw: String?, val raw: Boolean)
+
+    @SuppressLint("NewApi")
+    private fun jpegRSupported(chars: CameraCharacteristics): Boolean =
+        Build.VERSION.SDK_INT >= 34 &&
+            chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)?.outputFormats?.contains(ImageFormat.JPEG_R) == true
+
+    @SuppressLint("NewApi")
+    private fun p3Supported(chars: CameraCharacteristics, format: Int): Boolean {
+        if (Build.VERSION.SDK_INT < 34) return false
+        val profiles = chars.get(CameraCharacteristics.REQUEST_AVAILABLE_COLOR_SPACE_PROFILES) ?: return false
+        return profiles.getSupportedColorSpaces(format).contains(ColorSpace.Named.DISPLAY_P3)
+    }
+
+    /** The physical camera with the shortest focal length, when this is a multi-lens camera whose
+     * widest lens can also deliver RAW. */
+    @SuppressLint("NewApi")
+    private fun widePhysicalId(chars: CameraCharacteristics): String? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return null
+        val ids = chars.physicalCameraIds
+        if (ids.size < 2) return null
+        fun focal(id: String): Float = try {
+            cameraManager.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.minOrNull() ?: 99f
+        } catch (e: Exception) {
+            99f
+        }
+        val widest = ids.minByOrNull { focal(it) } ?: return null
+        val widestChars = try { cameraManager.getCameraCharacteristics(widest) } catch (e: Exception) { return null }
+        val canRaw = widestChars.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES)
+            ?.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_RAW) == true
+        return if (canRaw) widest else null
+    }
+
+    @SuppressLint("NewApi")
     suspend fun startPreviewSession(
         texture: SurfaceTexture,
         previewSize: Size,
         includeRaw: Boolean,
-    ): Unit = suspendCancellableCoroutine { cont ->
-        val device = cameraDevice
-        if (device == null) {
-            cont.resumeWithException(IllegalStateException("Camera not open"))
-            return@suspendCancellableCoroutine
-        }
+    ) {
+        val device = cameraDevice ?: throw IllegalStateException("Camera not open")
+        val chars = characteristics ?: throw IllegalStateException("Camera not open")
 
         closeSessionResources()
         texture.setDefaultBufferSize(previewSize.width, previewSize.height)
         val existing = previewSurface
-        val surface = if (existing != null && previewTexture === texture && existing.isValid) {
-            existing
-        } else {
+        if (!(existing != null && previewTexture === texture && existing.isValid)) {
             existing?.release()
-            Surface(texture).also {
-                previewSurface = it
-                previewTexture = texture
-            }
+            previewSurface = Surface(texture)
+            previewTexture = texture
         }
 
-        val jpegSize = chooseJpegSize()
-        val reader = ImageReader.newInstance(jpegSize.width, jpegSize.height, ImageFormat.JPEG, 4)
-        jpegReader = reader
+        val rawRequested = includeRaw && isRawSupported
+        val belowOne = zoomRatio < 0.99f
+        val wide = if (rawRequested && belowOne) widePhysicalId(chars) else null
+        // Below 1x the RAW has to come from the wide lens itself; a RAW through the main lens
+        // would be a different picture from the JPEG, so with no way to reach it there is no RAW.
+        val wantRaw = rawRequested && !(belowOne && wide == null)
+        val ultra = ultraHdrWanted && jpegRSupported(chars)
+        val p3WithUltra = ultra && p3Supported(chars, ImageFormat.JPEG_R)
+        val p3Plain = p3Supported(chars, ImageFormat.JPEG)
 
-        val targets = mutableListOf(surface, reader.surface)
+        val plans = LinkedHashSet<SessionPlan>()
+        plans.add(SessionPlan(ultra, if (ultra) p3WithUltra else p3Plain, wide, wantRaw))
+        if (ultra) plans.add(SessionPlan(true, false, wide, wantRaw))
+        if (ultra) plans.add(SessionPlan(false, p3Plain, wide, wantRaw))
+        plans.add(SessionPlan(false, false, wide, wantRaw))
+        // Last resort when the camera refuses RAW outright: JPEG only, rather than no camera.
+        if (wantRaw) plans.add(SessionPlan(false, false, null, false))
 
-        if (includeRaw && isRawSupported) {
-            chooseRawSize()?.let { rawSize ->
-                val raw = ImageReader.newInstance(rawSize.width, rawSize.height, ImageFormat.RAW_SENSOR, 2)
-                rawReader = raw
-                targets.add(raw.surface)
+        var failure: Exception? = null
+        for (plan in plans) {
+            try {
+                configureSession(device, plan)
+                sessionSummary = buildString {
+                    append(if (plan.ultraHdr) "Ultra HDR" else "JPEG")
+                    append(if (plan.p3) ", Display P3" else ", sRGB")
+                    append(
+                        when {
+                            !plan.raw -> if (rawRequested) ", RAW off (not available here)" else ", RAW not requested"
+                            plan.physicalRaw != null -> ", RAW from wide lens ${plan.physicalRaw}"
+                            else -> ", RAW from main camera"
+                        },
+                    )
+                }
+                if (rawRequested && !plan.raw) {
+                    sessionNote = "RAW isn't available at this zoom on this phone, so shots save as JPEG"
+                }
+                rawIsFromWideLens = plan.physicalRaw != null
+                return
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                failure = e
+                closeSessionResources()
             }
         }
-
-        device.createCaptureSession(targets, object : CameraCaptureSession.StateCallback() {
-            override fun onConfigured(session: CameraCaptureSession) {
-                captureSession = session
-                startRepeatingPreview()
-                if (cont.isActive) cont.resume(Unit)
-            }
-
-            override fun onConfigureFailed(session: CameraCaptureSession) {
-                if (cont.isActive) cont.resumeWithException(RuntimeException("Capture session configuration failed"))
-            }
-        }, backgroundHandler)
+        throw failure ?: RuntimeException("Capture session configuration failed")
     }
+
+    @SuppressLint("NewApi")
+    private suspend fun configureSession(device: CameraDevice, plan: SessionPlan): Unit =
+        suspendCancellableCoroutine { cont ->
+            closeSessionResources()
+            val previewSurface = this.previewSurface
+            if (previewSurface == null) {
+                cont.resumeWithException(IllegalStateException("No preview surface"))
+                return@suspendCancellableCoroutine
+            }
+            val jpegFmt = if (plan.ultraHdr && Build.VERSION.SDK_INT >= 34) ImageFormat.JPEG_R else ImageFormat.JPEG
+            val jpegSize = chooseJpegSize(jpegFmt)
+            val reader = ImageReader.newInstance(jpegSize.width, jpegSize.height, jpegFmt, 4)
+            jpegReader = reader
+            jpegFormat = jpegFmt
+            p3Active = plan.p3
+            rawPhysicalId = null
+            rawCharacteristics = null
+
+            var rawSurface: Surface? = null
+            if (plan.raw) {
+                val rawChars = if (plan.physicalRaw != null) {
+                    try { cameraManager.getCameraCharacteristics(plan.physicalRaw) } catch (e: Exception) { null }
+                } else {
+                    characteristics
+                }
+                val rawSize = chooseRawSize(rawChars)
+                if (rawChars != null && rawSize != null) {
+                    val capacity = (rawFrameCapacity + 1).coerceIn(2, 9)
+                    val raw = ImageReader.newInstance(rawSize.width, rawSize.height, ImageFormat.RAW_SENSOR, capacity)
+                    rawReader = raw
+                    rawSurface = raw.surface
+                    rawPhysicalId = plan.physicalRaw
+                    rawCharacteristics = rawChars
+                }
+            }
+
+            val callback = object : CameraCaptureSession.StateCallback() {
+                override fun onConfigured(session: CameraCaptureSession) {
+                    captureSession = session
+                    startRepeatingPreview()
+                    if (cont.isActive) cont.resume(Unit)
+                }
+
+                override fun onConfigureFailed(session: CameraCaptureSession) {
+                    try { session.close() } catch (_: Exception) { }
+                    if (cont.isActive) cont.resumeWithException(RuntimeException("Capture session configuration failed"))
+                }
+            }
+
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    val configs = ArrayList<OutputConfiguration>()
+                    configs.add(OutputConfiguration(previewSurface))
+                    val still = OutputConfiguration(reader.surface)
+                    if (plan.p3 && Build.VERSION.SDK_INT >= 34) still.setColorSpace(ColorSpace.Named.DISPLAY_P3)
+                    configs.add(still)
+                    rawSurface?.let { surface ->
+                        val rawConfig = OutputConfiguration(surface)
+                        plan.physicalRaw?.let { rawConfig.setPhysicalCameraId(it) }
+                        configs.add(rawConfig)
+                    }
+                    val executor = Executor { task -> backgroundHandler?.post(task) }
+                    device.createCaptureSession(
+                        SessionConfiguration(SessionConfiguration.SESSION_REGULAR, configs, executor, callback),
+                    )
+                } else {
+                    val targets = mutableListOf(previewSurface, reader.surface)
+                    rawSurface?.let { targets.add(it) }
+                    @Suppress("DEPRECATION")
+                    device.createCaptureSession(targets, callback, backgroundHandler)
+                }
+            } catch (e: Exception) {
+                if (cont.isActive) cont.resumeWithException(e)
+            }
+        }
+
+    // ---- Google's own Night Sight, through the Camera Extensions API ----------------------------
+
+    /** True when the system offers its Night extension for the open camera (Android 12+). */
+    @SuppressLint("NewApi")
+    fun extensionNightSupported(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || currentCameraId.isEmpty()) return false
+        return try {
+            cameraManager.getCameraExtensionCharacteristics(currentCameraId)
+                .supportedExtensions.contains(CameraExtensionCharacteristics.EXTENSION_NIGHT)
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    val extensionActive: Boolean
+        get() = extensionSession != null
+
+    /** Opens the Night extension session and returns the preview size it chose. */
+    @SuppressLint("NewApi")
+    suspend fun startNightExtension(texture: SurfaceTexture, targetAspect: Float): Size =
+        suspendCancellableCoroutine { cont ->
+            val device = cameraDevice
+            if (device == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                cont.resumeWithException(IllegalStateException("Night Sight (Google) isn't available"))
+                return@suspendCancellableCoroutine
+            }
+            try {
+                closeSessionResources()
+                val extChars = cameraManager.getCameraExtensionCharacteristics(currentCameraId)
+                val ext = CameraExtensionCharacteristics.EXTENSION_NIGHT
+                val previewSizes = extChars.getExtensionSupportedSizes(ext, SurfaceTexture::class.java)
+                val jpegSizes = extChars.getExtensionSupportedSizes(ext, ImageFormat.JPEG)
+                fun aspectOf(size: Size) = max(size.width, size.height).toFloat() / min(size.width, size.height).toFloat()
+                val capped = previewSizes.filter { it.width <= 1920 && it.height <= 1920 }.ifEmpty { previewSizes }
+                val preview = capped.filter { abs(aspectOf(it) - targetAspect) < 0.02f }.maxByOrNull { it.width.toLong() * it.height }
+                    ?: capped.minByOrNull { abs(aspectOf(it) - targetAspect) }
+                val jpegSize = jpegSizes.filter { abs(aspectOf(it) - targetAspect) < 0.02f }.maxByOrNull { it.width.toLong() * it.height }
+                    ?: jpegSizes.maxByOrNull { it.width.toLong() * it.height }
+                if (preview == null || jpegSize == null) {
+                    cont.resumeWithException(IllegalStateException("Night Sight (Google) has no usable sizes"))
+                    return@suspendCancellableCoroutine
+                }
+                extensionZoomSupported = extChars.getAvailableCaptureRequestKeys(ext).contains(CaptureRequest.CONTROL_ZOOM_RATIO)
+
+                texture.setDefaultBufferSize(preview.width, preview.height)
+                val existing = previewSurface
+                if (!(existing != null && previewTexture === texture && existing.isValid)) {
+                    existing?.release()
+                    previewSurface = Surface(texture)
+                    previewTexture = texture
+                }
+                val reader = ImageReader.newInstance(jpegSize.width, jpegSize.height, ImageFormat.JPEG, 2)
+                extensionJpegReader = reader
+                val executor = Executor { task -> backgroundHandler?.post(task) }
+                val configs = listOf(OutputConfiguration(previewSurface!!), OutputConfiguration(reader.surface))
+                val config = ExtensionSessionConfiguration(
+                    ext, configs, executor,
+                    object : CameraExtensionSession.StateCallback() {
+                        override fun onConfigured(session: CameraExtensionSession) {
+                            extensionSession = session
+                            startRepeatingPreview()
+                            sessionSummary = "Night Sight (Google system extension)"
+                            if (cont.isActive) cont.resume(preview)
+                        }
+
+                        override fun onConfigureFailed(session: CameraExtensionSession) {
+                            if (cont.isActive) cont.resumeWithException(RuntimeException("Night Sight (Google) couldn't start"))
+                        }
+
+                        override fun onClosed(session: CameraExtensionSession) = Unit
+                    },
+                )
+                device.createExtensionSession(config)
+            } catch (e: Exception) {
+                if (cont.isActive) cont.resumeWithException(e)
+            }
+        }
+
+    @SuppressLint("NewApi")
+    private fun startExtensionPreview(session: CameraExtensionSession) {
+        val device = cameraDevice ?: return
+        val surface = previewSurface ?: return
+        try {
+            val builder = device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
+            builder.addTarget(surface)
+            if (extensionZoomSupported) builder.set(CaptureRequest.CONTROL_ZOOM_RATIO, zoomRatio.coerceAtLeast(1f))
+            val executor = Executor { task -> backgroundHandler?.post(task) }
+            session.setRepeatingRequest(builder.build(), executor, object : CameraExtensionSession.ExtensionCaptureCallback() {})
+        } catch (_: Exception) {
+            // The session was closed between the call and here; a new one is being built.
+        }
+    }
+
+    /** One photo from the Night extension: the system does all the work and returns a JPEG. */
+    @SuppressLint("NewApi")
+    suspend fun captureExtensionPhoto(deviceRotationDegrees: Int): ByteArray =
+        suspendCancellableCoroutine { cont ->
+            val device = cameraDevice
+            val session = extensionSession
+            val reader = extensionJpegReader
+            if (device == null || session == null || reader == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                cont.resumeWithException(IllegalStateException("Night Sight (Google) isn't ready"))
+                return@suspendCancellableCoroutine
+            }
+            try {
+                val builder = device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)
+                builder.addTarget(reader.surface)
+                builder.set(CaptureRequest.JPEG_ORIENTATION, sensorToJpegOrientation(deviceRotationDegrees))
+                builder.set(CaptureRequest.JPEG_QUALITY, 98.toByte())
+                if (extensionZoomSupported) builder.set(CaptureRequest.CONTROL_ZOOM_RATIO, zoomRatio.coerceAtLeast(1f))
+                reader.setOnImageAvailableListener({ r ->
+                    val image = try { r.acquireNextImage() } catch (e: IllegalStateException) { null }
+                    if (image != null) {
+                        val buffer = image.planes[0].buffer
+                        val bytes = ByteArray(buffer.remaining())
+                        buffer.get(bytes)
+                        image.close()
+                        if (cont.isActive) cont.resume(bytes)
+                    }
+                }, backgroundHandler)
+                val executor = Executor { task -> backgroundHandler?.post(task) }
+                session.capture(builder.build(), executor, object : CameraExtensionSession.ExtensionCaptureCallback() {
+                    override fun onCaptureFailed(session: CameraExtensionSession, request: CaptureRequest) {
+                        if (cont.isActive) cont.resumeWithException(RuntimeException("Night Sight (Google) capture failed"))
+                    }
+                })
+            } catch (e: Exception) {
+                if (cont.isActive) cont.resumeWithException(e)
+            }
+        }
 
     @Volatile
     private var lastPreviewResult: TotalCaptureResult? = null
@@ -527,6 +844,9 @@ class CameraEngine(private val context: Context) {
     }
 
     fun startRepeatingPreview() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            extensionSession?.let { startExtensionPreview(it); return }
+        }
         val device = cameraDevice ?: return
         val session = captureSession ?: return
         val surface = previewSurface ?: return
@@ -758,11 +1078,16 @@ class CameraEngine(private val context: Context) {
         return if (facingFront) (sensorOrientation - d + 360) % 360 else (sensorOrientation + d) % 360
     }
 
-    /** The frames of one burst, plus the RAW frame and its result when RAW was requested. */
+    /**
+     * The frames of one burst. [rawImages] are the RAW frames requested (several when a RAW merge
+     * is wanted) and are still open: whoever receives them must close every one. [rawResults]
+     * line up with them one for one.
+     */
     class BurstResult(
         val jpegs: List<ByteArray>,
-        val rawImage: Image?,
-        val rawResult: TotalCaptureResult?,
+        val rawImages: List<Image>,
+        val rawResults: List<CaptureResult>,
+        val rawCharacteristics: CameraCharacteristics,
         val characteristics: CameraCharacteristics,
         val firstResult: TotalCaptureResult? = null,
     )
@@ -771,9 +1096,9 @@ class CameraEngine(private val context: Context) {
      * Fires [exposures].size still captures back to back, as fast as the camera allows, and
      * returns their JPEGs: the shutter-side half of the Pixel-style pipeline (the merge happens
      * afterwards, in the background). A null exposure means automatic. RAW (if on) rides along on
-     * the request at [rawIndex].
+     * the requests listed in [rawIndices].
      */
-    suspend fun captureBurst(deviceRotationDegrees: Int, exposures: List<Pair<Long, Int>?>, rawIndex: Int?): BurstResult =
+    suspend fun captureBurst(deviceRotationDegrees: Int, exposures: List<Pair<Long, Int>?>, rawIndices: Set<Int>?): BurstResult =
         suspendCancellableCoroutine { cont ->
             val device = cameraDevice
             val session = captureSession
@@ -784,17 +1109,30 @@ class CameraEngine(private val context: Context) {
                 return@suspendCancellableCoroutine
             }
             val raw = rawReader
-            val wantsRaw = rawIndex != null && raw != null
+            val rawSet: Set<Int> = if (raw != null && rawIndices != null) rawIndices else emptySet()
+            val wantsRaw = rawSet.isNotEmpty()
+            val physicalId = rawPhysicalId
+            val rawChars = rawCharacteristics ?: chars
             val total = exposures.size
+
+            // Anything left over from an earlier shot would be mistaken for this burst's frames.
+            if (raw != null) {
+                while (true) {
+                    val stale = try { raw.acquireNextImage() } catch (e: IllegalStateException) { null } ?: break
+                    stale.close()
+                }
+            }
+
             val requests = exposures.mapIndexed { i, exposure ->
                 val builder = device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)
                 builder.addTarget(jpeg.surface)
-                if (wantsRaw && i == rawIndex) builder.addTarget(raw!!.surface)
+                val carriesRaw = wantsRaw && i in rawSet
+                if (carriesRaw) builder.addTarget(raw!!.surface)
                 applyControls(builder)
-                if (wantsRaw && i == rawIndex) {
+                if (carriesRaw) {
                     // The DNG needs the lens shading map to correct the colour/brightness falloff of
                     // each lens (most visible as a magenta/green cast on the ultrawide).
-                    val modes = chars.get(CameraCharacteristics.STATISTICS_INFO_AVAILABLE_LENS_SHADING_MAP_MODES)
+                    val modes = rawChars.get(CameraCharacteristics.STATISTICS_INFO_AVAILABLE_LENS_SHADING_MAP_MODES)
                     if (modes?.contains(CameraMetadata.STATISTICS_LENS_SHADING_MAP_MODE_ON) == true) {
                         builder.set(CaptureRequest.STATISTICS_LENS_SHADING_MAP_MODE, CameraMetadata.STATISTICS_LENS_SHADING_MAP_MODE_ON)
                     }
@@ -811,10 +1149,10 @@ class CameraEngine(private val context: Context) {
             }
 
             val jpegs = mutableListOf<ByteArray>()
+            val rawImages = mutableListOf<Image>()
+            val rawResultsByIndex = java.util.TreeMap<Int, CaptureResult>()
             var completed = 0
             var failed = 0
-            var rawImage: Image? = null
-            var rawResult: TotalCaptureResult? = null
             var firstResult: TotalCaptureResult? = null
             var finished = false
 
@@ -822,18 +1160,28 @@ class CameraEngine(private val context: Context) {
                 if (finished) return
                 if (completed + failed < total) return
                 if (jpegs.size < completed) return
-                if (wantsRaw && rawResult != null && rawImage == null) return
+                if (wantsRaw && rawImages.size < rawResultsByIndex.size) return
                 finished = true
                 if (jpegs.isEmpty()) {
+                    rawImages.forEach { try { it.close() } catch (_: Exception) { } }
                     cont.resumeWithException(RuntimeException("Capture failed: no frames received"))
                 } else {
-                    cont.resume(BurstResult(jpegs.toList(), rawImage, rawResult, chars, firstResult))
+                    // A RAW with no matching result can't be made into a DNG: drop the extras.
+                    val results = rawResultsByIndex.values.toList()
+                    while (rawImages.size > results.size) {
+                        try { rawImages.removeAt(rawImages.size - 1).close() } catch (_: Exception) { }
+                    }
+                    cont.resume(BurstResult(jpegs.toList(), rawImages.toList(), results, rawChars, chars, firstResult))
                 }
+            }
+
+            cont.invokeOnCancellation {
+                if (!finished) rawImages.forEach { try { it.close() } catch (_: Exception) { } }
             }
 
             jpeg.setOnImageAvailableListener({ reader ->
                 while (true) {
-                    val image = reader.acquireNextImage() ?: break
+                    val image = try { reader.acquireNextImage() } catch (e: IllegalStateException) { null } ?: break
                     val buffer = image.planes[0].buffer
                     val bytes = ByteArray(buffer.remaining())
                     buffer.get(bytes)
@@ -845,7 +1193,10 @@ class CameraEngine(private val context: Context) {
 
             if (wantsRaw) {
                 raw!!.setOnImageAvailableListener({ reader ->
-                    reader.acquireLatestImage()?.let { rawImage = it }
+                    while (true) {
+                        val image = try { reader.acquireNextImage() } catch (e: IllegalStateException) { null } ?: break
+                        rawImages.add(image)
+                    }
                     maybeFinish()
                 }, backgroundHandler)
             }
@@ -854,7 +1205,12 @@ class CameraEngine(private val context: Context) {
                 override fun onCaptureCompleted(session: CameraCaptureSession, request: CaptureRequest, result: TotalCaptureResult) {
                     completed += 1
                     if (firstResult == null) firstResult = result
-                    if (wantsRaw && request.tag == rawIndex) rawResult = result
+                    val index = request.tag as? Int
+                    if (wantsRaw && index != null && index in rawSet) {
+                        val physical: CaptureResult? =
+                            if (physicalId != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) result.physicalCameraResults[physicalId] else null
+                        rawResultsByIndex[index] = physical ?: result
+                    }
                     maybeFinish()
                 }
 
@@ -992,12 +1348,7 @@ class CameraEngine(private val context: Context) {
             // The still-capture readers aren't part of a video session's target surfaces (only
             // the shared preview surface and the recorder's surface are) -- close them here
             // rather than leaving them open and unused until the camera itself eventually closes.
-            captureSession?.close()
-            captureSession = null
-            jpegReader?.close()
-            jpegReader = null
-            rawReader?.close()
-            rawReader = null
+            closeSessionResources()
 
             val recorder = MediaRecorder()
             val camIdInt = currentCameraId.toIntOrNull() ?: 0

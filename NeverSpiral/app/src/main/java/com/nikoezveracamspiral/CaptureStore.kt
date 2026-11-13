@@ -3,8 +3,8 @@ package com.nikoezveracamspiral
 import android.content.ContentValues
 import android.content.Context
 import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CaptureResult
 import android.hardware.camera2.DngCreator
-import android.hardware.camera2.TotalCaptureResult
 import android.media.Image
 import android.net.Uri
 import android.os.Build
@@ -12,6 +12,8 @@ import android.os.Environment
 import android.provider.MediaStore
 import androidx.exifinterface.media.ExifInterface
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -54,17 +56,37 @@ object CaptureStore {
         }
         val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return null
         resolver.openOutputStream(uri)?.use { it.write(bytes) }
-        if (meta != null) writeExif(context, uri, meta)
+        if (meta != null) storeMeta(context, uri, bytes, meta, timestampName("jpeg", stamp).let { if (suffix.isEmpty()) it else it.replace(".jpeg", "$suffix.jpeg") })
         markNotPending(context, uri, isVideo = false)
         return uri
     }
+
+    /** Writes the details into the file's EXIF, except for an Ultra HDR file: rewriting its
+     * header would shift the offsets that point at the embedded HDR gain map, so those keep the
+     * camera's own EXIF and have their details kept in a small side record instead. */
+    private fun storeMeta(context: Context, uri: Uri, bytes: ByteArray, meta: PhotoMeta, name: String) {
+        if (UltraHdr.isUltraHdr(bytes)) {
+            PhotoMetaStore.save(context, name, meta)
+        } else {
+            writeExif(context, uri, meta)
+        }
+    }
+
+    private fun displayNameOf(context: Context, uri: Uri): String? =
+        try {
+            context.contentResolver.query(uri, arrayOf(MediaStore.MediaColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                if (c.moveToFirst()) c.getString(0) else null
+            }
+        } catch (e: Exception) {
+            null
+        }
 
     /** Replaces the contents of an already-saved photo with its processed version. */
     fun overwriteJpeg(context: Context, uri: Uri, bytes: ByteArray, meta: PhotoMeta): Boolean {
         return try {
             val stream = context.contentResolver.openOutputStream(uri, "wt") ?: return false
             stream.use { it.write(bytes) }
-            writeExif(context, uri, meta)
+            storeMeta(context, uri, bytes, meta, displayNameOf(context, uri) ?: "")
             true
         } catch (e: Exception) {
             android.util.Log.w("CaptureStore", "Couldn't overwrite photo", e)
@@ -94,16 +116,18 @@ object CaptureStore {
         }
     }
 
-    /** [rawImage] is consumed (and closed) by this call either way -- on a failed insert it's
-     * closed immediately instead of leaking, since there's no DngCreator write to do. */
+    /** Writes a DNG. With [merged] the already-merged samples are written; otherwise [rawImage]
+     * is, and is consumed (closed) by this call either way. Merged frames' images are the
+     * caller's to close. */
     fun saveDng(
         context: Context,
-        rawImage: Image,
+        rawImage: Image?,
         characteristics: CameraCharacteristics,
-        captureResult: TotalCaptureResult,
+        captureResult: CaptureResult,
         stamp: String = newStamp(),
         orientationDegrees: Int = 0,
         thumbnailJpeg: ByteArray? = null,
+        merged: RawMerge.Merged? = null,
     ): Uri? {
         val resolver = context.contentResolver
         val values = ContentValues().apply {
@@ -116,45 +140,60 @@ object CaptureStore {
         }
         val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
         if (uri == null) {
-            rawImage.close()
+            rawImage?.close()
             return null
         }
-        DngCreator(characteristics, captureResult).use { dngCreator ->
-            // Without this the file opens sideways: the DNG holds raw sensor rows, so the same
-            // rotation the JPEG gets has to be recorded as its orientation tag.
-            dngCreator.setOrientation(
-                when (((orientationDegrees % 360) + 360) % 360) {
-                    90 -> ExifInterface.ORIENTATION_ROTATE_90
-                    180 -> ExifInterface.ORIENTATION_ROTATE_180
-                    270 -> ExifInterface.ORIENTATION_ROTATE_270
-                    else -> ExifInterface.ORIENTATION_NORMAL
-                },
-            )
-            if (thumbnailJpeg != null) {
-                try {
-                    val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    android.graphics.BitmapFactory.decodeByteArray(thumbnailJpeg, 0, thumbnailJpeg.size, bounds)
-                    var sample = 1
-                    while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 256) sample *= 2
-                    val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
-                    android.graphics.BitmapFactory.decodeByteArray(thumbnailJpeg, 0, thumbnailJpeg.size, opts)?.let { decoded ->
-                        // DngCreator wants both sides strictly under 256 px.
-                        val scale = minOf(1f, 255f / maxOf(decoded.width, decoded.height))
-                        val thumb = if (scale < 1f) {
-                            android.graphics.Bitmap.createScaledBitmap(
-                                decoded, (decoded.width * scale).toInt().coerceAtLeast(1), (decoded.height * scale).toInt().coerceAtLeast(1), true,
-                            ).also { if (it !== decoded) decoded.recycle() }
-                        } else decoded
-                        dngCreator.setThumbnail(thumb)
-                        thumb.recycle()
+        try {
+            DngCreator(characteristics, captureResult).use { dngCreator ->
+                // Without this the file opens sideways: the DNG holds raw sensor rows, so the same
+                // rotation the JPEG gets has to be recorded as its orientation tag.
+                dngCreator.setOrientation(
+                    when (((orientationDegrees % 360) + 360) % 360) {
+                        90 -> ExifInterface.ORIENTATION_ROTATE_90
+                        180 -> ExifInterface.ORIENTATION_ROTATE_180
+                        270 -> ExifInterface.ORIENTATION_ROTATE_270
+                        else -> ExifInterface.ORIENTATION_NORMAL
+                    },
+                )
+                if (thumbnailJpeg != null) {
+                    try {
+                        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        android.graphics.BitmapFactory.decodeByteArray(thumbnailJpeg, 0, thumbnailJpeg.size, bounds)
+                        var sample = 1
+                        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 256) sample *= 2
+                        val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+                        android.graphics.BitmapFactory.decodeByteArray(thumbnailJpeg, 0, thumbnailJpeg.size, opts)?.let { decoded ->
+                            // DngCreator wants both sides strictly under 256 px.
+                            val scale = minOf(1f, 255f / maxOf(decoded.width, decoded.height))
+                            val thumb = if (scale < 1f) {
+                                android.graphics.Bitmap.createScaledBitmap(
+                                    decoded, (decoded.width * scale).toInt().coerceAtLeast(1), (decoded.height * scale).toInt().coerceAtLeast(1), true,
+                                ).also { if (it !== decoded) decoded.recycle() }
+                            } else decoded
+                            dngCreator.setThumbnail(thumb)
+                            thumb.recycle()
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.w("CaptureStore", "No DNG thumbnail", e)
                     }
-                } catch (e: Exception) {
-                    android.util.Log.w("CaptureStore", "No DNG thumbnail", e)
+                }
+                resolver.openOutputStream(uri)?.use { out ->
+                    if (merged != null) {
+                        val buffer = ByteBuffer.allocate(merged.width * merged.height * 2).order(ByteOrder.LITTLE_ENDIAN)
+                        buffer.asShortBuffer().put(merged.samples)
+                        dngCreator.writeByteBuffer(out, android.util.Size(merged.width, merged.height), buffer, 0)
+                    } else if (rawImage != null) {
+                        dngCreator.writeImage(out, rawImage)
+                    }
                 }
             }
-            resolver.openOutputStream(uri)?.use { out -> dngCreator.writeImage(out, rawImage) }
+        } catch (e: Exception) {
+            android.util.Log.w("CaptureStore", "Couldn't write the DNG", e)
+            try { resolver.delete(uri, null, null) } catch (_: Exception) { }
+            rawImage?.close()
+            return null
         }
-        rawImage.close()
+        rawImage?.close()
         markNotPending(context, uri, isVideo = false)
         return uri
     }

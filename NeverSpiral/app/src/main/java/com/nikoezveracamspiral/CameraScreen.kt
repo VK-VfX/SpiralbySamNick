@@ -33,6 +33,18 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import kotlin.math.floor
+import kotlin.math.ln
+import kotlin.math.pow
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -317,6 +329,7 @@ private fun CameraContent(controller: CameraController, deviceRotation: Int, onO
                         isVideoMode = controller.mode.isVideo,
                         isRecording = controller.isRecording,
                         isBusy = controller.isCapturing,
+                        rippleTick = controller.shutterTick,
                         onClick = triggerShutter,
                     )
                     CircleIconButton(
@@ -389,6 +402,27 @@ private fun Viewfinder(controller: CameraController, showControls: Boolean, stri
     var focusIndicator by remember { mutableStateOf<Offset?>(null) }
     var formatOpen by remember { mutableStateOf(false) }
     var textureRef by remember { mutableStateOf<TextureView?>(null) }
+    var dialOpen by remember { mutableStateOf(false) }
+    // The sun slider that follows a tap-to-focus: where it sits and a key that restarts its timer.
+    var sliderAnchor by remember { mutableStateOf<Offset?>(null) }
+    var sliderKey by remember { mutableIntStateOf(0) }
+
+    // Lens change (camera flip, jump to another zoom stop): a blurred still of the old view
+    // fades out over the new one instead of a hard cut.
+    var lensShot by remember { mutableStateOf<ImageBitmap?>(null) }
+    val lensFade = remember { Animatable(0f) }
+    LaunchedEffect(controller.lensSwitchTick) {
+        if (controller.lensSwitchTick == 0) return@LaunchedEffect
+        lensShot = try {
+            textureRef?.let { snapshot(it, 270, 360)?.asImageBitmap() }
+        } catch (e: Exception) {
+            null
+        }
+        lensFade.snapTo(1f)
+        delay(200)
+        lensFade.animateTo(0f, tween(420))
+        lensShot = null
+    }
 
     // The shutter blink: the viewfinder drops to near-black the instant a still is triggered and
     // fades back, the same cue every camera app gives that a frame was actually taken.
@@ -414,6 +448,8 @@ private fun Viewfinder(controller: CameraController, showControls: Boolean, stri
                 // Choosing a filter and then tapping the picture goes back to shooting.
                 if (showControls && controller.mode != CaptureMode.PRO) onDismissPanel()
                 focusIndicator = offset
+                sliderAnchor = offset
+                sliderKey += 1
                 var nx = (offset.x / size.width).coerceIn(0f, 1f)
                 var ny = (offset.y / size.height).coerceIn(0f, 1f)
                 // The viewfinder crops the sensor image to the chosen ratio, so map the tap back
@@ -438,6 +474,34 @@ private fun Viewfinder(controller: CameraController, showControls: Boolean, stri
 
         focusIndicator?.let { position ->
             FocusIndicator(position = position, onFinished = { focusIndicator = null })
+        }
+
+        val manualExposureNow = controller.mode == CaptureMode.PRO && controller.proSettings.manualExposureEnabled
+        sliderAnchor?.let { anchor ->
+            if (!manualExposureNow && !controller.isRecording) {
+                ExposureSlider(
+                    anchor = anchor,
+                    key = sliderKey,
+                    controller = controller,
+                    onFinished = { sliderAnchor = null },
+                )
+            }
+        }
+
+        if (lensFade.value > 0.001f) {
+            val shot = lensShot
+            Box(modifier = Modifier.fillMaxSize().alpha(lensFade.value)) {
+                if (shot != null) {
+                    Image(
+                        bitmap = shot,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize().blur(28.dp),
+                    )
+                } else {
+                    Box(modifier = Modifier.fillMaxSize().background(Color(0x99000000)))
+                }
+            }
         }
 
         if (blink.value > 0.001f) {
@@ -504,8 +568,12 @@ private fun Viewfinder(controller: CameraController, showControls: Boolean, stri
             } else {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (controller.mode == CaptureMode.NIGHT) NightDurationPills(controller)
-                    LensLabel(controller)
-                    ZoomChips(controller)
+                    if (dialOpen) {
+                        ZoomDial(controller, onClose = { dialOpen = false })
+                    } else {
+                        LensLabel(controller)
+                        ZoomChips(controller, onOpenDial = { dialOpen = true })
+                    }
                 }
             }
         }
@@ -806,6 +874,191 @@ private fun FlyingCapture(
     }
 }
 
+/**
+ * The brightness slider that appears beside the focus ring after a tap: a sun you drag up for a
+ * brighter picture or down for a darker one, like Pixel's. It fades away a few seconds after you
+ * stop touching it.
+ */
+@Composable
+private fun ExposureSlider(anchor: Offset, key: Int, controller: CameraController, onFinished: () -> Unit) {
+    val range = controller.engine.exposureCompensationRange ?: return
+    if (range.upper <= range.lower) return
+    val haptic = LocalHapticFeedback.current
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    var dragging by remember { mutableStateOf(false) }
+    val trackDp = 150.dp
+    val trackPx = with(density) { trackDp.toPx() }
+    val index = controller.proSettings.exposureCompensation.coerceIn(range.lower, range.upper)
+    var floatIndex by remember(key) { mutableFloatStateOf(index.toFloat()) }
+    val appear = remember { Animatable(0f) }
+    LaunchedEffect(key) {
+        appear.snapTo(0f)
+        appear.animateTo(1f, tween(180))
+    }
+    LaunchedEffect(key, dragging) {
+        if (!dragging) {
+            delay(3200)
+            appear.animateTo(0f, tween(220))
+            onFinished()
+        }
+    }
+    val ringRadius = with(density) { 38.dp.toPx() }
+    val gap = with(density) { 36.dp.toPx() }
+    val sliderWidth = with(density) { 44.dp.toPx() }
+    androidx.compose.ui.layout.Layout(
+        content = {
+            Box(
+                modifier = Modifier
+                    .size(44.dp, trackDp)
+                    .alpha(appear.value)
+                    .pointerInput(key) {
+                        detectVerticalDragGestures(
+                            onDragStart = { dragging = true },
+                            onDragEnd = { dragging = false },
+                            onDragCancel = { dragging = false },
+                        ) { change, dy ->
+                            change.consume()
+                            val perIndex = trackPx / (range.upper - range.lower).toFloat()
+                            floatIndex = (floatIndex - dy / perIndex).coerceIn(range.lower.toFloat(), range.upper.toFloat())
+                            val target = floatIndex.roundToInt()
+                            if (target != controller.proSettings.exposureCompensation) {
+                                controller.setExposureIndex(target)
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            }
+                        }
+                    },
+            ) {
+                val fraction = (index - range.lower).toFloat() / (range.upper - range.lower).toFloat()
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val x = size.width / 2f
+                    drawLine(Color.White.copy(alpha = 0.55f), Offset(x, 6.dp.toPx()), Offset(x, size.height - 6.dp.toPx()), strokeWidth = 2.dp.toPx())
+                    val y = (size.height - 22.dp.toPx()) * (1f - fraction) + 11.dp.toPx()
+                    drawCircle(Color.White, radius = 11.dp.toPx(), center = Offset(x, y))
+                    drawCircle(Color(0xFF202020), radius = 4.dp.toPx(), center = Offset(x, y))
+                    for (i in 0 until 8) {
+                        val a = i * (Math.PI.toFloat() / 4f)
+                        val from = Offset(x + kotlin.math.cos(a) * 14.dp.toPx(), y + kotlin.math.sin(a) * 14.dp.toPx())
+                        val to = Offset(x + kotlin.math.cos(a) * 18.dp.toPx(), y + kotlin.math.sin(a) * 18.dp.toPx())
+                        drawLine(Color.White, from, to, strokeWidth = 1.5.dp.toPx())
+                    }
+                }
+            }
+        },
+        modifier = Modifier.fillMaxSize(),
+    ) { measurables, constraints ->
+        val placeable = measurables.first().measure(androidx.compose.ui.unit.Constraints.fixed(sliderWidth.roundToInt(), trackPx.roundToInt()))
+        layout(constraints.maxWidth, constraints.maxHeight) {
+            // To the right of the ring unless that runs off the edge, then to its left.
+            var x = anchor.x + ringRadius + gap
+            if (x + placeable.width > constraints.maxWidth - 8f) x = anchor.x - ringRadius - gap - placeable.width
+            val y = (anchor.y - placeable.height / 2f).coerceIn(8f, (constraints.maxHeight - placeable.height - 8f).coerceAtLeast(8f))
+            placeable.place(x.roundToInt(), y.roundToInt())
+        }
+    }
+}
+
+/**
+ * A zoom dial: slide sideways along a scale of tick marks to zoom smoothly, with a small tap in
+ * your hand for every tick and a firmer one at each lens stop. Closes itself a moment after you let go.
+ */
+@Composable
+private fun ZoomDial(controller: CameraController, onClose: () -> Unit) {
+    val haptic = LocalHapticFeedback.current
+    val minZoom = controller.engine.minZoomRatio()
+    val maxZoom = controller.engine.maxZoomRatio().coerceAtMost(30f).coerceAtLeast(1f)
+    val stops = remember(controller.cameraEpoch) { controller.engine.zoomStops().filter { it in (minZoom - 0.01f)..(maxZoom + 0.01f) } }
+    var dragging by remember { mutableStateOf(false) }
+    var idleKey by remember { mutableIntStateOf(0) }
+    var lastTick by remember { mutableIntStateOf(Int.MIN_VALUE) }
+    val labelPaint = remember {
+        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.WHITE
+            textAlign = android.graphics.Paint.Align.CENTER
+        }
+    }
+    LaunchedEffect(dragging, idleKey) {
+        if (!dragging) {
+            delay(2600)
+            onClose()
+        }
+    }
+    val log2 = { v: Float -> ln(v) / ln(2f) }
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = "${zoomLabel(controller.zoomRatio)}×",
+            color = Color.White,
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .background(OVERLAY_BUTTON_COLOR)
+                .clickable { onClose() }
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(74.dp)
+                .clip(RoundedCornerShape(37.dp))
+                .background(OVERLAY_BUTTON_COLOR)
+                .pointerInput(minZoom, maxZoom) {
+                    detectHorizontalDragGestures(
+                        onDragStart = { dragging = true },
+                        onDragEnd = { dragging = false; idleKey += 1 },
+                        onDragCancel = { dragging = false; idleKey += 1 },
+                    ) { change, dx ->
+                        change.consume()
+                        val unit = size.width * 0.30f // pixels per doubling of zoom
+                        val log = log2(controller.zoomRatio) - dx / unit
+                        val target = 2f.pow(log).coerceIn(minZoom, maxZoom)
+                        controller.setZoom(target)
+                        val tick = floor(log * 12f).toInt()
+                        if (tick != lastTick) {
+                            lastTick = tick
+                            val nearStop = stops.any { abs(log2(it) - log) < 0.02f }
+                            haptic.performHapticFeedback(if (nearStop) HapticFeedbackType.LongPress else HapticFeedbackType.TextHandleMove)
+                        }
+                    }
+                },
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val unit = size.width * 0.30f
+                val centre = size.width / 2f
+                val current = log2(controller.zoomRatio)
+                val baseY = size.height - 14.dp.toPx()
+                // Minor ticks every twelfth of a doubling, fading toward the edges.
+                val first = floor((current - 1.8f) * 12f).toInt()
+                val last = floor((current + 1.8f) * 12f).toInt()
+                for (t in first..last) {
+                    val l = t / 12f
+                    val z = 2f.pow(l)
+                    if (z < minZoom - 0.001f || z > maxZoom + 0.001f) continue
+                    val x = centre + (l - current) * unit
+                    if (x < 0f || x > size.width) continue
+                    val edge = 1f - (abs(x - centre) / (size.width / 2f)).coerceIn(0f, 1f)
+                    val major = t % 12 == 0
+                    val h = if (major) 18.dp.toPx() else 9.dp.toPx()
+                    drawLine(Color.White.copy(alpha = 0.25f + 0.65f * edge), Offset(x, baseY), Offset(x, baseY - h), strokeWidth = (if (major) 2.dp else 1.dp).toPx())
+                }
+                // Lens stops, labelled.
+                drawIntoCanvas { canvas ->
+                    labelPaint.textSize = 13.sp.toPx()
+                    for (stop in stops) {
+                        val x = centre + (log2(stop) - current) * unit
+                        if (x < 8f || x > size.width - 8f) continue
+                        val edge = 1f - (abs(x - centre) / (size.width / 2f)).coerceIn(0f, 1f)
+                        labelPaint.alpha = (255 * (0.35f + 0.65f * edge)).toInt()
+                        canvas.nativeCanvas.drawText(zoomLabel(stop), x, baseY - 24.dp.toPx(), labelPaint)
+                    }
+                }
+                // The pointer.
+                drawLine(Color.White, Offset(centre, 6.dp.toPx()), Offset(centre, 22.dp.toPx()), strokeWidth = 3.dp.toPx())
+            }
+        }
+    }
+}
+
 /** Small readout of which physical lens is shooting, so it's clear when the telephoto or
  * ultra-wide takes over from the main lens. */
 @Composable
@@ -839,7 +1092,7 @@ private fun NightDurationPills(controller: CameraController) {
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         for (seconds in listOf(3, 6)) {
-            val selected = controller.nightSeconds == seconds
+            val selected = !controller.nightGoogle && controller.nightSeconds == seconds
             Text(
                 text = "Wait ${seconds}s",
                 color = if (selected) Color.Black else Color.White,
@@ -848,7 +1101,24 @@ private fun NightDurationPills(controller: CameraController) {
                 modifier = Modifier
                     .clip(RoundedCornerShape(50))
                     .background(if (selected) Color.White else Color.Transparent)
-                    .clickable { controller.nightSeconds = seconds }
+                    .clickable {
+                        controller.nightSeconds = seconds
+                        if (controller.nightGoogle) controller.changeNightGoogle(false)
+                    }
+                    .padding(horizontal = 16.dp, vertical = 9.dp),
+            )
+        }
+        if (controller.googleNightAvailable) {
+            val selected = controller.nightGoogle
+            Text(
+                text = "Google",
+                color = if (selected) Color.Black else Color.White,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(if (selected) Color.White else Color.Transparent)
+                    .clickable { controller.changeNightGoogle(true) }
                     .padding(horizontal = 16.dp, vertical = 9.dp),
             )
         }
@@ -987,7 +1257,7 @@ private fun zoomLabel(z: Float): String = when {
 }
 
 @Composable
-private fun ZoomChips(controller: CameraController) {
+private fun ZoomChips(controller: CameraController, onOpenDial: () -> Unit) {
     val minZoom = controller.engine.minZoomRatio()
     val maxZoom = controller.engine.maxZoomRatio()
     val presets = controller.engine.zoomStops().filter { it == 1f || (it >= minZoom - 0.01f && it <= maxZoom + 0.01f) }
@@ -1008,7 +1278,12 @@ private fun ZoomChips(controller: CameraController) {
                     .size(width = if (selected) 54.dp else 44.dp, height = 40.dp)
                     .clip(RoundedCornerShape(50))
                     .background(if (selected) Color.White else Color.Transparent)
-                    .clickable { controller.setZoom(preset) },
+                    .pointerInput(preset) {
+                        detectTapGestures(
+                            onTap = { controller.jumpZoom(preset) },
+                            onLongPress = { onOpenDial() },
+                        )
+                    },
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
@@ -1227,6 +1502,12 @@ private fun GalleryThumbnail(controller: CameraController, onOpenEditor: (Uri) -
         label = "breathe",
     )
     val pulse = if (processing) breathe else 1f
+    val glow by androidx.compose.animation.core.rememberInfiniteTransition(label = "thumb-glow").animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = androidx.compose.animation.core.infiniteRepeatable(tween(900), androidx.compose.animation.core.RepeatMode.Reverse),
+        label = "thumb-glow-alpha",
+    )
 
     LaunchedEffect(uri, controller.captureRevision) {
         bitmap = if (uri == null) null else withContext(Dispatchers.IO) { loadThumbnail(context, uri) }?.asImageBitmap()
@@ -1243,6 +1524,21 @@ private fun GalleryThumbnail(controller: CameraController, onOpenEditor: (Uri) -
             .size(56.dp)
             .onGloballyPositioned { onPositioned(it.boundsInRoot()) }
             .scale(popScale.value * pulse)
+            .drawBehind {
+                // A soft halo that breathes while the photo is being developed.
+                if (processing) {
+                    val radius = size.minDimension * 0.95f
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(Color.White.copy(alpha = 0.5f * glow), Color.Transparent),
+                            center = center,
+                            radius = radius,
+                        ),
+                        radius = radius,
+                        center = center,
+                    )
+                }
+            }
             .clip(CircleShape)
             .background(CameraTheme.SURFACE)
             .clickable(enabled = uri != null) {
@@ -1299,7 +1595,7 @@ private fun loadThumbnail(context: Context, uri: Uri): Bitmap? = try {
  * while a capture is in flight -- the tactile half of the capture animation (the viewfinder
  * blink is the other) -- and turns red for video, becoming a rounded square while recording. */
 @Composable
-private fun ShutterButton(isVideoMode: Boolean, isRecording: Boolean, isBusy: Boolean, onClick: () -> Unit) {
+private fun ShutterButton(isVideoMode: Boolean, isRecording: Boolean, isBusy: Boolean, rippleTick: Int, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val discScale by animateFloatAsState(
@@ -1312,22 +1608,46 @@ private fun ShutterButton(isVideoMode: Boolean, isRecording: Boolean, isBusy: Bo
         animationSpec = tween(durationMillis = 160),
         label = "shutter-disc-size",
     )
+    // A ring that spreads out from the button each time a shot is taken.
+    val ripple = remember { Animatable(0f) }
+    LaunchedEffect(rippleTick) {
+        if (rippleTick > 0) {
+            ripple.snapTo(0f)
+            ripple.animateTo(1f, tween(520, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+        }
+    }
     Box(
         modifier = Modifier
             .size(92.dp)
-            .semantics { contentDescription = if (isVideoMode) (if (isRecording) "Stop recording" else "Start recording") else "Take photo" }
-            .clip(CircleShape)
-            .border(4.dp, Color.White, CircleShape)
-            .clickable(interactionSource = interaction, indication = null, enabled = !isBusy) { onClick() },
+            .drawBehind {
+                val r = ripple.value
+                if (r > 0f && r < 1f) {
+                    drawCircle(
+                        color = Color.White.copy(alpha = (1f - r) * 0.6f),
+                        radius = size.minDimension / 2f * (1f + 0.6f * r),
+                        style = Stroke(width = (4.dp.toPx() * (1f - r)).coerceAtLeast(1f)),
+                    )
+                }
+            },
         contentAlignment = Alignment.Center,
     ) {
         Box(
             modifier = Modifier
-                .size(discSize)
-                .scale(discScale)
-                .clip(if (isRecording) RoundedCornerShape(9.dp) else CircleShape)
-                .background(if (isVideoMode) CameraTheme.CRITICAL else Color.White),
-        )
+                .size(92.dp)
+                .semantics { contentDescription = if (isVideoMode) (if (isRecording) "Stop recording" else "Start recording") else "Take photo" }
+                .clip(CircleShape)
+                .border(4.dp, Color.White, CircleShape)
+                .clickable(interactionSource = interaction, indication = null, enabled = !isBusy) { onClick() },
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(discSize)
+                    .scale(discScale)
+                    .clip(if (isRecording) RoundedCornerShape(9.dp) else CircleShape)
+                    .background(if (isVideoMode) CameraTheme.CRITICAL else Color.White),
+            )
+        }
     }
 }
 
@@ -1382,6 +1702,12 @@ private fun SettingsSheet(controller: CameraController) {
             return@Column
         }
 
+        var tab by remember { mutableIntStateOf(0) }
+        SettingsTabs(tab) { tab = it }
+        Crossfade(targetState = tab, label = "settings-tab") { current ->
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                when (current) {
+                    0 -> {
         SheetSection("Flash", controller.flashMode.name.lowercase().replaceFirstChar { it.uppercase() })
         SegmentRow(
             options = listOf(
@@ -1405,17 +1731,6 @@ private fun SettingsSheet(controller: CameraController) {
             selected = controller.aspectRatio,
         ) { controller.aspectRatio = it }
 
-        SheetSection("Grid", controller.gridStyle.label)
-        SegmentRow(
-            options = listOf(
-                Triple(GridStyle.OFF, "Off", Icons.Rounded.GridOff),
-                Triple(GridStyle.THIRDS, "Thirds", Icons.Rounded.Grid3x3),
-                Triple(GridStyle.GOLDEN, "Golden", Icons.Rounded.GridOn),
-                Triple(GridStyle.SQUARE, "Square", Icons.Rounded.CropSquare),
-            ),
-            selected = controller.gridStyle,
-        ) { controller.gridStyle = it }
-
         SheetSection("Photo format", if (controller.isRawEnabled && rawSupported) "RAW + JPEG" else "JPEG")
         SegmentRow(
             options = listOf(
@@ -1434,6 +1749,26 @@ private fun SettingsSheet(controller: CameraController) {
             selected = controller.jpegQuality,
         ) { controller.jpegQuality = it }
 
+        SheetSection("Zoom enhance (multi-frame)", if (controller.zoomEnhance) "On" else "Off")
+        SegmentRow(
+            options = listOf(true to "On", false to "Off").map { Triple(it.first, it.second, null as ImageVector?) },
+            selected = controller.zoomEnhance,
+        ) { controller.zoomEnhance = it }
+
+        SheetSection("Ultra HDR", if (controller.ultraHdrEnabled) "On" else "Off")
+        SegmentRow(
+            options = listOf(true to "On", false to "Off").map { Triple(it.first, it.second, null as ImageVector?) },
+            selected = controller.ultraHdrEnabled,
+        ) { controller.setUltraHdr(it) }
+        Text(
+            "Saves the extra brightness of the scene so HDR screens show brighter highlights. It looks like a normal photo everywhere else.",
+            color = CameraTheme.TEXT_SECONDARY,
+            fontSize = 12.sp,
+            modifier = Modifier.padding(horizontal = 4.dp),
+        )
+
+                    }
+                    1 -> {
         SheetSection("Video resolution", controller.videoConfig.res.label)
         SegmentRow(
             options = controller.engine.supportedVideoResolutions().map { Triple(it, it.label, null as ImageVector?) },
@@ -1454,11 +1789,18 @@ private fun SettingsSheet(controller: CameraController) {
             ) { controller.videoConfig = controller.videoConfig.copy(hevc = it) }
         }
 
-        SheetSection("Zoom enhance (multi-frame)", if (controller.zoomEnhance) "On" else "Off")
+                    }
+                    2 -> {
+        SheetSection("Grid", controller.gridStyle.label)
         SegmentRow(
-            options = listOf(true to "On", false to "Off").map { Triple(it.first, it.second, null as ImageVector?) },
-            selected = controller.zoomEnhance,
-        ) { controller.zoomEnhance = it }
+            options = listOf(
+                Triple(GridStyle.OFF, "Off", Icons.Rounded.GridOff),
+                Triple(GridStyle.THIRDS, "Thirds", Icons.Rounded.Grid3x3),
+                Triple(GridStyle.GOLDEN, "Golden", Icons.Rounded.GridOn),
+                Triple(GridStyle.SQUARE, "Square", Icons.Rounded.CropSquare),
+            ),
+            selected = controller.gridStyle,
+        ) { controller.gridStyle = it }
 
         SheetSection("Histogram", if (controller.histogramEnabled) "On" else "Off")
         SegmentRow(
@@ -1475,8 +1817,53 @@ private fun SettingsSheet(controller: CameraController) {
             selected = controller.mirrorSelfies,
         ) { controller.mirrorSelfies = it }
 
-        UpdateSection(controller)
+        SheetSection("Colour", if (controller.engine.p3Active) "Display P3" else "sRGB")
+        Text(
+            "Photos are processed in the wider Display P3 colour range where the camera supports it. Now: ${controller.engine.sessionSummary}.",
+            color = CameraTheme.TEXT_SECONDARY,
+            fontSize = 12.sp,
+            modifier = Modifier.padding(horizontal = 4.dp),
+        )
+
+                    }
+                    else -> {
+                        UpdateSection(controller)
+                    }
+                }
+            }
+        }
         Spacer(modifier = Modifier.height(8.dp))
+    }
+}
+
+/** The four groups of the settings sheet. */
+@Composable
+private fun SettingsTabs(selected: Int, onSelect: (Int) -> Unit) {
+    val labels = listOf("Photo", "Video", "Display", "Phone")
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp, bottom = 4.dp)
+            .clip(RoundedCornerShape(50))
+            .background(CameraTheme.SURFACE_RAISED)
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        labels.forEachIndexed { index, label ->
+            val on = index == selected
+            val background by animateColorAsState(if (on) Color.White else Color.Transparent, tween(160), label = "tab-background")
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(50))
+                    .background(background)
+                    .clickable { onSelect(index) }
+                    .padding(vertical = 10.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(label, color = if (on) Color.Black else Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            }
+        }
     }
 }
 
