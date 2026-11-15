@@ -38,21 +38,26 @@ final class WidgetUpdater {
     }
 
     static void update(Context ctx, AppWidgetManager m, int variant, int id, Cards.Data d) {
+        push(ctx, m, variant, id, d, -1, 1f);
+    }
+
+    /**
+     * @param onlyTheme -1 = send both light and dark bitmaps, 0 = light only, 1 = dark only
+     * @param scale     render-resolution multiplier (animation frames use less to stay cheap)
+     */
+    private static void push(Context ctx, AppWidgetManager m, int variant, int id, Cards.Data d, int onlyTheme, float scale) {
         int kind = Variants.KIND[variant];
         d.transparentDark = Store.clearDark(ctx);
         int[] wh = sizeFor(m, variant, id);
         int w = wh[0], h = wh[1];
 
-        float u = ctx.getResources().getDisplayMetrics().density;
+        float u = ctx.getResources().getDisplayMetrics().density * scale;
         while (w * u * h * u > MAX_PIXELS && u > 1f) u *= 0.9f;
         int pw = Math.max(1, Math.round(w * u)), ph = Math.max(1, Math.round(h * u));
 
-        Bitmap light = draw(kind, w, h, u, pw, ph, false, d);
-        Bitmap dark = draw(kind, w, h, u, pw, ph, true, d);
-
         RemoteViews rv = new RemoteViews(ctx.getPackageName(), R.layout.widget_frame);
-        rv.setImageViewBitmap(R.id.img_light, light);
-        rv.setImageViewBitmap(R.id.img_dark, dark);
+        if (onlyTheme != 1) rv.setImageViewBitmap(R.id.img_light, draw(kind, w, h, u, pw, ph, false, d));
+        if (onlyTheme != 0) rv.setImageViewBitmap(R.id.img_dark, draw(kind, w, h, u, pw, ph, true, d));
         rv.setContentDescription(R.id.root, Cards.describe(kind, d));
 
         Intent i = new Intent(ctx, MainActivity.class).setAction(Intent.ACTION_MAIN)
@@ -74,25 +79,13 @@ final class WidgetUpdater {
         return new int[]{w, h};
     }
 
-    /**
-     * One frame of the unlock animation. Only the bitmap for the active theme is sent, at reduced
-     * resolution, so each frame is cheap; the crisp static render replaces it when the animation ends.
-     */
+    /** One frame of the unlock animation: a normal (full) update of the active theme at reduced resolution. */
     static void animateFrame(Context ctx, Cards.Data d, float t, boolean dark) {
         AppWidgetManager m = AppWidgetManager.getInstance(ctx);
         d.anim = t;
         for (int v = 0; v < Widgets.ALL.length; v++) {
-            int kind = Variants.KIND[v];
             int[] ids = m.getAppWidgetIds(new ComponentName(ctx, Widgets.ALL[v]));
-            for (int id : ids) {
-                int[] wh = sizeFor(m, v, id);
-                float u = ctx.getResources().getDisplayMetrics().density * 0.7f;
-                int pw = Math.max(1, Math.round(wh[0] * u)), ph = Math.max(1, Math.round(wh[1] * u));
-                Bitmap b = draw(kind, wh[0], wh[1], u, pw, ph, dark, d);
-                RemoteViews rv = new RemoteViews(ctx.getPackageName(), R.layout.widget_frame);
-                rv.setImageViewBitmap(dark ? R.id.img_dark : R.id.img_light, b);
-                m.partiallyUpdateAppWidget(id, rv);
-            }
+            for (int id : ids) push(ctx, m, v, id, d, dark ? 1 : 0, 0.7f);
         }
     }
 

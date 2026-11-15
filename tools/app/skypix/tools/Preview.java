@@ -174,6 +174,24 @@ public final class Preview {
             ImageIO.write(img, "png", new File(dir, "anim.png"));
         } else if (mode.equals("icons")) {
             icons(dir);
+        } else if (mode.equals("headsup")) {
+            float u = 2.4f;
+            int[][] sz = {{110, 110}, {180, 180}, {250, 40}, {180, 40}};
+            String[] sc = {"clear", "rain"};
+            BufferedImage img = new BufferedImage(Math.round(760 * u), Math.round(420 * u), BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g = img.createGraphics();
+            g.drawImage(backdrop(img.getWidth(), img.getHeight(), true, true), 0, 0, null);
+            for (int r = 0; r < sc.length; r++) {
+                Cards.Data d = Samples.data(sc[r], false, false);
+                int x = 14;
+                for (int c = 0; c < sz.length; c++) {
+                    g.drawImage(render(Cards.HEADSUP, sz[c][0], sz[c][1], u, true, d), Math.round(x * u), Math.round((14 + r * 200) * u), null);
+                    x += sz[c][0] + 14;
+                }
+            }
+            g.dispose();
+            dir.mkdirs();
+            ImageIO.write(img, "png", new File(dir, "headsup.png"));
         } else if (mode.equals("iconsheet")) {
             String[] sc = {"clear", "night", "partly", "cloudy", "fog", "rain", "stormnow", "snow", "windy"};
             int[] ks = {0, 1, 2};

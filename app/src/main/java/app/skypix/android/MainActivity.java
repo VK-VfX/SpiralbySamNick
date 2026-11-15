@@ -459,6 +459,23 @@ public class MainActivity extends Activity {
                     }
                 }));
 
+        Ui.PixelButton playNow = new Ui.PixelButton(this, "PLAY NOW", false);
+        playNow.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                if (WidgetUpdater.count(MainActivity.this) == 0) {
+                    Toast.makeText(MainActivity.this, "Add a widget first, then try again", Toast.LENGTH_LONG).show();
+                    return;
+                }
+                Jobs.syncAnimService(getApplicationContext());
+                Jobs.AnimService.play(MainActivity.this);
+                Toast.makeText(MainActivity.this, "Playing on your home screen widgets for 5 s", Toast.LENGTH_LONG).show();
+                ui.postDelayed(new Runnable() {
+                    @Override public void run() { rebuild(); }
+                }, 6000);
+            }
+        });
+        row(box, "Test the animation", animStatus(), playNow);
+
         row(box, "Weather alerts", "Rain, storms, heat, UV, wind, air quality",
                 toggle(Store.alerts(this), new CompoundButton.OnCheckedChangeListener() {
                     @Override public void onCheckedChanged(CompoundButton b, boolean on) {
@@ -522,6 +539,17 @@ public class MainActivity extends Activity {
         }
         row(box, locState, null, null);
         row(box, "Background location", bgSub, bg);
+    }
+
+    private String animStatus() {
+        int widgets = WidgetUpdater.count(this);
+        StringBuilder sb = new StringBuilder();
+        if (widgets == 0) sb.append("No widgets on your home screen yet");
+        else sb.append(Jobs.AnimService.running ? "Unlock listener is running" : "Unlock listener is not running");
+        if (Jobs.AnimService.lastPlayMs > 0) {
+            sb.append(" \u00b7 last played ").append(Fmt.time(Jobs.AnimService.lastPlayMs / 1000L, java.util.TimeZone.getDefault().getOffset(Jobs.AnimService.lastPlayMs) / 1000, DateFormat.is24HourFormat(this), true));
+        }
+        return sb.toString();
     }
 
     private void askNotifications() {

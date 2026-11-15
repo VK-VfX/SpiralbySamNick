@@ -510,24 +510,23 @@ public final class Cards {
         }
     }
 
-    /** Greedy word wrap; the last allowed line is ellipsised. */
+    /** Greedy word wrap; once maxLines is reached the remainder is squeezed into the last line and ellipsised. */
     private static java.util.List<String> wrap(R r, String s, float size, int font, float maxW, int maxLines) {
         java.util.ArrayList<String> out = new java.util.ArrayList<String>();
         String[] words = s.split(" ");
         String line = "";
         for (int i = 0; i < words.length; i++) {
             String tryLine = line.length() == 0 ? words[i] : line + " " + words[i];
-            if (r.tw(tryLine, size, font) <= maxW || line.length() == 0) {
+            if (line.length() == 0 || r.tw(tryLine, size, font) <= maxW) {
                 line = tryLine;
+            } else if (out.size() == maxLines - 1) {
+                StringBuilder rest = new StringBuilder(line);
+                for (int k = i; k < words.length; k++) rest.append(' ').append(words[k]);
+                line = rest.toString();
+                break;
             } else {
                 out.add(line);
                 line = words[i];
-                if (out.size() == maxLines - 1) {
-                    StringBuilder rest = new StringBuilder(line);
-                    for (int k = i + 1; k < words.length; k++) rest.append(' ').append(words[k]);
-                    line = rest.toString();
-                    break;
-                }
             }
         }
         if (line.length() > 0) out.add(r.fit(line, size, font, maxW));
@@ -966,23 +965,36 @@ public final class Cards {
         float pad = clamp(w * 0.1f, 10, 16);
         Insights.Insight in = Insights.headline(d.weather, d.units, d.nowSec);
         int stripe = in.sev == Insights.WARNING ? 0xFFFF5A5F : in.sev == Insights.NOTICE ? 0xFFFFB020 : 0xFF4DD0E1;
-        r.rect(pad, pad, pad + 24, pad + 3, 1.5f, stripe);
-        float isz = clamp(w * 0.3f, 26, 40);
-        r.icon(in.icon, pad - 2, pad + 10, isz);
-        Weather.Now n = d.weather.now(d.nowSec);
-        r.text(d.units.t(n.temp), w - pad, pad + 10 + isz * 0.62f, 22, Gfx.FONT_BOLD, Gfx.RIGHT, WHITE);
-        float y = pad + 10 + r.iconSize(isz) + 18;
         float maxW = w - 2 * pad;
-        int lines = h >= 150 ? 4 : 3;
-        for (String line : wrap(r, in.title, 14, Gfx.FONT_BOLD, maxW, Math.min(lines, 3))) {
+        r.rect(pad, pad, pad + 24, pad + 3, 1.5f, stripe);
+
+        // where you are: wraps to two lines when the name is long
+        float y = pad + 16;
+        for (String line : wrap(r, d.place.title(), 11.5f, Gfx.FONT_MEDIUM, maxW, 2)) {
+            r.text(line, pad, y, 11.5f, Gfx.FONT_MEDIUM, Gfx.LEFT, T2);
+            y += 14;
+        }
+        y += 2;
+
+        float isz = clamp(w * 0.26f, 22, 34);
+        float real = r.iconSize(isz);
+        r.icon(in.icon, pad - 2, y, isz);
+        Weather.Now n = d.weather.now(d.nowSec);
+        r.text(d.units.t(n.temp), w - pad, y + real * 0.72f, 22, Gfx.FONT_BOLD, Gfx.RIGHT, WHITE);
+        y += real + 16;
+
+        int titleLines = (int) clamp((float) Math.floor((h - pad - y + 4) / 17f), 1, 3);
+        for (String line : wrap(r, in.title, 14, Gfx.FONT_BOLD, maxW, titleLines)) {
             r.text(line, pad, y, 14, Gfx.FONT_BOLD, Gfx.LEFT, WHITE);
             y += 17;
         }
-        y += 3;
-        for (String line : wrap(r, in.detail, 11, Gfx.FONT_REGULAR, maxW, lines)) {
-            if (y > h - pad + 2) break;
-            r.text(line, pad, y, 11, Gfx.FONT_REGULAR, Gfx.LEFT, T2);
-            y += 14;
+        y += 1;
+        int detailLines = (int) Math.floor((h - pad - y + 6) / 14f);
+        if (detailLines >= 1) {
+            for (String line : wrap(r, in.detail, 11, Gfx.FONT_REGULAR, maxW, Math.min(detailLines, 3))) {
+                r.text(line, pad, y, 11, Gfx.FONT_REGULAR, Gfx.LEFT, T2);
+                y += 14;
+            }
         }
     }
 

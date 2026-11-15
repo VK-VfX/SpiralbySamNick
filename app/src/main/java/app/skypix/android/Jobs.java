@@ -1,6 +1,7 @@
 package app.skypix.android;
 
 import android.app.AlarmManager;
+import android.app.KeyguardManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -8,8 +9,6 @@ import android.app.Service;
 import android.content.IntentFilter;
 import android.content.pm.ServiceInfo;
 import android.os.Build;
-import android.os.Handler;
-import android.os.HandlerThread;
 import android.os.IBinder;
 import android.os.PowerManager;
 import android.os.SystemClock;
@@ -154,35 +153,49 @@ public final class Jobs {
      * foreground service. It does nothing else and can be switched off in settings.
      */
     public static final class AnimService extends Service {
-        private HandlerThread thread;
-        private Handler handler;
-        private Cards.Data data;
-        private long start;
+        static volatile boolean running;
+        static volatile long lastPlayMs;
+        private static volatile int generation;
 
-        private final BroadcastReceiver unlock = new BroadcastReceiver() {
-            @Override public void onReceive(Context c, Intent i) {
-                play();
-            }
-        };
-
-        private final Runnable frame = new Runnable() {
-            @Override public void run() {
-                try {
-                    long now = SystemClock.uptimeMillis();
-                    float t = (now - start) / 1000f;
-                    if (t < 0) {
-                        handler.postDelayed(this, 60);
-                        return;
+        /** Plays the 5 second animation on every widget. A newer call cancels an older one. */
+        static void play(final Context ctx) {
+            final Context app = ctx.getApplicationContext();
+            final int gen = ++generation;
+            new Thread(new Runnable() {
+                @Override public void run() {
+                    try {
+                        if (!Store.animate(app)) return;
+                        PowerManager pm = (PowerManager) app.getSystemService(Context.POWER_SERVICE);
+                        if (pm != null && pm.isPowerSaveMode()) return;
+                        Cards.Data d = Store.data(app);
+                        if (!d.ready()) return;
+                        boolean dark = Ui.isDark(app);
+                        lastPlayMs = System.currentTimeMillis();
+                        long start = SystemClock.uptimeMillis() + 300;
+                        while (gen == generation) {
+                            long now = SystemClock.uptimeMillis();
+                            float t = (now - start) / 1000f;
+                            if (t >= 5f) break;
+                            if (t >= 0) WidgetUpdater.animateFrame(app, d, t, dark);
+                            long spent = SystemClock.uptimeMillis() - now;
+                            Thread.sleep(Math.max(30, 110 - spent));
+                        }
+                        if (gen == generation) WidgetUpdater.updateAll(app);
+                    } catch (Throwable e) {
+                        Ui.report("animation", e);
                     }
-                    if (t >= 5f) {
-                        WidgetUpdater.updateAll(getApplicationContext());
-                        return;
-                    }
-                    WidgetUpdater.animateFrame(getApplicationContext(), data, t, Ui.isDark(AnimService.this));
-                    long spent = SystemClock.uptimeMillis() - now;
-                    handler.postDelayed(this, Math.max(30, 110 - spent));
-                } catch (Throwable ignored) {
                 }
+            }, "skypix-anim").start();
+        }
+
+        private final BroadcastReceiver screen = new BroadcastReceiver() {
+            @Override public void onReceive(Context c, Intent i) {
+                if (Intent.ACTION_SCREEN_ON.equals(i.getAction())) {
+                    // phones with no lock screen never send USER_PRESENT-after-unlock, so start right away
+                    KeyguardManager km = (KeyguardManager) c.getSystemService(Context.KEYGUARD_SERVICE);
+                    if (km != null && km.isKeyguardLocked()) return;
+                }
+                play(c);
             }
         };
 
@@ -201,28 +214,12 @@ public final class Jobs {
                     .build();
             if (Build.VERSION.SDK_INT >= 34) startForeground(7, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
             else startForeground(7, n);
-            thread = new HandlerThread("skypix-anim");
-            thread.start();
-            handler = new Handler(thread.getLooper());
-            IntentFilter f = new IntentFilter(Intent.ACTION_USER_PRESENT);
-            if (Build.VERSION.SDK_INT >= 33) registerReceiver(unlock, f, Context.RECEIVER_NOT_EXPORTED);
-            else registerReceiver(unlock, f);
-        }
-
-        private void play() {
-            if (!Store.animate(this)) return;
-            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-            if (pm != null && pm.isPowerSaveMode()) return;
-            handler.removeCallbacksAndMessages(null);
-            handler.post(new Runnable() {
-                @Override public void run() {
-                    data = Store.data(AnimService.this);
-                    if (!data.ready()) return;
-                    data.transparentDark = Store.clearDark(AnimService.this);
-                    start = SystemClock.uptimeMillis() + 450;
-                    frame.run();
-                }
-            });
+            IntentFilter f = new IntentFilter();
+            f.addAction(Intent.ACTION_USER_PRESENT);
+            f.addAction(Intent.ACTION_SCREEN_ON);
+            if (Build.VERSION.SDK_INT >= 33) registerReceiver(screen, f, Context.RECEIVER_NOT_EXPORTED);
+            else registerReceiver(screen, f);
+            running = true;
         }
 
         @Override
@@ -237,11 +234,11 @@ public final class Jobs {
 
         @Override
         public void onDestroy() {
+            running = false;
             try {
-                unregisterReceiver(unlock);
+                unregisterReceiver(screen);
             } catch (IllegalArgumentException ignored) {
             }
-            if (thread != null) thread.quitSafely();
             super.onDestroy();
         }
     }
