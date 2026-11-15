@@ -467,7 +467,7 @@ public class MainActivity extends Activity {
                     return;
                 }
                 Jobs.syncAnimService(getApplicationContext());
-                Jobs.AnimService.play(MainActivity.this);
+                Jobs.AnimService.play(MainActivity.this, "test");
                 Toast.makeText(MainActivity.this, "Playing on your home screen widgets for 5 s", Toast.LENGTH_LONG).show();
                 ui.postDelayed(new Runnable() {
                     @Override public void run() { rebuild(); }
@@ -547,7 +547,7 @@ public class MainActivity extends Activity {
         if (widgets == 0) sb.append("No widgets on your home screen yet");
         else sb.append(Jobs.AnimService.running ? "Unlock listener is running" : "Unlock listener is not running");
         if (Jobs.AnimService.lastPlayMs > 0) {
-            sb.append(" \u00b7 last played ").append(Fmt.time(Jobs.AnimService.lastPlayMs / 1000L, java.util.TimeZone.getDefault().getOffset(Jobs.AnimService.lastPlayMs) / 1000, DateFormat.is24HourFormat(this), true));
+            sb.append(" \u00b7 last played (").append(Jobs.AnimService.lastTrigger).append(") ").append(Fmt.time(Jobs.AnimService.lastPlayMs / 1000L, java.util.TimeZone.getDefault().getOffset(Jobs.AnimService.lastPlayMs) / 1000, DateFormat.is24HourFormat(this), true));
         }
         return sb.toString();
     }

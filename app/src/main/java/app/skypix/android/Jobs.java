@@ -157,8 +157,10 @@ public final class Jobs {
         static volatile long lastPlayMs;
         private static volatile int generation;
 
+        static volatile String lastTrigger = "";
+
         /** Plays the 5 second animation on every widget. A newer call cancels an older one. */
-        static void play(final Context ctx) {
+        static void play(final Context ctx, final String trigger) {
             final Context app = ctx.getApplicationContext();
             final int gen = ++generation;
             new Thread(new Runnable() {
@@ -166,20 +168,22 @@ public final class Jobs {
                     try {
                         if (!Store.animate(app)) return;
                         PowerManager pm = (PowerManager) app.getSystemService(Context.POWER_SERVICE);
-                        if (pm != null && pm.isPowerSaveMode()) return;
-                        Cards.Data d = Store.data(app);
-                        if (!d.ready()) return;
-                        boolean dark = Ui.isDark(app);
-                        lastPlayMs = System.currentTimeMillis();
-                        long start = SystemClock.uptimeMillis() + 300;
-                        while (gen == generation) {
-                            long now = SystemClock.uptimeMillis();
-                            float t = (now - start) / 1000f;
-                            if (t >= 5f) break;
-                            if (t >= 0) WidgetUpdater.animateFrame(app, d, t, dark);
-                            long spent = SystemClock.uptimeMillis() - now;
-                            Thread.sleep(Math.max(30, 110 - spent));
+                        if (pm != null && pm.isPowerSaveMode()) {
+                            lastTrigger = trigger + " (skipped: battery saver)";
+                            return;
                         }
+                        Cards.Data d = Store.data(app);
+                        if (!d.ready()) {
+                            lastTrigger = trigger + " (skipped: no weather yet)";
+                            return;
+                        }
+                        // let the launcher finish its own unlock transition before the flipbook starts
+                        Thread.sleep(trigger.equals("test") ? 0 : 400);
+                        if (gen != generation) return;
+                        lastPlayMs = System.currentTimeMillis();
+                        lastTrigger = trigger;
+                        WidgetUpdater.animateAll(app, d, Ui.isDark(app));
+                        Thread.sleep(WidgetUpdater.ANIM_FRAMES * (long) WidgetUpdater.ANIM_INTERVAL_MS + 200);
                         if (gen == generation) WidgetUpdater.updateAll(app);
                     } catch (Throwable e) {
                         Ui.report("animation", e);
@@ -190,12 +194,13 @@ public final class Jobs {
 
         private final BroadcastReceiver screen = new BroadcastReceiver() {
             @Override public void onReceive(Context c, Intent i) {
+                String why = Intent.ACTION_SCREEN_ON.equals(i.getAction()) ? "screen on" : "unlock";
                 if (Intent.ACTION_SCREEN_ON.equals(i.getAction())) {
                     // phones with no lock screen never send USER_PRESENT-after-unlock, so start right away
                     KeyguardManager km = (KeyguardManager) c.getSystemService(Context.KEYGUARD_SERVICE);
                     if (km != null && km.isKeyguardLocked()) return;
                 }
-                play(c);
+                play(c, why);
             }
         };
 
