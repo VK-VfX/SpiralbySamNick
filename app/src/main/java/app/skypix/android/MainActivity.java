@@ -29,6 +29,8 @@ import android.widget.TimePicker;
 import android.widget.Toast;
 
 import app.skypix.core.Cards;
+import app.skypix.core.Wmo;
+import app.skypix.core.Weather;
 import app.skypix.weather.R;
 import app.skypix.core.Fmt;
 import app.skypix.core.Gfx;
@@ -119,6 +121,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         Ui.animStartMs = android.os.SystemClock.uptimeMillis();
+        Store.touchStreak(this);
         rebuild();
         Jobs.sync(this);
         startRefresh(false);
@@ -242,6 +245,8 @@ public class MainActivity extends Activity {
         head.addView(refresh, new LinearLayout.LayoutParams(-2, -2));
         content.addView(head, lp(-1, -2, 0));
 
+        content.addView(new Ui.StreakCard(this, Store.streak(this), Store.bestStreak(this), Store.streakMask(this)), lp(-1, -2, 16));
+
         addBanners();
 
         if (d.ready()) {
@@ -262,6 +267,7 @@ public class MainActivity extends Activity {
         }
 
         addSettings(ink, ink2);
+        addPlaces();
         addUpdates();
         addWidgetPicker(ink, ink2);
 
@@ -472,6 +478,26 @@ public class MainActivity extends Activity {
         }
         row(box, "Widget background", "Solid, see-through glass, or fully clear (dark mode)", style);
 
+        if (Build.VERSION.SDK_INT >= 31) {
+            LinearLayout colors = new LinearLayout(this);
+            colors.setOrientation(LinearLayout.HORIZONTAL);
+            String[] names = {"Weather", "Material You"};
+            for (int i = 0; i < 2; i++) {
+                final boolean on = i == 1;
+                Ui.Btn b = new Ui.Btn(this, names[i], Store.materialYou(this) == on);
+                b.setOnClickListener(new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        Store.setMaterialYou(MainActivity.this, on);
+                        applySystemBars();
+                        WidgetUpdater.updateAll(MainActivity.this);
+                        rebuild();
+                    }
+                });
+                colors.addView(b, new LinearLayout.LayoutParams(-2, -2));
+            }
+            row(box, "Colours", "Weather blue, or colours picked from your wallpaper", colors);
+        }
+
         row(box, "Cat icons", "Weather shown as Google Noto cats, a different mood for every sky",
                 toggle(Store.cats(this), new CompoundButton.OnCheckedChangeListener() {
                     @Override public void onCheckedChanged(CompoundButton b, boolean on) {
@@ -513,6 +539,16 @@ public class MainActivity extends Activity {
                         Store.setAlerts(MainActivity.this, on);
                         Jobs.sync(MainActivity.this);
                         if (on) askNotifications();
+                    }
+                }));
+
+        row(box, "Official warnings", Store.officialStatus(this),
+                toggle(Store.official(this), new CompoundButton.OnCheckedChangeListener() {
+                    @Override public void onCheckedChanged(CompoundButton b, boolean on) {
+                        Store.setOfficial(MainActivity.this, on);
+                        Store.loadOfficial(MainActivity.this);
+                        startRefresh(true);
+                        rebuild();
                     }
                 }));
 
@@ -619,6 +655,130 @@ public class MainActivity extends Activity {
                 rebuild();
             }
         }, Store.morningHour(this), 0, DateFormat.is24HourFormat(this)).show();
+    }
+
+    // ---- saved places ---------------------------------------------------------------------------------------------
+
+    private void addPlaces() {
+        LinearLayout box = section("Saved places", 0);
+        final Context app = getApplicationContext();
+        for (final Places.Saved sp : Places.list(this)) {
+            Weather w = Places.loadWeather(this, sp.id);
+            String sub = sp.place.title();
+            if (w != null) sub = Store.units(this).t(w.now(System.currentTimeMillis() / 1000L).temp) + " \u00b7 " + Wmo.label(w.now(System.currentTimeMillis() / 1000L).code) + " \u00b7 " + sub;
+            Ui.Btn remove = new Ui.Btn(this, "Remove", false);
+            remove.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    Places.remove(app, sp.id);
+                    WidgetUpdater.updateAll(app);
+                    rebuild();
+                }
+            });
+            row(box, sp.name, sub, remove);
+        }
+        Ui.Btn search = new Ui.Btn(this, "Search", true);
+        search.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { searchPlaceDialog(); }
+        });
+        row(box, "Add a place", "Find a city or town. Widgets can show any saved place", search);
+        Cards.Data cur = Store.data(this);
+        if (cur.place != null) {
+            Ui.Btn here = new Ui.Btn(this, "Save", false);
+            here.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) { saveHereDialog(); }
+            });
+            row(box, "Save where I am", "Name this spot, like Home or Work", here);
+        }
+    }
+
+    private void saveHereDialog() {
+        final Place here = Store.loadPlace(this);
+        if (here == null) return;
+        final android.widget.EditText input = new android.widget.EditText(this);
+        input.setSingleLine(true);
+        input.setText("Home");
+        input.setSelectAllOnFocus(true);
+        new android.app.AlertDialog.Builder(this).setTitle("Name this place").setView(input)
+                .setPositiveButton("Save", new android.content.DialogInterface.OnClickListener() {
+                    @Override public void onClick(android.content.DialogInterface d, int which) {
+                        Place copy = Place.fromJson(here.toJson().toString());
+                        Places.add(getApplicationContext(), input.getText().toString(), copy);
+                        refreshSavedAsync();
+                        rebuild();
+                    }
+                }).setNegativeButton("Cancel", null).show();
+    }
+
+    private void refreshSavedAsync() {
+        final Context app = getApplicationContext();
+        new Thread(new Runnable() {
+            @Override public void run() {
+                Updater.refreshSaved(app, true);
+                WidgetUpdater.updateAll(app);
+                runOnUiThread(new Runnable() { @Override public void run() { rebuild(); } });
+            }
+        }, "skypix-places").start();
+    }
+
+    private void searchPlaceDialog() {
+        final android.widget.EditText input = new android.widget.EditText(this);
+        input.setSingleLine(true);
+        input.setHint("City or town");
+        new android.app.AlertDialog.Builder(this).setTitle("Add a place").setView(input)
+                .setPositiveButton("Search", new android.content.DialogInterface.OnClickListener() {
+                    @Override public void onClick(android.content.DialogInterface d, int which) { runPlaceSearch(input.getText().toString().trim()); }
+                }).setNegativeButton("Cancel", null).show();
+    }
+
+    private void runPlaceSearch(final String query) {
+        if (query.length() < 2) return;
+        Toast.makeText(this, "Searching\u2026", Toast.LENGTH_SHORT).show();
+        new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    String url = "https://geocoding-api.open-meteo.com/v1/search?count=8&language=en&format=json&name=" + java.net.URLEncoder.encode(query, "UTF-8");
+                    org.json.JSONObject o = new org.json.JSONObject(Net.get(url));
+                    final org.json.JSONArray r = o.optJSONArray("results");
+                    if (r == null || r.length() == 0) {
+                        runOnUiThread(new Runnable() { @Override public void run() { Toast.makeText(MainActivity.this, "No places found for that name", Toast.LENGTH_LONG).show(); } });
+                        return;
+                    }
+                    final String[] labels = new String[r.length()];
+                    for (int i = 0; i < r.length(); i++) {
+                        org.json.JSONObject x = r.getJSONObject(i);
+                        String admin = x.optString("admin1", "");
+                        labels[i] = x.optString("name") + (admin.length() > 0 ? ", " + admin : "") + ", " + x.optString("country", "");
+                    }
+                    runOnUiThread(new Runnable() {
+                        @Override public void run() {
+                            new android.app.AlertDialog.Builder(MainActivity.this).setTitle("Pick a place")
+                                    .setItems(labels, new android.content.DialogInterface.OnClickListener() {
+                                        @Override public void onClick(android.content.DialogInterface d, int which) {
+                                            try {
+                                                org.json.JSONObject x = r.getJSONObject(which);
+                                                Place p = new Place();
+                                                p.lat = x.getDouble("latitude");
+                                                p.lon = x.getDouble("longitude");
+                                                p.city = x.optString("name");
+                                                p.region = x.optString("admin1", "");
+                                                p.country = x.optString("country", "");
+                                                p.provider = "search";
+                                                Places.add(getApplicationContext(), p.city, p);
+                                                refreshSavedAsync();
+                                                rebuild();
+                                            } catch (Exception e) {
+                                                Ui.report("add place", e);
+                                            }
+                                        }
+                                    }).show();
+                        }
+                    });
+                } catch (Throwable t) {
+                    Ui.report("place search", t);
+                    runOnUiThread(new Runnable() { @Override public void run() { Toast.makeText(MainActivity.this, "Couldn't search right now. Are you online?", Toast.LENGTH_LONG).show(); } });
+                }
+            }
+        }, "skypix-geocode").start();
     }
 
     // ---- app updates ----------------------------------------------------------------------------------------------

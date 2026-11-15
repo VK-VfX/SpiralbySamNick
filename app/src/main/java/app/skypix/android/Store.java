@@ -8,7 +8,9 @@ import android.os.Build;
 import android.text.format.DateFormat;
 
 import app.skypix.core.Cards;
+import app.skypix.core.Insights;
 import app.skypix.core.Place;
+import app.skypix.core.Warnings;
 import app.skypix.core.Units;
 import app.skypix.core.Weather;
 
@@ -22,6 +24,8 @@ final class Store {
 
     /** True while the activity is on screen; background location is only usable then (unless granted). */
     static volatile boolean visible;
+
+    static SharedPreferences prefs(Context c) { return sp(c); }
 
     private static SharedPreferences sp(Context c) {
         return c.getApplicationContext().getSharedPreferences("skypix", Context.MODE_PRIVATE);
@@ -57,6 +61,76 @@ final class Store {
     static int quietStart(Context c) { return sp(c).getInt("qs", 22); }
     static int quietEnd(Context c) { return sp(c).getInt("qe", 7); }
     static void setQuietHours(Context c, int start, int end) { sp(c).edit().putInt("qs", start).putInt("qe", end).apply(); }
+
+    // ---- Material You colours (Android 12+) ----
+    static boolean materialYou(Context c) { return sp(c).getBoolean("you", false); }
+    static void setMaterialYou(Context c, boolean v) { sp(c).edit().putBoolean("you", v).apply(); }
+
+    /** Fills the dynamic-colour fields of the card data from the system palette (no-op unless enabled on Android 12+). */
+    static void applyColors(Context c, Cards.Data d) {
+        d.youTop = 0;
+        if (Build.VERSION.SDK_INT < 31 || !materialYou(c)) return;
+        try {
+            d.youTop = c.getColor(android.R.color.system_accent1_600);
+            d.youBottom = c.getColor(android.R.color.system_accent1_700);
+            d.youP0 = c.getColor(android.R.color.system_accent1_500);
+            d.youP1 = c.getColor(android.R.color.system_accent1_700);
+        } catch (Throwable t) {
+            d.youTop = 0;
+        }
+    }
+
+    // ---- official warnings ----
+    static boolean official(Context c) { return sp(c).getBoolean("official", true); }
+    static void setOfficial(Context c, boolean v) { sp(c).edit().putBoolean("official", v).apply(); }
+    static String officialStatus(Context c) { return sp(c).getString("official_status", "Not checked yet"); }
+
+    /** Re-reads the stored official warnings into {@link Insights#official} for the current place. */
+    static void loadOfficial(Context c) {
+        try {
+            if (!official(c)) {
+                Insights.official = new java.util.ArrayList<Insights.Insight>();
+                return;
+            }
+            Place p = loadPlace(c);
+            long now = System.currentTimeMillis() / 1000L;
+            Insights.official = Warnings.toInsights(Warnings.parse(sp(c).getString("official_json", ""), p, now));
+        } catch (Throwable t) {
+            Insights.official = new java.util.ArrayList<Insights.Insight>();
+        }
+    }
+
+    // ---- streak: consecutive days the app was opened ----
+    static long dayNumber() {
+        long now = System.currentTimeMillis();
+        return (now + java.util.TimeZone.getDefault().getOffset(now)) / 86400000L;
+    }
+
+    /** Call when the app comes to the front. Keeps a 64-day bit history (bit 0 = today). */
+    static synchronized void touchStreak(Context c) {
+        SharedPreferences p = sp(c);
+        long today = dayNumber();
+        long last = p.getLong("streak_last", 0);
+        long mask = p.getLong("streak_mask", 0);
+        if (last == today && mask != 0) return;
+        long delta = last == 0 ? 64 : Math.max(0, today - last);
+        mask = delta >= 64 ? 0 : (mask << delta);
+        mask |= 1L;
+        int run = 0;
+        while (run < 64 && ((mask >>> run) & 1L) != 0) run++;
+        int best = Math.max(run, p.getInt("streak_best", 0));
+        p.edit().putLong("streak_last", today).putLong("streak_mask", mask).putInt("streak_best", best).apply();
+    }
+
+    static int streak(Context c) {
+        long mask = sp(c).getLong("streak_mask", 0);
+        int run = 0;
+        while (run < 64 && ((mask >>> run) & 1L) != 0) run++;
+        return run;
+    }
+
+    static int bestStreak(Context c) { return sp(c).getInt("streak_best", 0); }
+    static long streakMask(Context c) { return sp(c).getLong("streak_mask", 0); }
 
     static boolean cats(Context c) { return sp(c).getBoolean("cats", true); }
     static void setCats(Context c, boolean v) { sp(c).edit().putBoolean("cats", v).apply(); }
@@ -119,6 +193,8 @@ final class Store {
         d.place = loadPlace(c);
         d.units = units(c);
         d.nowSec = System.currentTimeMillis() / 1000L;
+        loadOfficial(c);
+        applyColors(c, d);
         return d;
     }
 

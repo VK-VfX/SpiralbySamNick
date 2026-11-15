@@ -22,6 +22,10 @@ public final class Weather {
     public double[] hPop = new double[0], hPrecip = new double[0], hWind = new double[0];
     public double[] hUv = new double[0], hVis = new double[0];
     public int[] hCode = new int[0];
+
+    /** 15-minute precipitation (mm per 15 min, each value covers the quarter hour ending at its time). Empty when unavailable. */
+    public long[] mTime = new long[0];
+    public double[] mPrecip = new double[0];
     public boolean[] hDay = new boolean[0];
 
     public long[] dTime = new long[0], dSunrise = new long[0], dSunset = new long[0];
@@ -83,6 +87,15 @@ public final class Weather {
             int[] day = ints(h, "is_day", n, 1);
             w.hDay = new boolean[n];
             for (int i = 0; i < n; i++) w.hDay[i] = day[i] == 1;
+        }
+
+        JSONObject mm = f.optJSONObject("minutely_15");
+        if (mm != null && mm.optJSONArray("time") != null) {
+            JSONArray t = mm.getJSONArray("time");
+            int n = t.length();
+            w.mTime = new long[n];
+            for (int i = 0; i < n; i++) w.mTime[i] = Fmt.parseLocal(t.getString(i), w.utcOffset);
+            w.mPrecip = dbl(mm, "precipitation", n);
         }
 
         JSONObject d = f.optJSONObject("daily");

@@ -11,4 +11,6 @@
     android:initialLayout="@layout/widget_frame"
     android:previewImage="@drawable/preview_hourly_2x4"
     android:description="@string/d_hourly_2x4"
+    android:configure="app.skypix.weather/app.skypix.android.PlaceConfigActivity"
+    android:widgetFeatures="reconfigurable"
     android:widgetCategory="home_screen" />

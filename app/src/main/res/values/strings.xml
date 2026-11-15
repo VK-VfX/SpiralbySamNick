@@ -69,6 +69,10 @@
     <string name="d_classic_2x2">Place, light temperature and low/high.</string>
     <string name="w_classic_2x3">Purrcast · Classic 2×3</string>
     <string name="d_classic_2x3">Tall classic card with place, temperature and low/high.</string>
+    <string name="w_rain_2x2">Purrcast · Rain soon 2×2</string>
+    <string name="d_rain_2x2">Will it rain in the next minutes? A 15-minute rain outlook.</string>
+    <string name="w_rain_4x2">Purrcast · Rain soon 4×2</string>
+    <string name="d_rain_4x2">Wide 15-minute rain outlook for the next three hours.</string>
     <string name="w_headsup_3x1">Purrcast · Heads-up 3×1</string>
     <string name="d_headsup_3x1">The one thing worth knowing right now.</string>
     <string name="w_headsup_4x1">Purrcast · Heads-up 4×1</string>

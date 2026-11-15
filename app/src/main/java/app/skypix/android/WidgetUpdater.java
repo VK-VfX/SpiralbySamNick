@@ -23,11 +23,34 @@ final class WidgetUpdater {
     static void updateAll(Context ctx) {
         Context app = ctx.getApplicationContext();
         AppWidgetManager m = AppWidgetManager.getInstance(app);
-        Cards.Data d = Store.data(app);
         for (int v = 0; v < Widgets.ALL.length; v++) {
             int[] ids = m.getAppWidgetIds(new ComponentName(app, Widgets.ALL[v]));
-            for (int id : ids) update(app, m, v, id, d);
+            for (int id : ids) update(app, m, v, id, null);
         }
+    }
+
+    /** Redraws just one widget (e.g. right after its place was chosen). */
+    static void updateOne(Context ctx, int widgetId) {
+        Context app = ctx.getApplicationContext();
+        AppWidgetManager m = AppWidgetManager.getInstance(app);
+        for (int v = 0; v < Widgets.ALL.length; v++) {
+            for (int id : m.getAppWidgetIds(new ComponentName(app, Widgets.ALL[v]))) {
+                if (id == widgetId) update(app, m, v, id, null);
+            }
+        }
+    }
+
+    /** Distinct saved-place ids that at least one widget is showing. */
+    static java.util.Set<String> placesInUse(Context ctx) {
+        java.util.Set<String> out = new java.util.HashSet<String>();
+        AppWidgetManager m = AppWidgetManager.getInstance(ctx);
+        for (Class<?> c : Widgets.ALL) {
+            for (int id : m.getAppWidgetIds(new ComponentName(ctx, c))) {
+                String p = Places.widgetPlace(ctx, id);
+                if (p.length() > 0) out.add(p);
+            }
+        }
+        return out;
     }
 
     static int count(Context ctx) {
@@ -47,6 +70,7 @@ final class WidgetUpdater {
      */
     private static void push(Context ctx, AppWidgetManager m, int variant, int id, Cards.Data d, int onlyTheme, float scale) {
         int kind = Variants.KIND[variant];
+        if (d == null) d = Places.dataForWidget(ctx, id);
         Store.applyBackground(ctx, d);
         int[] wh = sizeFor(m, variant, id);
         int w = wh[0], h = wh[1];
@@ -103,8 +127,9 @@ final class WidgetUpdater {
         }
     }
 
-    private static void pushFlipbook(Context ctx, AppWidgetManager m, int variant, int id, Cards.Data d, boolean dark, long limit) {
+    private static void pushFlipbook(Context ctx, AppWidgetManager m, int variant, int id, Cards.Data unused, boolean dark, long limit) {
         int kind = Variants.KIND[variant];
+        Cards.Data d = Places.dataForWidget(ctx, id);
         Store.applyBackground(ctx, d);
         int[] wh = sizeFor(m, variant, id);
         int w = wh[0], h = wh[1];

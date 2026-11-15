@@ -81,18 +81,67 @@ final class Ui {
 
     // ---- Material 3 palette (Pixel look; dark is AMOLED) ------------------------------------------------------------
 
-    static int bg(Context c) { return isDark(c) ? 0xFF000000 : 0xFFF0F4F9; }
-    static int container(Context c) { return isDark(c) ? 0xFF131416 : 0xFFFFFFFF; }
-    static int onSurface(Context c) { return isDark(c) ? 0xFFE3E3E3 : 0xFF1F1F1F; }
-    static int onSurfaceVar(Context c) { return isDark(c) ? 0xFFC4C7C5 : 0xFF444746; }
-    static int primary(Context c) { return isDark(c) ? 0xFFA8C7FA : 0xFF0B57D0; }
-    static int onPrimary(Context c) { return isDark(c) ? 0xFF062E6F : 0xFFFFFFFF; }
-    static int primaryContainer(Context c) { return isDark(c) ? 0xFF0B2A57 : 0xFFD3E3FD; }
-    static int onPrimaryContainer(Context c) { return isDark(c) ? 0xFFD3E3FD : 0xFF041E49; }
-    static int tonal(Context c) { return isDark(c) ? 0xFF1B3157 : 0xFFD3E3FD; }
-    static int onTonal(Context c) { return isDark(c) ? 0xFFD3E3FD : 0xFF041E49; }
-    static int divider(Context c) { return isDark(c) ? 0xFF2A2B2E : 0xFFE3E7EC; }
-    static int outline(Context c) { return isDark(c) ? 0xFF8E918F : 0xFF747775; }
+    /** Material You: take the palette from the wallpaper (Android 12+, opt-in in Settings). */
+    static boolean you(Context c) {
+        return android.os.Build.VERSION.SDK_INT >= 31 && Store.materialYou(c);
+    }
+
+    private static int sys(Context c, int id, int fallback) {
+        try {
+            return c.getColor(id);
+        } catch (Throwable t) {
+            return fallback;
+        }
+    }
+
+    static int bg(Context c) {
+        if (you(c)) return isDark(c) ? 0xFF000000 : sys(c, android.R.color.system_neutral1_50, 0xFFF0F4F9);
+        return isDark(c) ? 0xFF000000 : 0xFFF0F4F9;
+    }
+    static int container(Context c) {
+        if (you(c)) return isDark(c) ? mixColor(sys(c, android.R.color.system_neutral1_900, 0xFF1B1B1F), 0xFF000000, 0.35f) : sys(c, android.R.color.system_neutral1_0, 0xFFFFFFFF);
+        return isDark(c) ? 0xFF131416 : 0xFFFFFFFF;
+    }
+    static int onSurface(Context c) {
+        if (you(c)) return sys(c, isDark(c) ? android.R.color.system_neutral1_100 : android.R.color.system_neutral1_900, 0xFF1F1F1F);
+        return isDark(c) ? 0xFFE3E3E3 : 0xFF1F1F1F;
+    }
+    static int onSurfaceVar(Context c) {
+        if (you(c)) return sys(c, isDark(c) ? android.R.color.system_neutral2_200 : android.R.color.system_neutral2_700, 0xFF444746);
+        return isDark(c) ? 0xFFC4C7C5 : 0xFF444746;
+    }
+    static int primary(Context c) {
+        if (you(c)) return sys(c, isDark(c) ? android.R.color.system_accent1_200 : android.R.color.system_accent1_600, 0xFF0B57D0);
+        return isDark(c) ? 0xFFA8C7FA : 0xFF0B57D0;
+    }
+    static int onPrimary(Context c) {
+        if (you(c)) return sys(c, isDark(c) ? android.R.color.system_accent1_800 : android.R.color.system_accent1_0, 0xFFFFFFFF);
+        return isDark(c) ? 0xFF062E6F : 0xFFFFFFFF;
+    }
+    static int primaryContainer(Context c) {
+        if (you(c)) return sys(c, isDark(c) ? android.R.color.system_accent1_900 : android.R.color.system_accent1_100, 0xFFD3E3FD);
+        return isDark(c) ? 0xFF0B2A57 : 0xFFD3E3FD;
+    }
+    static int onPrimaryContainer(Context c) {
+        if (you(c)) return sys(c, isDark(c) ? android.R.color.system_accent1_100 : android.R.color.system_accent1_900, 0xFF041E49);
+        return isDark(c) ? 0xFFD3E3FD : 0xFF041E49;
+    }
+    static int tonal(Context c) {
+        if (you(c)) return sys(c, isDark(c) ? android.R.color.system_accent2_800 : android.R.color.system_accent2_100, 0xFFD3E3FD);
+        return isDark(c) ? 0xFF1B3157 : 0xFFD3E3FD;
+    }
+    static int onTonal(Context c) {
+        if (you(c)) return sys(c, isDark(c) ? android.R.color.system_accent2_100 : android.R.color.system_accent2_900, 0xFF041E49);
+        return isDark(c) ? 0xFFD3E3FD : 0xFF041E49;
+    }
+    static int divider(Context c) {
+        if (you(c)) return sys(c, isDark(c) ? android.R.color.system_neutral1_800 : android.R.color.system_neutral2_100, 0xFFE3E7EC);
+        return isDark(c) ? 0xFF2A2B2E : 0xFFE3E7EC;
+    }
+    static int outline(Context c) {
+        if (you(c)) return sys(c, android.R.color.system_neutral2_500, 0xFF747775);
+        return isDark(c) ? 0xFF8E918F : 0xFF747775;
+    }
 
     /** A TextView in Google Sans (on Pixel) at the given weight. */
     static android.widget.TextView text(Context c, String s, float sp, int weight, int color) {
@@ -273,6 +322,57 @@ final class Ui {
             float tx = on ? getWidth() - 16 * u : 16 * u;
             p.setColor(on ? onPrimary(c) : outline(c));
             canvas.drawCircle(tx, top + 16 * u, tr, p);
+        }
+    }
+
+    /** The streak counter: a cat that gets cooler as the streak grows, the day count, and the last 7 days. */
+    static final class StreakCard extends View {
+        private final int streak, best;
+        private final long mask;
+        private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+        StreakCard(Context c, int streak, int best, long mask) {
+            super(c);
+            this.streak = streak;
+            this.best = best;
+            this.mask = mask;
+            setContentDescription(streak + " day streak. Best " + best + " days.");
+        }
+
+        static String cheer(int s) {
+            if (s >= 100) return "Legendary cat!";
+            if (s >= 30) return "A whole month of purring!";
+            if (s >= 14) return "Two weeks strong!";
+            if (s >= 7) return "A whole week, pawsome!";
+            if (s >= 3) return "Purr-fect, keep going!";
+            return s <= 1 ? "Come back tomorrow to start a streak" : "Nice start!";
+        }
+
+        @Override
+        protected void onMeasure(int w, int h) {
+            setMeasuredDimension(MeasureSpec.getSize(w), dp(getContext(), 92));
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            Context c = getContext();
+            float u = getResources().getDisplayMetrics().density;
+            AndroidGfx g = new AndroidGfx(canvas);
+            float w = getWidth(), h = getHeight();
+            g.fillRoundRect(0, 0, w, h, 28 * u, container(c));
+            app.skypix.core.Icon cat = streak >= 14 ? app.skypix.core.Icon.SHADES : streak >= 7 ? app.skypix.core.Icon.SUN
+                    : streak >= 3 ? app.skypix.core.Icon.PARTLY_DAY : app.skypix.core.Icon.CLOUD;
+            app.skypix.core.Glyphs.draw(g, cat, 16 * u, (h - 56 * u) / 2f, 56 * u, -1);
+            g.text(streak + (streak == 1 ? " day streak" : " day streak"), 86 * u, 38 * u, 20 * u, Gfx.FONT_MEDIUM, Gfx.LEFT, onSurface(c));
+            g.text(cheer(streak) + (best > streak ? "  \u00b7  best " + best : ""), 86 * u, 60 * u, 13 * u, Gfx.FONT_REGULAR, Gfx.LEFT, onSurfaceVar(c));
+            // last 7 days, oldest to today
+            float dot = 7 * u, gap = 7 * u;
+            float x0 = 86 * u, y = 76 * u;
+            for (int i = 6; i >= 0; i--) {
+                boolean on = ((mask >>> i) & 1L) != 0;
+                float cx = x0 + (6 - i) * (dot * 2 + gap) + dot;
+                g.fillCircle(cx, y, dot * (on ? 0.85f : 0.55f), on ? primary(c) : divider(c));
+            }
         }
     }
 

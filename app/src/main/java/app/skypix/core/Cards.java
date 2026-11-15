@@ -8,8 +8,8 @@ public final class Cards {
     private Cards() {}
 
     public static final int NOW = 0, NOW_WIDE = 1, HOURLY = 2, FORECAST = 3, DETAILS = 4, LOCATION = 5, SUN = 6, HEADSUP = 7, ICON = 8,
-            LINE_HOURLY = 9, LINE_DAILY = 10, BIG = 11, CLASSIC = 12;
-    public static final int COUNT = 13;
+            LINE_HOURLY = 9, LINE_DAILY = 10, BIG = 11, CLASSIC = 12, RAIN_SOON = 13;
+    public static final int COUNT = 14;
 
     public static final class Data {
         public Weather weather;
@@ -20,6 +20,8 @@ public final class Cards {
         public boolean transparentDark;
         /** Opacity of the card background: 1 = solid, lower = frosted glass (applies in light and dark). */
         public float bgAlpha = 1f;
+        /** Material You colours (0 = off): card gradient top/bottom and the big-number gradient. */
+        public int youTop, youBottom, youP0, youP1;
         /** Seconds into the 5 s unlock animation, or a negative value for the static card. */
         public float anim = -1;
 
@@ -39,7 +41,7 @@ public final class Cards {
             case LOCATION: return new int[]{110, 110};
             case ICON: return new int[]{40, 40};
             case SUN: return new int[]{250, 110};
-            case LINE_HOURLY: case LINE_DAILY: case BIG: return new int[]{110, 110};
+            case LINE_HOURLY: case LINE_DAILY: case BIG: case RAIN_SOON: return new int[]{110, 110};
             case CLASSIC: return new int[]{110, 110};
             default: return new int[]{250, 56};
         }
@@ -59,6 +61,7 @@ public final class Cards {
             case LINE_DAILY: return "Line daily";
             case BIG: return "Big number";
             case CLASSIC: return "Classic";
+            case RAIN_SOON: return "Rain soon";
             default: return "Heads-up";
         }
     }
@@ -104,6 +107,8 @@ public final class Cards {
         final boolean dark;
         final boolean clear;
         float fill = 1f;
+        Mood skin;
+        int pastelTop, pastelBottom;
         float t = -1;
 
         R(Gfx g, float u, float w, float h, boolean dark, boolean clear) {
@@ -173,6 +178,7 @@ public final class Cards {
     public static void render(Gfx g, int kind, float wDp, float hDp, float u, boolean dark, Data d) {
         R r = new R(g, u, wDp, hDp, dark, d != null && d.transparentDark);
         r.fill = fillFor(d, dark);
+        applySkin(r, d);
         r.t = d == null ? -1 : d.anim;
         if (kind == ICON) {
             iconWidget(r, d);
@@ -338,6 +344,14 @@ public final class Cards {
 
     private static final float RAD = 28;
 
+    /** Dynamic (Material You) colours replace the weather tint of the card background, never the weather effects. */
+    private static void applySkin(R r, Data d) {
+        if (d == null || d.youTop == 0) return;
+        r.skin = new Mood(d.youTop, d.youBottom, d.youTop);
+        r.pastelTop = d.youP0;
+        r.pastelBottom = d.youP1;
+    }
+
     /** See-through "clear" only exists in dark mode; in light mode it becomes a light frosted glass. */
     private static float fillFor(Data d, boolean dark) {
         if (d == null) return 1f;
@@ -350,6 +364,7 @@ public final class Cards {
     }
 
     private static void base(R r, Mood m) {
+        if (r.skin != null) m = r.skin;
         float rad = RAD;
         if (r.clear) {
             // Transparent variant: no fill at all, just a faint edge so the wallpaper shows through.
@@ -429,6 +444,7 @@ public final class Cards {
             case LINE_HOURLY: lineCard(r, d, true); break;
             case LINE_DAILY: lineCard(r, d, false); break;
             case BIG: bigNumber(r, m, d); break;
+            case RAIN_SOON: rainSoon(r, m, d); break;
             default: classic(r, m, d); break;
         }
     }
@@ -592,7 +608,7 @@ public final class Cards {
         Weather wx = d.weather;
         Units u = d.units;
         float w = r.w, h = r.h;
-        int[] pc = pastel(m);
+        int[] pc = r.skin != null ? new int[]{r.pastelTop, r.pastelBottom} : pastel(m);
         tintedBg(r, pc[0], pc[1]);
         fx(r, m, d);
         Weather.Now n = wx.now(d.nowSec);
@@ -623,7 +639,8 @@ public final class Cards {
         Weather wx = d.weather;
         Units u = d.units;
         float w = r.w, h = r.h;
-        int top = m.top, bottom = mix(m.top, 0xFFFFFFFF, 0.28f);
+        int top = r.skin != null ? r.skin.top : m.top;
+        int bottom = r.skin != null ? r.skin.bottom : mix(m.top, 0xFFFFFFFF, 0.28f);
         tintedBg(r, top, bottom);
         fx(r, m, d);
         Weather.Now n = wx.now(d.nowSec);
@@ -643,6 +660,88 @@ public final class Cards {
         float ic = 18;
         r.icon(Wmo.icon(n.code, n.isDay), pad - 2, cBase - ic - 1, ic);
         r.text(r.fit(Wmo.label(n.code), lh, Gfx.FONT_MEDIUM, w - 2 * pad - ic - 4), pad + ic + 3, cBase - 4, lh, Gfx.FONT_MEDIUM, Gfx.LEFT, WHITE);
+    }
+
+    private static void rainSoon(R r, Mood m, Data d) {
+        Weather wx = d.weather;
+        Units u = d.units;
+        float w = r.w, h = r.h;
+        Nowcast.Result nc = Nowcast.compute(wx, d.nowSec);
+        boolean wet = nc != null && nc.state != Nowcast.DRY;
+        Mood mx = wet ? RAINY : (m == CLEAR_NIGHT ? CLEAR_NIGHT : CLOUDY);
+        tintedBg(r, mx.top, mx.bottom);
+        float pad = clamp(w * 0.08f, 10, 16);
+        boolean wide = w >= 200;
+
+        String head, sub;
+        Icon icon;
+        if (nc == null) {
+            Weather.Now n = wx.now(d.nowSec);
+            icon = Wmo.icon(n.code, n.isDay);
+            head = Wmo.isWet(n.code) ? "Raining now" : "No rain nearby";
+            sub = "Hourly estimate";
+        } else if (nc.state == Nowcast.STARTS) {
+            icon = Icon.UMBRELLA;
+            head = "Rain in ~" + Nowcast.minutesText(nc.minutes);
+            sub = Nowcast.intensity(nc.peakRate) + " \u00b7 bring an umbrella";
+        } else if (nc.state == Nowcast.RAINING) {
+            icon = Icon.RAIN;
+            head = nc.minutes > 0 ? "Stops in ~" + Nowcast.minutesText(nc.minutes) : "Raining, may last";
+            sub = Nowcast.intensity(nc.peakRate) + " now";
+        } else {
+            icon = Icon.SLEEPY;
+            head = "No rain for " + Math.min(nc.windowMinutes, 240) / 60 + " h";
+            sub = "Dry paws, nap time";
+        }
+        if (!wide) {
+            sub = sub.replace(" \u00b7 bring an umbrella", "").replace(" rain now", "").replace(" rain", "").replace("Dry paws, nap time", "Nap time");
+        }
+        float isz = clamp(Math.min(h * 0.26f, 38), 24, 40);
+        r.icon(icon, pad - 2, pad - 3, isz);
+        float tx = pad + isz + 8;
+        float hs = wide ? 17 : 14.5f;
+        java.util.List<String> lines = wrapFit(r, head, "Rain " + (nc != null && nc.state == Nowcast.STARTS ? "soon" : "now"), hs, Gfx.FONT_MEDIUM, w - tx - pad, 2);
+        float by = pad + hs - 1;
+        for (String ln : lines) {
+            r.text(ln, tx, by, hs, Gfx.FONT_MEDIUM, Gfx.LEFT, WHITE);
+            by += hs + 2;
+        }
+        r.text(r.fit(sub, 11.5f, Gfx.FONT_REGULAR, w - tx - pad), tx, by + 1, 11.5f, Gfx.FONT_REGULAR, Gfx.LEFT, T2);
+
+        // bars: the next 2-3 hours in 15 minute steps (or hours when only hourly data exists)
+        int bins = wide ? 12 : 8;
+        double[] rate = new double[bins];
+        String[] tags = new String[]{"Now", "+1h", "+2h", "+3h"};
+        if (nc != null) {
+            int cur = 0;
+            for (int i = 0; i < wx.mTime.length; i++) if (d.nowSec < wx.mTime[i]) { cur = i; break; }
+            for (int i = 0; i < bins && cur + i < wx.mPrecip.length; i++) rate[i] = Math.max(0, wx.mPrecip[cur + i]) * 4;
+        } else {
+            int hi = wx.hourIndex(d.nowSec);
+            for (int i = 0; i < bins; i++) {
+                int j = hi + i / 4;
+                rate[i] = j < wx.hPrecip.length && !Double.isNaN(wx.hPrecip[j]) ? wx.hPrecip[j] : 0;
+            }
+        }
+        double top = 2.5;
+        for (double v : rate) top = Math.max(top, v);
+        float gap = 3;
+        float left = pad, right = w - pad;
+        float bw = (right - left - gap * (bins - 1)) / bins;
+        float baseY = h - pad - 14;
+        float maxH = Math.max(14, baseY - (by + 12));
+        for (int i = 0; i < bins; i++) {
+            float bh = rate[i] < 0.3 ? 3 : 3 + (float) (rate[i] / top) * (maxH - 3);
+            float x = left + i * (bw + gap);
+            int col = rate[i] < 0.3 ? 0x33FFFFFF : mix(0xFF9CCBFF, 0xFF4C8DF6, (float) Math.min(1, rate[i] / 8));
+            if (i == 0 && rate[i] >= 0.3) col = WHITE;
+            r.rect(x, baseY - bh, x + bw, baseY, Math.min(bw / 2, 3.5f), col);
+        }
+        int per = bins / (wide ? 3 : 2);
+        for (int t = 0; t * per < bins && t < 4; t++) {
+            float x = left + t * per * (bw + gap);
+            r.text(tags[t], x, h - pad + 1, 10.5f, Gfx.FONT_REGULAR, Gfx.LEFT, T2);
+        }
     }
 
     // ---- NOW WIDE (4x2) ------------------------------------------------------------------------------------------
@@ -1282,6 +1381,7 @@ public final class Cards {
     public static void renderInsight(Gfx g, Insights.Insight in, float wDp, float hDp, float u, boolean dark, Data d) {
         R r = new R(g, u, wDp, hDp, dark, d != null && d.transparentDark);
         r.fill = fillFor(d, dark);
+        applySkin(r, d);
         r.t = d == null ? -1 : d.anim;
         base(r, mood(d));
         fx(r, mood(d), d);

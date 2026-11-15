@@ -4,6 +4,7 @@ import android.content.Context;
 import android.location.Location;
 
 import app.skypix.core.Place;
+import app.skypix.core.Warnings;
 import app.skypix.core.Weather;
 
 import java.util.Locale;
@@ -22,6 +23,7 @@ final class Updater {
             + "weather_code,visibility,wind_speed_10m,uv_index,is_day"
             + "&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,"
             + "precipitation_probability_max,precipitation_sum"
+            + "&minutely_15=precipitation&forecast_minutely_15=16"
             + "&timezone=auto&forecast_days=7&temperature_unit=celsius&wind_speed_unit=kmh&precipitation_unit=mm";
 
     private static final String AIR_URL =
@@ -50,6 +52,8 @@ final class Updater {
                 fetch(app, place);
             }
 
+            fetchOfficial(app, place);
+            refreshSaved(app, Store.visible);
             WidgetUpdater.updateAll(app);
             Weather w = Store.loadWeather(app);
             if (w != null) Notifier.alerts(app, place, w);
@@ -74,6 +78,69 @@ final class Updater {
         Weather w = Store.loadWeather(app);
         Place p = Store.loadPlace(app);
         if ((ok || w != null) && w != null && p != null) Notifier.morning(app, p, w);
+    }
+
+    /** MET Malaysia warnings, at most every 20 minutes, only while you are in Malaysia. */
+    static void fetchOfficial(Context app, Place place) {
+        try {
+            android.content.SharedPreferences sp = Store.prefs(app);
+            if (!Store.official(app)) return;
+            String country = place.country == null ? "" : place.country.toLowerCase(Locale.ROOT);
+            if (!country.contains("malaysia")) {
+                sp.edit().putString("official_status", "Only available in Malaysia (you are in " + (place.country.length() > 0 ? place.country : "an unknown place") + ")").remove("official_json").apply();
+                Store.loadOfficial(app);
+                return;
+            }
+            long now = System.currentTimeMillis();
+            if (now - sp.getLong("official_at", 0) < 20 * 60 * 1000L && sp.contains("official_json")) {
+                Store.loadOfficial(app);
+                return;
+            }
+            String raw = Net.get("https://api.data.gov.my/weather/warning");
+            long nowSec = now / 1000L;
+            java.util.List<Warnings.Warning> all = Warnings.parse(raw, place, nowSec);
+            org.json.JSONArray keep = new org.json.JSONArray();
+            int mine = 0;
+            for (Warnings.Warning w : all) {
+                if (!w.forYou) continue;
+                mine++;
+                keep.put(new org.json.JSONObject(w.raw));
+            }
+            String when = android.text.format.DateFormat.format("h:mm a", now).toString();
+            String status = "MET Malaysia: " + all.size() + " active, " + mine + " for your area (checked " + when + ")";
+            if (all.isEmpty() && raw.trim().length() > 2) status += ". Feed read, nothing active";
+            sp.edit().putString("official_json", keep.toString()).putString("official_status", status).putLong("official_at", now).apply();
+            Store.loadOfficial(app);
+        } catch (Exception e) {
+            Store.prefs(app).edit().putString("official_status", "Couldn't read MET Malaysia right now (" + e.getMessage() + ")").apply();
+            Store.loadOfficial(app);
+        }
+    }
+
+    /** Forecasts for saved places: the ones a widget shows (all of them while the app is open). */
+    static void refreshSaved(Context app, boolean all) {
+        try {
+            java.util.Set<String> inUse = WidgetUpdater.placesInUse(app);
+            for (Places.Saved s : Places.list(app)) {
+                if (!all && !inUse.contains(s.id)) continue;
+                long now = System.currentTimeMillis();
+                if (now - Places.fetchedAt(app, s.id) < 15 * 60 * 1000L && Places.loadWeather(app, s.id) != null) continue;
+                try {
+                    String fc = Net.get(String.format(Locale.US, FORECAST_URL, s.place.lat, s.place.lon));
+                    String air = "";
+                    try {
+                        air = Net.get(String.format(Locale.US, AIR_URL, s.place.lat, s.place.lon));
+                    } catch (Exception ignored) {
+                    }
+                    Weather w = Weather.parse(fc, air, now);
+                    if (w.valid()) Places.saveWeather(app, s.id, fc, air, now);
+                } catch (Exception e) {
+                    Ui.report("saved place " + s.name, e);
+                }
+            }
+        } catch (Throwable t) {
+            Ui.report("refreshSaved", t);
+        }
     }
 
     private static Place adopt(Context app, Place old, Place np) {

@@ -18,15 +18,19 @@ public final class Widgets {
 
         @Override
         public void onUpdate(Context ctx, AppWidgetManager m, int[] ids) {
-            Cards.Data d = Store.data(ctx);
-            for (int id : ids) WidgetUpdater.update(ctx, m, variant(), id, d);
+            for (int id : ids) WidgetUpdater.update(ctx, m, variant(), id, null);
             Jobs.sync(ctx);
             Jobs.kick(ctx);
         }
 
         @Override
         public void onAppWidgetOptionsChanged(Context ctx, AppWidgetManager m, int id, Bundle newOptions) {
-            WidgetUpdater.update(ctx, m, variant(), id, Store.data(ctx));
+            WidgetUpdater.update(ctx, m, variant(), id, null);
+        }
+
+        @Override
+        public void onDeleted(Context ctx, int[] ids) {
+            for (int id : ids) Places.forgetWidget(ctx, id);
         }
 
         @Override
@@ -75,10 +79,12 @@ public final class Widgets {
     public static final class Big2x3 extends Base { @Override int variant() { return 31; } }
     public static final class Classic2x2 extends Base { @Override int variant() { return 32; } }
     public static final class Classic2x3 extends Base { @Override int variant() { return 33; } }
-    public static final class Headsup3x1 extends Base { @Override int variant() { return 34; } }
-    public static final class Headsup4x1 extends Base { @Override int variant() { return 35; } }
-    public static final class Headsup2x2 extends Base { @Override int variant() { return 36; } }
-    public static final class Headsup2x3 extends Base { @Override int variant() { return 37; } }
+    public static final class Rain2x2 extends Base { @Override int variant() { return 34; } }
+    public static final class Rain4x2 extends Base { @Override int variant() { return 35; } }
+    public static final class Headsup3x1 extends Base { @Override int variant() { return 36; } }
+    public static final class Headsup4x1 extends Base { @Override int variant() { return 37; } }
+    public static final class Headsup2x2 extends Base { @Override int variant() { return 38; } }
+    public static final class Headsup2x3 extends Base { @Override int variant() { return 39; } }
 
     static final Class<?>[] ALL = {
         Now2x2.class,
@@ -115,6 +121,8 @@ public final class Widgets {
         Big2x3.class,
         Classic2x2.class,
         Classic2x3.class,
+        Rain2x2.class,
+        Rain4x2.class,
         Headsup3x1.class,
         Headsup4x1.class,
         Headsup2x2.class,

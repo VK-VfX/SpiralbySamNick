@@ -104,6 +104,16 @@ final class Samples {
         }
         w.aqi = 57;
         w.pm25 = 18;
+        // 15-minute series derived from the hourly one (like the API does where it only has hourly models)
+        int bins = 16;
+        w.mTime = new long[bins];
+        w.mPrecip = new double[bins];
+        long first = (now / 900) * 900 + 900;
+        for (int i = 0; i < bins; i++) {
+            w.mTime[i] = first + i * 900L;
+            int hr = (int) ((w.mTime[i] - 1 - day0) / 3600);
+            w.mPrecip[i] = hr >= 0 && hr < n ? w.hPrecip[hr] / 4.0 : 0;
+        }
         return w;
     }
 }

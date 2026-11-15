@@ -41,6 +41,7 @@ public final class CatNews {
     /** One practical sentence for an insight: what to actually do. */
     public static String tip(Insights.Insight in) {
         String k = in.key;
+        if (k.startsWith("official:")) return "Follow MET Malaysia's advice and stay safe.";
         if (k.startsWith("flood-watch")) return "Avoid low-lying roads and bring an umbrella.";
         if (k.startsWith("flood")) return "Stay out of flood water, move to higher ground if it rises, and don't get wet.";
         if (k.startsWith("storm")) return "Stay indoors, keep away from windows and unplug sensitive electronics.";

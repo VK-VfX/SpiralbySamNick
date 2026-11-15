@@ -35,14 +35,35 @@ public final class Insights {
         }
     }
 
+    /** Official warnings for the current place; refreshed by the app whenever it loads data. */
+    public static volatile List<Insight> official = new ArrayList<Insight>();
+
     public static List<Insight> compute(Weather w, Units u, long nowSec) {
         List<Insight> out = new ArrayList<Insight>();
         if (w == null || !w.valid()) return out;
+        out.addAll(official);
         Weather.Now n = w.now(nowSec);
         int off = w.utcOffset;
         int hi = w.hourIndex(nowSec);
         int end = Math.min(hi + 12, w.hTime.length - 1);
         long day = Fmt.epochDay(nowSec, off);
+
+        // Rain in the next minutes (15-minute data). Replaces the coarser hourly "rain likely" note when it applies.
+        boolean skipHourlyWet = false;
+        Nowcast.Result nc = Nowcast.compute(w, nowSec);
+        if (nc != null && nc.state == Nowcast.STARTS && nc.minutes <= 120) {
+            skipHourlyWet = true;
+            String when = Nowcast.minutesText(nc.minutes);
+            out.add(new Insight("rain-soon:" + (nc.startsAt / 3600), NOTICE, Icon.UMBRELLA,
+                    "Rain in about " + when + ": grab the umbrella",
+                    Nowcast.intensity(nc.peakRate) + " \u00b7 about " + u.precip(nc.nextHourMm) + " \u00b7 don't get wet",
+                    "Rain in ~" + when, Nowcast.intensity(nc.peakRate), nc.startsAt));
+        } else if (nc != null && nc.state == Nowcast.RAINING && nc.minutes > 0 && nc.minutes <= 90) {
+            out.add(new Insight("rain-stops:" + (nc.endsAt / 3600), INFO, Icon.PARTLY_DAY,
+                    "Rain stops in about " + Nowcast.minutesText(nc.minutes),
+                    Nowcast.intensity(nc.peakRate) + " now \u00b7 dry paws soon",
+                    "Dry in ~" + Nowcast.minutesText(nc.minutes), "Rain stops soon", nc.endsAt));
+        }
 
         // Rain / snow
         boolean wetNow = Wmo.isWet(n.code) || Wmo.isSnow(n.code) || n.precip >= 0.2;
@@ -65,7 +86,7 @@ public final class Insights {
                         "The umbrella stays out for the next 12 hours", noun + " continues", "Wet for 12 h", 0L));
             }
         } else {
-            for (int j = hi + 1; j <= end; j++) {
+            for (int j = hi + 1; j <= end && !skipHourlyWet; j++) {
                 boolean wet = Wmo.isWet(w.hCode[j]) || Wmo.isSnow(w.hCode[j]);
                 if ((w.hPop[j] >= 50 && (w.hPrecip[j] >= 0.1 || wet)) || (wet && w.hPop[j] >= 40)) {
                     boolean snow = Wmo.isSnow(w.hCode[j]);

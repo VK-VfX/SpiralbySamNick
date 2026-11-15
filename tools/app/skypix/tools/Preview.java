@@ -192,6 +192,39 @@ public final class Preview {
             g.dispose();
             dir.mkdirs();
             ImageIO.write(img, "png", new File(dir, "headsup.png"));
+        } else if (mode.equals("you")) {
+            int[] kinds = {Cards.NOW, Cards.CLASSIC, Cards.BIG, Cards.HEADSUP, Cards.HOURLY};
+            int[][] sz = {{110, 110}, {110, 110}, {110, 110}, {180, 110}, {250, 110}};
+            float u = 2.4f;
+            BufferedImage img = new BufferedImage(Math.round(820 * u), Math.round(2 * 130 * u), BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g = img.createGraphics();
+            g.drawImage(backdrop(img.getWidth(), img.getHeight(), true, true), 0, 0, null);
+            for (int side = 0; side < 2; side++) {
+                Cards.Data d = Samples.data("clear", false, false);
+                d.youTop = 0xFF6750A4; d.youBottom = 0xFF4F378B; d.youP0 = 0xFF7F67BE; d.youP1 = 0xFF4F378B;
+                int x = 14;
+                for (int c = 0; c < kinds.length; c++) {
+                    g.drawImage(render(kinds[c], sz[c][0], sz[c][1], u, side == 1, d), Math.round(x * u), Math.round((10 + side * 130) * u), null);
+                    x += sz[c][0] + 14;
+                }
+            }
+            g.dispose();
+            dir.mkdirs();
+            ImageIO.write(img, "png", new File(dir, "you.png"));
+        } else if (mode.equals("rainsoon")) {
+            String[] sc = {"clear", "rain", "stormnow"};
+            float u = 2.4f;
+            BufferedImage img = new BufferedImage(Math.round(560 * u), Math.round(3 * 130 * u), BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g = img.createGraphics();
+            g.drawImage(backdrop(img.getWidth(), img.getHeight(), true, true), 0, 0, null);
+            for (int r = 0; r < sc.length; r++) {
+                Cards.Data d = Samples.data(sc[r], false, false);
+                g.drawImage(render(Cards.RAIN_SOON, 110, 110, u, true, d), Math.round(14 * u), Math.round((10 + r * 130) * u), null);
+                g.drawImage(render(Cards.RAIN_SOON, 250, 110, u, false, d), Math.round(140 * u), Math.round((10 + r * 130) * u), null);
+            }
+            g.dispose();
+            dir.mkdirs();
+            ImageIO.write(img, "png", new File(dir, "rainsoon.png"));
         } else if (mode.equals("cats")) {
             app.skypix.core.Icon[] all = app.skypix.core.Icon.values();
             int cols = 7, cell = 150, rows = (all.length + cols - 1) / cols;

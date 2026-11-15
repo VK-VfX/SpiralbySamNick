@@ -180,6 +180,14 @@
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_classic_2x3" />
         </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Rain2x2" android:exported="false" android:label="@string/w_rain_2x2">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_rain_2x2" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Rain4x2" android:exported="false" android:label="@string/w_rain_4x2">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_rain_4x2" />
+        </receiver>
         <receiver android:name="app.skypix.android.Widgets$Headsup3x1" android:exported="false" android:label="@string/w_headsup_3x1">
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_headsup_3x1" />
@@ -218,6 +226,9 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Listens for the screen being unlocked to play a short widget animation" />
         </service>
+        <activity android:name="app.skypix.android.PlaceConfigActivity" android:exported="true" android:theme="@style/AppTheme">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" /></intent-filter>
+        </activity>
         <receiver android:name="app.skypix.android.AppUpdate$InstallReceiver" android:exported="false" />
         <receiver android:name="app.skypix.android.Jobs$AlarmReceiver" android:exported="false" />
         <receiver android:name="app.skypix.android.Jobs$BootReceiver" android:exported="true">

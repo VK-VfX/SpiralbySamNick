@@ -9,7 +9,7 @@ cd "$(dirname "$0")/.."
 # Bump both for every release; the in-app updater compares VERSION_CODE (it must always go up).
 VERSION_CODE=9
 VERSION_NAME=1.0.8
-RELEASE_NOTES="Expressive cats: sad umbrella cat, sweaty cat, sunglasses cat, scarf cat, mask cat and more, with new playful one-liners."
+RELEASE_NOTES="Rain-in-minutes alerts and widget, MET Malaysia warnings, saved places, Material You colours, day streak, and expressive cat moods."
 UPDATE_BASE=https://raw.githubusercontent.com/VK-VfX/Sam-s-Signal-Stabilizer/claude/signal-stabilizer-game-8le0y5/dist
 
 DEPS=build/deps

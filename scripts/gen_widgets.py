@@ -46,6 +46,8 @@ VARIANTS = [
     ('big_2x3', 'BIG', 2, 3, 'Big number', 'Tall giant temperature on a soft gradient.'),
     ('classic_2x2', 'CLASSIC', 2, 2, 'Classic', 'Place, light temperature and low/high.'),
     ('classic_2x3', 'CLASSIC', 2, 3, 'Classic', 'Tall classic card with place, temperature and low/high.'),
+    ('rain_2x2', 'RAIN_SOON', 2, 2, 'Rain soon', 'Will it rain in the next minutes? A 15-minute rain outlook.'),
+    ('rain_4x2', 'RAIN_SOON', 4, 2, 'Rain soon', 'Wide 15-minute rain outlook for the next three hours.'),
     ('headsup_3x1', 'HEADSUP', 3, 1, 'Heads-up', 'The one thing worth knowing right now.'),
     ('headsup_4x1', 'HEADSUP', 4, 1, 'Heads-up', 'The one thing worth knowing right now, with temperature.'),
     ('headsup_2x2', 'HEADSUP', 2, 2, 'Heads-up', 'The one thing worth knowing, in a small square.'),
@@ -82,10 +84,11 @@ k = ['package app.skypix.android;', '', 'import android.appwidget.AppWidgetManag
      '    abstract static class Base extends AppWidgetProvider {',
      '        /** Index into {@link Variants}. */', '        abstract int variant();', '',
      '        @Override', '        public void onUpdate(Context ctx, AppWidgetManager m, int[] ids) {',
-     '            Cards.Data d = Store.data(ctx);', '            for (int id : ids) WidgetUpdater.update(ctx, m, variant(), id, d);',
+     '            for (int id : ids) WidgetUpdater.update(ctx, m, variant(), id, null);',
      '            Jobs.sync(ctx);', '            Jobs.kick(ctx);', '        }', '',
      '        @Override', '        public void onAppWidgetOptionsChanged(Context ctx, AppWidgetManager m, int id, Bundle newOptions) {',
-     '            WidgetUpdater.update(ctx, m, variant(), id, Store.data(ctx));', '        }', '',
+     '            WidgetUpdater.update(ctx, m, variant(), id, null);', '        }', '',
+     '        @Override', '        public void onDeleted(Context ctx, int[] ids) {', '            for (int id : ids) Places.forgetWidget(ctx, id);', '        }', '',
      '        @Override', '        public void onEnabled(Context ctx) {', '            Jobs.sync(ctx);', '            Jobs.kick(ctx);', '        }', '',
      '        @Override', '        public void onDisabled(Context ctx) {', '            Jobs.sync(ctx);', '        }', '    }', '']
 for i, v in enumerate(VARIANTS):
@@ -110,6 +113,8 @@ for key, kind, cw, ch, title, desc in VARIANTS:
     android:initialLayout="@layout/widget_frame"
     android:previewImage="@drawable/preview_%s"
     android:description="@string/d_%s"
+    android:configure="app.skypix.weather/app.skypix.android.PlaceConfigActivity"
+    android:widgetFeatures="reconfigurable"
     android:widgetCategory="home_screen" />
 ''' % (dp(cw), dp(ch), dp(cw), dp(ch), cw, ch, key, key))
 
