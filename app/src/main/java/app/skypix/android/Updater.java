@@ -57,13 +57,23 @@ final class Updater {
         }
     }
 
-    /** Hourly briefing entry point: refresh, then post the summary notification. */
-    static void runHourly(Context ctx) {
+    /** Cat News entry point (every 2 hours): refresh, post the bulletin, and look for a new app version. */
+    static void runNews(Context ctx) {
         Context app = ctx.getApplicationContext();
         boolean ok = run(app, Store.visible || Store.background(app), 8000, 20 * 60 * 1000L);
         Weather w = Store.loadWeather(app);
         Place p = Store.loadPlace(app);
-        if ((ok || w != null) && w != null && p != null) Notifier.hourly(app, p, w);
+        if ((ok || w != null) && w != null && p != null) Notifier.news(app, p, w);
+        AppUpdate.checkQuietly(app);
+    }
+
+    /** Morning briefing entry point. */
+    static void runMorning(Context ctx) {
+        Context app = ctx.getApplicationContext();
+        boolean ok = run(app, Store.visible || Store.background(app), 8000, 10 * 60 * 1000L);
+        Weather w = Store.loadWeather(app);
+        Place p = Store.loadPlace(app);
+        if ((ok || w != null) && w != null && p != null) Notifier.morning(app, p, w);
     }
 
     private static Place adopt(Context app, Place old, Place np) {

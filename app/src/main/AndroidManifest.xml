@@ -12,6 +12,8 @@
     <!-- Only prompted when you switch alerts on (Android 13+). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Lets the in-app updater hand a downloaded Skypix update to Android's installer (you confirm every install). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Runs the silent unlock listener that plays the 5 second widget animation. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
@@ -216,6 +218,7 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Listens for the screen being unlocked to play a short widget animation" />
         </service>
+        <receiver android:name="app.skypix.android.AppUpdate$InstallReceiver" android:exported="false" />
         <receiver android:name="app.skypix.android.Jobs$AlarmReceiver" android:exported="false" />
         <receiver android:name="app.skypix.android.Jobs$BootReceiver" android:exported="true">
             <intent-filter>

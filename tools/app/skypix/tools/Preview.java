@@ -192,6 +192,18 @@ public final class Preview {
             g.dispose();
             dir.mkdirs();
             ImageIO.write(img, "png", new File(dir, "headsup.png"));
+        } else if (mode.equals("news")) {
+            String[] sc = {"clear", "partly", "rain", "stormnow", "snow", "windy", "night"};
+            for (String name : sc) {
+                Cards.Data d = Samples.data(name, false, false);
+                app.skypix.core.CatNews.Bulletin n = app.skypix.core.CatNews.news(d.weather, d.units, d.place.shortName(), d.nowSec);
+                System.out.println("==== " + name + " NEWS\n" + n.title + "\n" + n.text + "\n--\n" + n.big + "\n");
+                for (app.skypix.core.Insights.Insight in : app.skypix.core.Insights.compute(d.weather, d.units, d.nowSec)) {
+                    if (in.sev >= app.skypix.core.Insights.NOTICE) System.out.println("  ALERT[" + in.sev + "] " + app.skypix.core.CatNews.alertTitle(in) + " | " + app.skypix.core.CatNews.alertBody(in).replace("\n", " / "));
+                }
+                app.skypix.core.CatNews.Bulletin m = app.skypix.core.CatNews.morning(d.weather, d.units, d.place.shortName(), d.nowSec);
+                System.out.println("---- " + name + " MORNING\n" + m.title + "\n" + m.text + "\n--\n" + m.big + "\n");
+            }
         } else if (mode.equals("iconsheet")) {
             String[] sc = {"clear", "night", "partly", "cloudy", "fog", "rain", "stormnow", "snow", "windy"};
             int[] ks = {0, 1, 2};

@@ -7,6 +7,23 @@ public final class Glyphs {
     /** When true every weather glyph is a Google Noto cat emoji (one cat mood per weather). */
     public static volatile boolean cats = true;
 
+    /** The cat as an emoji character, for notification text (the system's Noto Color Emoji draws it). */
+    public static String catEmoji(Icon ic) {
+        String n = catFor(ic);
+        if (n.equals("smile")) return "\uD83D\uDE38";
+        if (n.equals("black")) return "\uD83D\uDC08\u200D\u2B1B";
+        if (n.equals("grin")) return "\uD83D\uDE3A";
+        if (n.equals("kiss")) return "\uD83D\uDE3D";
+        if (n.equals("plain")) return "\uD83D\uDC31";
+        if (n.equals("smirk")) return "\uD83D\uDE3C";
+        if (n.equals("pout")) return "\uD83D\uDE3E";
+        if (n.equals("cry")) return "\uD83D\uDE3F";
+        if (n.equals("weary")) return "\uD83D\uDE40";
+        if (n.equals("love")) return "\uD83D\uDE3B";
+        if (n.equals("joy")) return "\uD83D\uDE39";
+        return "\uD83D\uDC08";
+    }
+
     public static String catFor(Icon ic) {
         switch (ic) {
             case SUN: return "smile";

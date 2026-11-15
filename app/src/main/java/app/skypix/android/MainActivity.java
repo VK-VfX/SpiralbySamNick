@@ -249,6 +249,7 @@ public class MainActivity extends Activity {
         }
 
         addSettings(ink, ink2);
+        addUpdates();
         addWidgetPicker(ink, ink2);
 
         TextView foot = new TextView(this);
@@ -493,7 +494,7 @@ public class MainActivity extends Activity {
         });
         row(box, "Test the animation", animStatus(), playNow);
 
-        row(box, "Weather alerts", "Rain, storms, heat, UV, wind, air quality",
+        row(box, "Emergency & weather alerts", "Floods, thunderstorms, bring-an-umbrella nudges, heat, UV and wind",
                 toggle(Store.alerts(this), new CompoundButton.OnCheckedChangeListener() {
                     @Override public void onCheckedChanged(CompoundButton b, boolean on) {
                         Store.setAlerts(MainActivity.this, on);
@@ -502,7 +503,7 @@ public class MainActivity extends Activity {
                     }
                 }));
 
-        row(box, "Hourly briefing", "A quiet summary at the top of every hour",
+        row(box, "Cat weather news", "A bulletin from the cats every 2 hours, written from the live forecast",
                 toggle(Store.hourly(this), new CompoundButton.OnCheckedChangeListener() {
                     @Override public void onCheckedChanged(CompoundButton b, boolean on) {
                         Store.setHourly(MainActivity.this, on);
@@ -511,7 +512,25 @@ public class MainActivity extends Activity {
                     }
                 }));
 
-        row(box, "Quiet hours", "No hourly briefing " + hourLabel(Store.quietStart(this)) + " – " + hourLabel(Store.quietEnd(this)),
+        Ui.Btn morningTime = Store.morning(this) ? new Ui.Btn(this, hourLabel(Store.morningHour(this)), false) : null;
+        if (morningTime != null) morningTime.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { pickMorning(); }
+        });
+        LinearLayout morningControls = new LinearLayout(this);
+        morningControls.setOrientation(LinearLayout.HORIZONTAL);
+        morningControls.setGravity(Gravity.CENTER_VERTICAL);
+        if (morningTime != null) morningControls.addView(morningTime, new LinearLayout.LayoutParams(-2, -2));
+        morningControls.addView(toggle(Store.morning(this), new CompoundButton.OnCheckedChangeListener() {
+            @Override public void onCheckedChanged(CompoundButton b, boolean on) {
+                Store.setMorning(MainActivity.this, on);
+                Jobs.sync(MainActivity.this);
+                if (on) askNotifications();
+                rebuild();
+            }
+        }));
+        row(box, "Morning briefing", "The day's weather and what to carry, once each morning", morningControls);
+
+        row(box, "Quiet hours", "No cat news " + hourLabel(Store.quietStart(this)) + " – " + hourLabel(Store.quietEnd(this)),
                 toggle(Store.quiet(this), new CompoundButton.OnCheckedChangeListener() {
                     @Override public void onCheckedChanged(CompoundButton b, boolean on) {
                         Store.setQuiet(MainActivity.this, on);
@@ -577,6 +596,94 @@ public class MainActivity extends Activity {
 
     private String hourLabel(int h) {
         return DateFormat.is24HourFormat(this) ? (h < 10 ? "0" : "") + h + ":00" : (h % 12 == 0 ? 12 : h % 12) + (h < 12 ? " AM" : " PM");
+    }
+
+    private void pickMorning() {
+        new TimePickerDialog(this, new TimePickerDialog.OnTimeSetListener() {
+            @Override public void onTimeSet(TimePicker view, int hour, int minute) {
+                Store.setMorningHour(MainActivity.this, hour);
+                Jobs.sync(MainActivity.this);
+                rebuild();
+            }
+        }, Store.morningHour(this), 0, DateFormat.is24HourFormat(this)).show();
+    }
+
+    // ---- app updates ----------------------------------------------------------------------------------------------
+
+    private TextView updateSub;
+
+    private void addUpdates() {
+        LinearLayout box = section("App updates", 0);
+        AppUpdate.Info av = AppUpdate.available;
+        String sub;
+        if (AppUpdate.status.length() > 0) sub = AppUpdate.status;
+        else if (av != null) sub = "Version " + av.name + " is ready" + (av.notes.length() > 0 ? ": " + av.notes : "");
+        else sub = "Tap Check to look for a new version";
+        Ui.Btn action = new Ui.Btn(this, av != null ? "Install" : "Check", av != null);
+        action.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                if (AppUpdate.busy) return;
+                if (AppUpdate.available != null) installUpdate(); else checkUpdate();
+            }
+        });
+        LinearLayout r = row(box, "Skypix " + AppUpdate.installedName(this), sub, action);
+        View col = r.getChildAt(0);
+        updateSub = col instanceof LinearLayout && ((LinearLayout) col).getChildCount() > 1 ? (TextView) ((LinearLayout) col).getChildAt(1) : null;
+        row(box, "Check automatically", "Once a day. Only contacts GitHub, nothing about you is sent",
+                toggle(Store.autoUpdate(this), new CompoundButton.OnCheckedChangeListener() {
+                    @Override public void onCheckedChanged(CompoundButton b, boolean on) { Store.setAutoUpdate(MainActivity.this, on); }
+                }));
+    }
+
+    private void setUpdateStatus(final String s) {
+        AppUpdate.status = s;
+        runOnUiThread(new Runnable() {
+            @Override public void run() { if (updateSub != null) updateSub.setText(s); }
+        });
+    }
+
+    private void checkUpdate() {
+        final Context app = getApplicationContext();
+        AppUpdate.busy = true;
+        setUpdateStatus("Checking\u2026");
+        new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    AppUpdate.Info i = AppUpdate.check(app);
+                    AppUpdate.status = i == null ? "You're on the latest version" : "";
+                } catch (Throwable t) {
+                    AppUpdate.status = "Couldn't check right now. Are you online?";
+                }
+                AppUpdate.busy = false;
+                runOnUiThread(new Runnable() { @Override public void run() { rebuild(); } });
+            }
+        }, "skypix-update-check").start();
+    }
+
+    private void installUpdate() {
+        final Context app = getApplicationContext();
+        final AppUpdate.Info info = AppUpdate.available;
+        if (info == null) return;
+        if (!AppUpdate.ensureInstallPermission(this)) {
+            setUpdateStatus("Allow Skypix to install apps, come back, then tap Install again");
+            return;
+        }
+        AppUpdate.busy = true;
+        setUpdateStatus("Downloading 0%");
+        new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    java.io.File apk = AppUpdate.download(app, info, new AppUpdate.Progress() {
+                        @Override public void onProgress(String text) { setUpdateStatus(text); }
+                    });
+                    setUpdateStatus("Verified. Handing over to Android\u2026");
+                    AppUpdate.install(app, apk);
+                } catch (Throwable t) {
+                    AppUpdate.busy = false;
+                    setUpdateStatus("Update failed: " + t.getMessage());
+                }
+            }
+        }, "skypix-update-install").start();
     }
 
     private void pickHour(final boolean start) {

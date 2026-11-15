@@ -37,6 +37,20 @@ final class Store {
     static boolean hourly(Context c) { return sp(c).getBoolean("hourly", true); }
     static void setHourly(Context c, boolean v) { sp(c).edit().putBoolean("hourly", v).apply(); }
 
+    /** Morning briefing. */
+    static boolean morning(Context c) { return sp(c).getBoolean("morning", true); }
+    static void setMorning(Context c, boolean v) { sp(c).edit().putBoolean("morning", v).apply(); }
+    static int morningHour(Context c) { return sp(c).getInt("morning_hour", 7); }
+    static void setMorningHour(Context c, int h) { sp(c).edit().putInt("morning_hour", h).apply(); }
+
+    /** OTA updates. */
+    static boolean autoUpdate(Context c) { return sp(c).getBoolean("auto_update", true); }
+    static void setAutoUpdate(Context c, boolean v) { sp(c).edit().putBoolean("auto_update", v).apply(); }
+    static long lastUpdateCheck(Context c) { return sp(c).getLong("update_check", 0L); }
+    static void setLastUpdateCheck(Context c, long t) { sp(c).edit().putLong("update_check", t).apply(); }
+    static long notifiedVersion(Context c) { return sp(c).getLong("update_notified", 0L); }
+    static void setNotifiedVersion(Context c, long v) { sp(c).edit().putLong("update_notified", v).apply(); }
+
     static boolean quiet(Context c) { return sp(c).getBoolean("quiet", true); }
     static void setQuiet(Context c, boolean v) { sp(c).edit().putBoolean("quiet", v).apply(); }
 

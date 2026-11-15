@@ -30,7 +30,10 @@ import java.util.Calendar;
 public final class Jobs {
     private Jobs() {}
 
-    static final int ID_PERIODIC = 1, ID_KICK = 2, ID_HOURLY = 3;
+    static final int ID_PERIODIC = 1, ID_KICK = 2, ID_NEWS = 3, ID_MORNING = 4;
+    /** The Cat News bulletin goes out on every Nth hour of the day. */
+    static final int NEWS_EVERY_HOURS = 2;
+    static final String ACTION_NEWS = "app.skypix.NEWS", ACTION_MORNING = "app.skypix.MORNING";
     private static final long PERIOD_MS = 30 * 60 * 1000L;
 
     /** Makes the scheduled work match what's enabled: widgets present, alerts, hourly briefing. */
@@ -47,7 +50,7 @@ public final class Jobs {
         // each step is isolated so one failure can never stop the others (the unlock listener most of all)
         try {
             JobScheduler js = (JobScheduler) app.getSystemService(Context.JOB_SCHEDULER_SERVICE);
-            boolean needData = WidgetUpdater.count(app) > 0 || Store.alerts(app) || Store.hourly(app);
+            boolean needData = WidgetUpdater.count(app) > 0 || Store.alerts(app) || Store.hourly(app) || Store.morning(app);
             if (needData && Store.anyLocation(app)) {
                 if (js.getPendingJob(ID_PERIODIC) == null) {
                     js.schedule(new JobInfo.Builder(ID_PERIODIC, new ComponentName(app, UpdateService.class))
@@ -63,8 +66,10 @@ public final class Jobs {
             Ui.report("Jobs.periodic", t);
         }
         try {
-            if (Store.hourly(app) && Store.anyLocation(app)) scheduleHourlyAlarm(app);
-            else cancelHourlyAlarm(app);
+            if (Store.hourly(app) && Store.anyLocation(app)) scheduleNewsAlarm(app);
+            else cancelAlarm(app, ACTION_NEWS, 0);
+            if (Store.morning(app) && Store.anyLocation(app)) scheduleMorningAlarm(app);
+            else cancelAlarm(app, ACTION_MORNING, 1);
         } catch (Throwable t) {
             Ui.report("Jobs.alarm", t);
         }
@@ -104,28 +109,45 @@ public final class Jobs {
         }
     }
 
-    private static PendingIntent alarmIntent(Context app) {
-        return PendingIntent.getBroadcast(app, 0, new Intent(app, AlarmReceiver.class),
+    private static PendingIntent alarmIntent(Context app, String action, int code) {
+        return PendingIntent.getBroadcast(app, code, new Intent(app, AlarmReceiver.class).setAction(action),
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
-    static void scheduleHourlyAlarm(Context app) {
+    /** Next news slot: the next hour divisible by {@link #NEWS_EVERY_HOURS} (e.g. 8, 10, 12 ...). */
+    static void scheduleNewsAlarm(Context app) {
         Calendar c = Calendar.getInstance();
-        c.add(Calendar.HOUR_OF_DAY, 1);
+        int next = (c.get(Calendar.HOUR_OF_DAY) / NEWS_EVERY_HOURS + 1) * NEWS_EVERY_HOURS;
         c.set(Calendar.MINUTE, 0);
         c.set(Calendar.SECOND, 20);
         c.set(Calendar.MILLISECOND, 0);
+        c.set(Calendar.HOUR_OF_DAY, 0);
+        c.add(Calendar.HOUR_OF_DAY, next);
+        set(app, c.getTimeInMillis(), alarmIntent(app, ACTION_NEWS, 0));
+    }
+
+    static void scheduleMorningAlarm(Context app) {
+        Calendar c = Calendar.getInstance();
+        c.set(Calendar.HOUR_OF_DAY, Store.morningHour(app));
+        c.set(Calendar.MINUTE, 0);
+        c.set(Calendar.SECOND, 30);
+        c.set(Calendar.MILLISECOND, 0);
+        if (c.getTimeInMillis() <= System.currentTimeMillis() + 60000L) c.add(Calendar.DAY_OF_YEAR, 1);
+        set(app, c.getTimeInMillis(), alarmIntent(app, ACTION_MORNING, 1));
+    }
+
+    private static void set(Context app, long at, PendingIntent pi) {
         AlarmManager am = (AlarmManager) app.getSystemService(Context.ALARM_SERVICE);
-        am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, c.getTimeInMillis(), alarmIntent(app));
+        am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi);
     }
 
-    static void cancelHourlyAlarm(Context app) {
-        ((AlarmManager) app.getSystemService(Context.ALARM_SERVICE)).cancel(alarmIntent(app));
+    static void cancelAlarm(Context app, String action, int code) {
+        ((AlarmManager) app.getSystemService(Context.ALARM_SERVICE)).cancel(alarmIntent(app, action, code));
     }
 
-    private static void scheduleHourlyJob(Context app) {
+    private static void scheduleJob(Context app, int id) {
         JobScheduler js = (JobScheduler) app.getSystemService(Context.JOB_SCHEDULER_SERVICE);
-        js.schedule(new JobInfo.Builder(ID_HOURLY, new ComponentName(app, UpdateService.class))
+        js.schedule(new JobInfo.Builder(id, new ComponentName(app, UpdateService.class))
                 .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
                 .setOverrideDeadline(60000)
                 .build());
@@ -139,8 +161,10 @@ public final class Jobs {
             new Thread(new Runnable() {
                 @Override public void run() {
                     try {
-                        if (id == ID_HOURLY) {
-                            Updater.runHourly(app);
+                        if (id == ID_NEWS) {
+                            Updater.runNews(app);
+                        } else if (id == ID_MORNING) {
+                            Updater.runMorning(app);
                         } else {
                             Updater.run(app, Store.background(app), 8000, id == ID_KICK ? 5 * 60 * 1000L : 15 * 60 * 1000L);
                         }
@@ -265,9 +289,19 @@ public final class Jobs {
         @Override
         public void onReceive(Context ctx, Intent intent) {
             Context app = ctx.getApplicationContext();
-            if (Store.hourly(app)) {
-                scheduleHourlyAlarm(app);
-                scheduleHourlyJob(app);
+            String action = intent.getAction();
+            try {
+                if (ACTION_MORNING.equals(action)) {
+                    if (Store.morning(app)) {
+                        scheduleMorningAlarm(app);
+                        scheduleJob(app, ID_MORNING);
+                    }
+                } else if (Store.hourly(app)) {
+                    scheduleNewsAlarm(app);
+                    scheduleJob(app, ID_NEWS);
+                }
+            } catch (Throwable t) {
+                Ui.report("alarm", t);
             }
         }
     }

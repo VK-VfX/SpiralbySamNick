@@ -72,7 +72,7 @@ public final class Insights {
                     long hrs = Math.max(1, (w.hTime[j] - nowSec + 1800) / 3600);
                     out.add(new Insight("wet:" + (w.hTime[j] / 3600), NOTICE,
                             Wmo.icon(w.hCode[j], w.hDay[j]),
-                            (snow ? "Snow" : "Rain") + " likely around " + u.time(w.hTime[j], off, false),
+                            snow ? "Snow likely around " + u.time(w.hTime[j], off, false) : "Bring an umbrella: rain ~" + u.time(w.hTime[j], off, false),
                             Math.round(w.hPop[j]) + "% chance · " + u.precip(w.hPrecip[j]) + " · in about " + hrs + " h", (snow ? "Snow" : "Rain") + " ~" + u.time(w.hTime[j], off, false), Math.round(w.hPop[j]) + "% \u00b7 " + hrs + " h", w.hTime[j]));
                     break;
                 }
@@ -84,9 +84,29 @@ public final class Insights {
             if (Wmo.isStorm(w.hCode[j])) {
                 out.add(new Insight("storm:" + (w.hTime[j] / 3600), WARNING, Icon.STORM,
                         "Thunderstorms at " + u.time(w.hTime[j], off, false),
-                        "Possible \u00b7 stay indoors if you hear thunder", "Storm " + u.time(w.hTime[j], off, false), "Stay indoors", w.hTime[j]));
+                        "Possible \u00b7 stay indoors, don't get wet", "Storm " + u.time(w.hTime[j], off, false), "Stay indoors", w.hTime[j]));
                 break;
             }
+        }
+
+        // Flooding: heavy rain totals over the next hours
+        double p3 = 0, p24 = 0, rate = 0;
+        int rateIdx = hi;
+        for (int j = hi; j < Math.min(hi + 24, w.hTime.length); j++) {
+            double pr = Double.isNaN(w.hPrecip[j]) ? 0 : w.hPrecip[j];
+            p24 += pr;
+            if (j < hi + 3) p3 += pr;
+            if (pr > rate) { rate = pr; rateIdx = j; }
+        }
+        if (p3 >= 30 || rate >= 25 || p24 >= 100) {
+            String amount = (p3 >= 30 || rate >= 25)
+                    ? "About " + u.precip(Math.max(p3, rate)) + " of rain in the next 3 hours"
+                    : "About " + u.precip(p24) + " of rain over the next 24 hours";
+            out.add(new Insight("flood:" + day, WARNING, Icon.RAIN, "Flash flood risk",
+                    amount + " \u00b7 avoid low roads, don't wade through water", "Flood risk", "Heavy rain", w.hTime[rateIdx]));
+        } else if (p3 >= 15 || rate >= 10 || p24 >= 50) {
+            out.add(new Insight("flood-watch:" + day, NOTICE, Icon.RAIN, "Heavy rain, flooding possible",
+                    "Up to " + u.precip(Math.max(p3, p24 / 3)) + " expected \u00b7 stay dry and avoid low-lying areas", "Heavy rain", "Flooding possible", w.hTime[rateIdx]));
         }
 
         // Heat / cold

@@ -9,6 +9,7 @@ import android.content.Intent;
 import android.graphics.Bitmap;
 import android.os.Build;
 
+import app.skypix.core.CatNews;
 import app.skypix.core.Icon;
 import app.skypix.core.Insights;
 import app.skypix.core.Place;
@@ -24,19 +25,38 @@ final class Notifier {
     private Notifier() {}
 
     static final String CH_ALERTS = "alerts";
-    static final String CH_HOURLY = "hourly";
-    private static final int ID_HOURLY = 1001;
+    static final String CH_EMERGENCY = "emergency";
+    static final String CH_NEWS = "news";
+    static final String CH_MORNING = "morning";
+    static final String CH_UPDATES = "updates";
+    private static final int ID_NEWS = 1001, ID_MORNING = 1002, ID_UPDATE = 1003;
 
     static void ensureChannels(Context c) {
         if (Build.VERSION.SDK_INT < 26) return;
         NotificationManager nm = c.getSystemService(NotificationManager.class);
         NotificationChannel alerts = new NotificationChannel(CH_ALERTS, "Weather alerts", NotificationManager.IMPORTANCE_HIGH);
-        alerts.setDescription("Rain, storms, heat, UV, wind and air quality heads-ups for where you are");
-        NotificationChannel hourly = new NotificationChannel(CH_HOURLY, "Hourly briefing", NotificationManager.IMPORTANCE_LOW);
-        hourly.setDescription("A quiet once-an-hour summary of conditions and what's next");
-        hourly.setShowBadge(false);
+        alerts.setDescription("Bring-an-umbrella nudges, heat, UV, wind and air quality heads-ups");
+        NotificationChannel emergency = new NotificationChannel(CH_EMERGENCY, "Emergency weather alerts", NotificationManager.IMPORTANCE_HIGH);
+        emergency.setDescription("Floods, thunderstorms and damaging wind. Loud and impossible to miss");
+        emergency.enableVibration(true);
+        emergency.setVibrationPattern(new long[]{0, 400, 150, 400, 150, 700});
+        emergency.enableLights(true);
+        emergency.setLightColor(0xFFFF5A5F);
+        emergency.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+        NotificationChannel news = new NotificationChannel(CH_NEWS, "Cat weather news", NotificationManager.IMPORTANCE_LOW);
+        news.setDescription("A cat-voiced weather bulletin every two hours");
+        news.setShowBadge(false);
+        NotificationChannel morning = new NotificationChannel(CH_MORNING, "Morning briefing", NotificationManager.IMPORTANCE_DEFAULT);
+        morning.setDescription("What the day looks like and what to carry");
+        NotificationChannel updates = new NotificationChannel(CH_UPDATES, "App updates", NotificationManager.IMPORTANCE_LOW);
+        updates.setDescription("Tells you when a new version of Skypix is ready");
+        updates.setShowBadge(false);
         nm.createNotificationChannel(alerts);
-        nm.createNotificationChannel(hourly);
+        nm.createNotificationChannel(emergency);
+        nm.createNotificationChannel(news);
+        nm.createNotificationChannel(morning);
+        nm.createNotificationChannel(updates);
+        nm.deleteNotificationChannel("hourly");
     }
 
     private static PendingIntent open(Context c, int req) {
@@ -58,30 +78,66 @@ final class Notifier {
         return s > e ? (h >= s || h < e) : (h >= s && h < e);
     }
 
-    static void hourly(Context c, Place p, Weather w) {
+    private static Notification.Builder builder(Context c, String channel) {
+        return Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(c, channel) : new Notification.Builder(c);
+    }
+
+    /** The "Cat News" bulletin, every two hours. */
+    static void news(Context c, Place p, Weather w) {
         if (!Store.hourly(c) || !Store.notificationsAllowed(c) || inQuietHours(c)) return;
         ensureChannels(c);
         long now = System.currentTimeMillis() / 1000L;
-        Units u = Store.units(c);
-        Weather.Now n = w.now(now);
-        Icon icon = Wmo.icon(n.code, n.isDay);
-        String title = u.t(n.temp) + " · " + Wmo.label(n.code) + " · " + p.shortName();
-        String body = Insights.hourlyBody(w, u, now);
-        String first = body.contains("\n") ? body.substring(0, body.indexOf('\n')) : body;
-
-        Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(c, CH_HOURLY) : new Notification.Builder(c);
+        CatNews.Bulletin n = CatNews.news(w, Store.units(c), p.shortName(), now);
+        Notification.Builder b = builder(c, CH_NEWS);
         b.setSmallIcon(R.drawable.ic_stat_weather)
-                .setLargeIcon(largeIcon(icon))
-                .setContentTitle(title)
-                .setContentText(first)
-                .setStyle(new Notification.BigTextStyle().bigText(body))
-                .setColor(0xFF2F6FD6)
+                .setLargeIcon(largeIcon(n.icon))
+                .setContentTitle(n.title)
+                .setContentText(n.text)
+                .setStyle(new Notification.BigTextStyle().bigText(n.big))
+                .setSubText(p.shortName())
+                .setColor(0xFF1A73E8)
                 .setOnlyAlertOnce(true)
                 .setShowWhen(true)
                 .setAutoCancel(true)
                 .setCategory(Notification.CATEGORY_STATUS)
                 .setContentIntent(open(c, 11));
-        post(c, ID_HOURLY, b.build());
+        post(c, ID_NEWS, b.build());
+    }
+
+    /** Good-morning briefing. */
+    static void morning(Context c, Place p, Weather w) {
+        if (!Store.morning(c) || !Store.notificationsAllowed(c)) return;
+        ensureChannels(c);
+        long now = System.currentTimeMillis() / 1000L;
+        if (w.dayIndex(now) >= w.dMax.length) return;
+        CatNews.Bulletin n = CatNews.morning(w, Store.units(c), p.shortName(), now);
+        Notification.Builder b = builder(c, CH_MORNING);
+        b.setSmallIcon(R.drawable.ic_stat_weather)
+                .setLargeIcon(largeIcon(n.icon))
+                .setContentTitle(n.title)
+                .setContentText(n.text)
+                .setStyle(new Notification.BigTextStyle().bigText(n.big))
+                .setSubText(p.shortName())
+                .setColor(0xFFF29900)
+                .setAutoCancel(true)
+                .setCategory(Notification.CATEGORY_RECOMMENDATION)
+                .setContentIntent(open(c, 13));
+        post(c, ID_MORNING, b.build());
+    }
+
+    static void updateAvailable(Context c, String versionName, String notes) {
+        if (!Store.notificationsAllowed(c)) return;
+        ensureChannels(c);
+        Notification.Builder b = builder(c, CH_UPDATES);
+        b.setSmallIcon(R.drawable.ic_stat_weather)
+                .setLargeIcon(largeIcon(Icon.SUN))
+                .setContentTitle("Skypix " + versionName + " is ready")
+                .setContentText(notes.length() > 0 ? notes : "Open Skypix to install the update")
+                .setStyle(new Notification.BigTextStyle().bigText((notes.length() > 0 ? notes + "\n" : "") + "Open Skypix and tap Install."))
+                .setColor(0xFF1A73E8)
+                .setAutoCancel(true)
+                .setContentIntent(open(c, 14));
+        post(c, ID_UPDATE, b.build());
     }
 
     static void alerts(Context c, Place p, Weather w) {
@@ -94,16 +150,18 @@ final class Notifier {
             if (in.at != 0 && in.at - now > 4 * 3600L) continue;
             if (!Store.markSeen(c, in.key)) continue;
             ensureChannels(c);
-            Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(c, CH_ALERTS) : new Notification.Builder(c);
+            boolean emergency = in.sev >= Insights.WARNING;
+            Notification.Builder b = builder(c, emergency ? CH_EMERGENCY : CH_ALERTS);
             b.setSmallIcon(R.drawable.ic_stat_weather)
-                    .setLargeIcon(largeIcon(in.icon))
-                    .setContentTitle(in.title)
-                    .setContentText(in.detail + " · " + p.shortName())
-                    .setStyle(new Notification.BigTextStyle().bigText(in.detail + "\n" + p.title()))
-                    .setColor(in.sev == Insights.WARNING ? 0xFFFF5A5F : 0xFFFFB020)
+                    .setLargeIcon(largeIcon(emergency ? Icon.STORM : in.icon))
+                    .setContentTitle(CatNews.alertTitle(in))
+                    .setContentText(in.detail + " \u00b7 " + p.shortName())
+                    .setStyle(new Notification.BigTextStyle().bigText(CatNews.alertBody(in) + "\n" + p.title()))
+                    .setColor(emergency ? 0xFFFF5A5F : 0xFFFFB020)
                     .setAutoCancel(true)
-                    .setCategory(Notification.CATEGORY_RECOMMENDATION)
+                    .setCategory(emergency ? Notification.CATEGORY_ALARM : Notification.CATEGORY_RECOMMENDATION)
                     .setContentIntent(open(c, 12));
+            if (emergency) b.setVisibility(Notification.VISIBILITY_PUBLIC);
             if (Build.VERSION.SDK_INT < 26) b.setPriority(Notification.PRIORITY_HIGH);
             post(c, in.key.hashCode(), b.build());
         }

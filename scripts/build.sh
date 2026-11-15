@@ -6,6 +6,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Bump both for every release; the in-app updater compares VERSION_CODE (it must always go up).
+VERSION_CODE=7
+VERSION_NAME=1.0.6
+RELEASE_NOTES="Cat weather news every 2 hours, morning briefing, flood and storm alerts, and in-app updates."
+UPDATE_BASE=https://raw.githubusercontent.com/VK-VfX/Sam-s-Signal-Stabilizer/claude/signal-stabilizer-game-8le0y5/dist
+
 DEPS=build/deps
 mkdir -p "$DEPS" build/gen build/classes build/dex dist
 ANDROID_JAR="$DEPS/android-all.jar"
@@ -22,7 +28,7 @@ MODE=previews scripts/preview.sh app/src/main/res/drawable-nodpi
 rm -rf build/gen/* build/classes/* build/dex/*
 aapt package -f -m -J build/gen -M app/src/main/AndroidManifest.xml -S app/src/main/res \
   -I "$ANDROID_JAR" --min-sdk-version 26 --target-sdk-version 34 \
-  --version-code 6 --version-name 1.0.5 -F build/unsigned.apk
+  --version-code "$VERSION_CODE" --version-name "$VERSION_NAME" -F build/unsigned.apk
 
 # 3. java -> class -> dex (no lambdas / default methods: dx 11 (repackaged AOSP dx) can't desugar them)
 javac -nowarn --release 8 -encoding UTF-8 -classpath "$ANDROID_JAR" -d build/classes \
@@ -38,3 +44,16 @@ zipalign -f -p 4 build/unsigned.apk build/aligned.apk
 apksigner sign --ks keystore/skypix.jks --ks-pass pass:skypix123 --key-pass pass:skypix123 --out dist/skypix.apk build/aligned.apk
 apksigner verify --verbose dist/skypix.apk | head -5
 ls -la dist/skypix.apk
+
+# 5. the tiny manifest the in-app updater reads (published next to the APK)
+SHA=$(sha256sum dist/skypix.apk | cut -d' ' -f1)
+cat > dist/update.json <<JSON
+{
+  "versionCode": $VERSION_CODE,
+  "versionName": "$VERSION_NAME",
+  "apkUrl": "$UPDATE_BASE/skypix.apk",
+  "sha256": "$SHA",
+  "notes": "$RELEASE_NOTES"
+}
+JSON
+cat dist/update.json
