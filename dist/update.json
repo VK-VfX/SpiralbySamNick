@@ -1,7 +1,7 @@
 {
-  "versionCode": 7,
-  "versionName": "1.0.6",
+  "versionCode": 8,
+  "versionName": "1.0.7",
   "apkUrl": "https://raw.githubusercontent.com/VK-VfX/Sam-s-Signal-Stabilizer/claude/signal-stabilizer-game-8le0y5/dist/skypix.apk",
-  "sha256": "8aeef16413459b4d28c3d50e2cbba431634ce8aeb2ed17c09844615b65fb92b9",
-  "notes": "Cat weather news every 2 hours, morning briefing, flood and storm alerts, and in-app updates."
+  "sha256": "13cba75b51d28917743830ce77c9d68a8f1e36868d53bdaa80c3dbd620cbd07e",
+  "notes": "Skypix is now Purrcast: new name and a brand new icon."
 }
