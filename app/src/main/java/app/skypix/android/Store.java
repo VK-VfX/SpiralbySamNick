@@ -44,6 +44,9 @@ final class Store {
     static int quietEnd(Context c) { return sp(c).getInt("qe", 7); }
     static void setQuietHours(Context c, int start, int end) { sp(c).edit().putInt("qs", start).putInt("qe", end).apply(); }
 
+    static boolean clearDark(Context c) { return sp(c).getBoolean("clear_dark", false); }
+    static void setClearDark(Context c, boolean v) { sp(c).edit().putBoolean("clear_dark", v).apply(); }
+
     static Units units(Context c) {
         return Units.resolve(tempPref(c), Locale.getDefault(), DateFormat.is24HourFormat(c));
     }

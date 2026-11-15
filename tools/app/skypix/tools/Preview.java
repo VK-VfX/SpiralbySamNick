@@ -31,10 +31,20 @@ public final class Preview {
     }
 
     static BufferedImage backdrop(int w, int h, boolean dark) {
+        return backdrop(w, h, dark, false);
+    }
+
+    static BufferedImage backdrop(int w, int h, boolean dark, boolean colorful) {
         BufferedImage bg = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = bg.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        if (dark) {
+        if (dark && colorful) {
+            g.setPaint(new GradientPaint(0, 0, new Color(0x0B0F1A), w, h, new Color(0x2A1240)));
+            g.fillRect(0, 0, w, h);
+            blob(g, w * 0.2f, h * 0.25f, w * 0.5f, new Color(0x2E7DFF), 170);
+            blob(g, w * 0.85f, h * 0.7f, w * 0.5f, new Color(0xFF4D8D), 150);
+            blob(g, w * 0.5f, h * 0.95f, w * 0.45f, new Color(0x2EE6A6), 120);
+        } else if (dark) {
             g.setPaint(Color.BLACK);
             g.fillRect(0, 0, w, h);
         } else {
@@ -56,6 +66,10 @@ public final class Preview {
     }
 
     static void sheet(File out, int[] kinds, String scenario, int[][] sizes, float u) throws Exception {
+        sheet(out, kinds, scenario, sizes, u, false);
+    }
+
+    static void sheet(File out, int[] kinds, String scenario, int[][] sizes, float u, boolean clear) throws Exception {
         float pad = 14;
         int colW = 0, totalH = 0;
         for (int k : kinds) {
@@ -68,8 +82,9 @@ public final class Preview {
         for (int side = 0; side < 2; side++) {
             boolean dark = side == 1;
             int x0 = side * (W / 2);
-            g.drawImage(backdrop(W / 2, H, dark), x0, 0, null);
+            g.drawImage(backdrop(W / 2, H, dark, clear), x0, 0, null);
             Cards.Data d = Samples.data(scenario, false, false);
+            d.transparentDark = clear;
             float y = pad;
             for (int k : kinds) {
                 BufferedImage w = render(k, sizes[k][0], sizes[k][1], u, dark, d);
@@ -132,6 +147,8 @@ public final class Preview {
             sheet(new File(dir, "typical-b.png"), new int[]{4, 5, 6, 7}, "clear", TYPICAL, u);
             sheet(new File(dir, "min-a.png"), new int[]{0, 1, 2, 3}, "clear", MIN, u);
             sheet(new File(dir, "min-b.png"), new int[]{4, 5, 6, 7}, "clear", MIN, u);
+            sheet(new File(dir, "clear-a.png"), new int[]{0, 1, 2, 3}, "clear", TYPICAL, u, true);
+            sheet(new File(dir, "clear-b.png"), new int[]{4, 5, 6, 7}, "clear", TYPICAL, u, true);
             String[] moods = {"night", "rain", "storm", "snow", "cloudy", "fog", "partly"};
             for (String m : moods) {
                 sheet(new File(dir, "mood-" + m + ".png"), new int[]{1, 2, 7}, m, TYPICAL, u);

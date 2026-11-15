@@ -15,6 +15,8 @@ public final class Cards {
         public Place place;
         public Units units = new Units(false, false, false);
         public long nowSec;
+        /** Dark theme only: draw widgets with no fill (see-through) instead of AMOLED black. */
+        public boolean transparentDark;
 
         public boolean ready() {
             return weather != null && weather.valid() && place != null;
@@ -87,9 +89,10 @@ public final class Cards {
         final Gfx g;
         final float u, w, h;
         final boolean dark;
+        final boolean clear;
 
-        R(Gfx g, float u, float w, float h, boolean dark) {
-            this.g = g; this.u = u; this.w = w; this.h = h; this.dark = dark;
+        R(Gfx g, float u, float w, float h, boolean dark, boolean clear) {
+            this.g = g; this.u = u; this.w = w; this.h = h; this.dark = dark; this.clear = dark && clear;
         }
 
         void text(String s, float x, float base, float size, int font, int align, int color) {
@@ -144,7 +147,7 @@ public final class Cards {
     // ---- entry points --------------------------------------------------------------------------------------------
 
     public static void render(Gfx g, int kind, float wDp, float hDp, float u, boolean dark, Data d) {
-        R r = new R(g, u, wDp, hDp, dark);
+        R r = new R(g, u, wDp, hDp, dark, d != null && d.transparentDark);
         Mood m = mood(d);
         base(r, m);
         if (d == null || !d.ready()) {
@@ -183,6 +186,11 @@ public final class Cards {
 
     private static void base(R r, Mood m) {
         float rad = 22;
+        if (r.clear) {
+            // Transparent variant: no fill at all, just a hairline glass edge so the wallpaper shows through.
+            r.g.strokeRoundRect(0.5f * r.u, 0.5f * r.u, (r.w - 0.5f) * r.u, (r.h - 0.5f) * r.u, rad * r.u, 1f * r.u, 0x33FFFFFF);
+            return;
+        }
         // Dark mode is AMOLED: the card fades to pure black so it vanishes into a black wallpaper.
         int top = r.dark ? alpha(mix(m.top, 0xFF000000, 0.5f), 0x8C) : alpha(m.top, 0xF2);
         int bottom = r.dark ? 0xE6000000 : alpha(m.bottom, 0xF7);
@@ -611,7 +619,7 @@ public final class Cards {
 
     /** Alert rows used on the in-app alerts list (same look as the heads-up widget, one per insight). */
     public static void renderInsight(Gfx g, Insights.Insight in, float wDp, float hDp, float u, boolean dark, Data d) {
-        R r = new R(g, u, wDp, hDp, dark);
+        R r = new R(g, u, wDp, hDp, dark, d != null && d.transparentDark);
         base(r, mood(d));
         float h = hDp, w = wDp;
         int stripe = in.sev == Insights.WARNING ? 0xFFFF5A5F : in.sev == Insights.NOTICE ? 0xFFFFB020 : 0xFF4DD0E1;

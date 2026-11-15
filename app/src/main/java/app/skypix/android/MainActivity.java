@@ -405,6 +405,21 @@ public class MainActivity extends Activity {
         }
         row(box, "Units", "Temperature, wind and pressure", seg);
 
+        LinearLayout style = new LinearLayout(this);
+        style.setOrientation(LinearLayout.HORIZONTAL);
+        for (final boolean clearOpt : new boolean[]{false, true}) {
+            Ui.PixelButton b = new Ui.PixelButton(this, clearOpt ? "CLEAR" : "BLACK", Store.clearDark(this) == clearOpt);
+            b.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    Store.setClearDark(MainActivity.this, clearOpt);
+                    WidgetUpdater.updateAll(MainActivity.this);
+                    rebuild();
+                }
+            });
+            style.addView(b, new LinearLayout.LayoutParams(-2, -2));
+        }
+        row(box, "Dark mode widgets", "AMOLED black, or fully see-through", style);
+
         row(box, "Weather alerts", "Rain, storms, heat, UV, wind, air quality",
                 toggle(Store.alerts(this), new CompoundButton.OnCheckedChangeListener() {
                     @Override public void onCheckedChanged(CompoundButton b, boolean on) {

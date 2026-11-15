@@ -42,6 +42,7 @@ final class WidgetUpdater {
     }
 
     static void update(Context ctx, AppWidgetManager m, int kind, int id, Cards.Data d) {
+        d.transparentDark = Store.clearDark(ctx);
         int[] def = Cards.size(kind);
         Bundle o = m.getAppWidgetOptions(id);
         int w = o == null ? 0 : o.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0);
