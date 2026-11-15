@@ -83,6 +83,14 @@ final class AwtGfx implements Gfx {
         g.draw(new Line2D.Float(x1, y1, x2, y2));
     }
 
+    @Override public void crescent(float cx, float cy, float r, int argb) {
+        java.awt.geom.Area a = new java.awt.geom.Area(new java.awt.geom.Ellipse2D.Float(cx - r, cy - r, 2 * r, 2 * r));
+        float r2 = r * 0.82f, cx2 = cx + r * 0.52f, cy2 = cy - r * 0.26f;
+        a.subtract(new java.awt.geom.Area(new java.awt.geom.Ellipse2D.Float(cx2 - r2, cy2 - r2, 2 * r2, 2 * r2)));
+        g.setPaint(c(argb));
+        g.fill(a);
+    }
+
     @Override public void text(String s, float x, float y, float size, int font, int align, int argb) {
         Font f = font(font, size);
         g.setFont(f);

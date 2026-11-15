@@ -37,14 +37,21 @@ final class AndroidGfx implements Gfx {
         p.setSubpixelText(true);
     }
 
+    private static Typeface weight(int w) {
+        // Pixel phones ship Google Sans as "google-sans"; other phones silently get the default sans.
+        Typeface base = Typeface.create("google-sans", Typeface.NORMAL);
+        if (android.os.Build.VERSION.SDK_INT >= 28) return Typeface.create(base, w, false);
+        return w >= 700 ? Typeface.create(base, Typeface.BOLD) : base;
+    }
+
     private static synchronized Typeface face(int font) {
         if (faces == null) {
             faces = new Typeface[5];
-            faces[FONT_LIGHT] = Typeface.create("sans-serif-light", Typeface.NORMAL);
-            faces[FONT_REGULAR] = Typeface.create("sans-serif", Typeface.NORMAL);
-            faces[FONT_MEDIUM] = Typeface.create("sans-serif-medium", Typeface.NORMAL);
-            faces[FONT_BOLD] = Typeface.create("sans-serif", Typeface.BOLD);
-            faces[FONT_BLACK] = Typeface.create("sans-serif-black", Typeface.NORMAL);
+            faces[FONT_LIGHT] = weight(300);
+            faces[FONT_REGULAR] = weight(400);
+            faces[FONT_MEDIUM] = weight(500);
+            faces[FONT_BOLD] = weight(700);
+            faces[FONT_BLACK] = weight(800);
         }
         return faces[font];
     }
@@ -138,6 +145,17 @@ final class AndroidGfx implements Gfx {
         int ix = Math.round(x), iy = Math.round(y);
         dst.set(ix, iy, ix + w * cell, iy + h * cell);
         c.drawBitmap(bmp, src, dst, spritePaint);
+    }
+
+    @Override public void crescent(float cx, float cy, float r, int argb) {
+        Path a = new Path(), b = new Path();
+        a.addCircle(cx, cy, r, Path.Direction.CW);
+        b.addCircle(cx + r * 0.52f, cy - r * 0.26f, r * 0.82f, Path.Direction.CW);
+        a.op(b, Path.Op.DIFFERENCE);
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(argb);
+        c.drawPath(a, p);
     }
 
     @Override public void clipRoundRect(float l, float t, float r, float b, float radius) {

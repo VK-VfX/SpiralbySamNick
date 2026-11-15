@@ -35,6 +35,9 @@ public interface Gfx {
     /** Draws a pixel sprite scaled by an integer cell size, nearest-neighbour. */
     void sprite(int[] argb, int w, int h, float x, float y, int cell);
 
+    /** A crescent moon: a disc of radius r with a second, offset disc cut out of it. */
+    void crescent(float cx, float cy, float r, int argb);
+
     void clipRoundRect(float l, float t, float r, float b, float radius);
 
     void restoreClip();

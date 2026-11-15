@@ -12,7 +12,6 @@ import android.os.Build;
 import app.skypix.core.Icon;
 import app.skypix.core.Insights;
 import app.skypix.core.Place;
-import app.skypix.core.Sprites;
 import app.skypix.core.Units;
 import app.skypix.core.Weather;
 import app.skypix.core.Wmo;
@@ -47,8 +46,9 @@ final class Notifier {
     }
 
     private static Bitmap largeIcon(Icon icon) {
-        Bitmap b = Bitmap.createBitmap(Sprites.get(icon), Sprites.N, Sprites.N, Bitmap.Config.ARGB_8888);
-        return Bitmap.createScaledBitmap(b, 128, 128, false);
+        Bitmap b = Bitmap.createBitmap(128, 128, Bitmap.Config.ARGB_8888);
+        app.skypix.core.Glyphs.draw(new AndroidGfx(new android.graphics.Canvas(b)), icon, 0, 0, 128, -1);
+        return b;
     }
 
     private static boolean inQuietHours(Context c) {

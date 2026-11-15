@@ -115,7 +115,7 @@ final class Ui {
         @Override
         protected void onMeasure(int wSpec, int hSpec) {
             int cell = cell();
-            int w = Math.round(PixelFont.width(text, cell));
+            int w = Math.round(PixelFont.width(new AndroidGfx(new Canvas()), text, cell));
             int mode = MeasureSpec.getMode(wSpec);
             int size = MeasureSpec.getSize(wSpec);
             int mw = mode == MeasureSpec.EXACTLY ? size : (mode == MeasureSpec.AT_MOST ? Math.min(w, size) : w);
@@ -168,7 +168,7 @@ final class Ui {
 
         @Override
         protected void onMeasure(int wSpec, int hSpec) {
-            int w = Math.round(PixelFont.width(label, cell())) + dp(getContext(), 32);
+            int w = Math.round(PixelFont.width(new AndroidGfx(new Canvas()), label, cell())) + dp(getContext(), 32);
             int mode = MeasureSpec.getMode(wSpec);
             int size = MeasureSpec.getSize(wSpec);
             int mw = mode == MeasureSpec.EXACTLY ? size : (mode == MeasureSpec.AT_MOST ? Math.min(w, size) : w);

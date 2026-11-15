@@ -64,13 +64,13 @@ public final class Cards {
         Mood(int top, int bottom, int glow) { this.top = top; this.bottom = bottom; this.glow = glow; }
     }
 
-    private static final Mood CLEAR_DAY = new Mood(0xFF1F55B8, 0xFF0C2B66, 0xFFFFC857);
-    private static final Mood CLEAR_NIGHT = new Mood(0xFF1C2354, 0xFF090C26, 0xFF8EA2FF);
-    private static final Mood CLOUDY = new Mood(0xFF3E506E, 0xFF1D283C, 0xFFB7C6E6);
-    private static final Mood RAINY = new Mood(0xFF29415F, 0xFF111B2D, 0xFF4DA8FF);
-    private static final Mood STORMY = new Mood(0xFF3B2C66, 0xFF140E2E, 0xFFFFD23F);
-    private static final Mood SNOWY = new Mood(0xFF4A6383, 0xFF22324A, 0xFFFFFFFF);
-    private static final Mood FOGGY = new Mood(0xFF4B5666, 0xFF252C37, 0xFFD2DCF2);
+    private static final Mood CLEAR_DAY = new Mood(0xFF1A73E8, 0xFF1765CC, 0xFFFFC62E);
+    private static final Mood CLEAR_NIGHT = new Mood(0xFF1F2A4D, 0xFF182140, 0xFFB8C4FF);
+    private static final Mood CLOUDY = new Mood(0xFF4B5D78, 0xFF42536C, 0xFFD3DCEB);
+    private static final Mood RAINY = new Mood(0xFF30506F, 0xFF29455F, 0xFF7DB8FF);
+    private static final Mood STORMY = new Mood(0xFF3B3A66, 0xFF323158, 0xFFFFD43B);
+    private static final Mood SNOWY = new Mood(0xFF607C99, 0xFF566F8B, 0xFFFFFFFF);
+    private static final Mood FOGGY = new Mood(0xFF5B6675, 0xFF525C6A, 0xFFE0E6F0);
 
     private static Mood mood(Data d) {
         if (d == null || !d.ready()) return CLEAR_NIGHT;
@@ -121,40 +121,32 @@ public final class Cards {
         }
 
         float pixW(String s, float cell) {
-            return PixelFont.drawWidth(s, cell * u) / u;
+            return PixelFont.width(g, s, cell * u) / u;
         }
 
-        /** Pixel-font height in dp after snapping. */
+        /** Label cap height in dp. */
         float pixH(float cell) {
-            return 7 * Math.max(1, Math.round(cell * u)) / u;
+            return PixelFont.H * cell;
         }
 
-        /** Draws a sprite and returns the snapped size in dp. */
+        /** Draws a smooth vector weather glyph and returns its size in dp. */
         float icon(Icon ic, float x, float y, float size) {
-            int cell = Math.max(1, Math.round(size * u / Sprites.N));
-            int bob = t < 0 ? 0 : Math.round((float) Math.sin(t * 4.2 + x * 0.07) * cell * 0.7f);
-            g.sprite(Sprites.get(ic), Sprites.N, Sprites.N, Math.round(x * u), Math.round(y * u) + bob, cell);
-            return cell * Sprites.N / u;
+            float bob = t < 0 ? 0 : (float) Math.sin(t * 4.2 + x * 0.07) * size * 0.03f;
+            Glyphs.draw(g, ic, x * u, (y + bob) * u, size * u, t);
+            return size;
         }
 
-        /** Sprite with a thin dark pixel outline so pale icons stay readable on light wallpapers. */
+        /** Same glyph with a soft shadow, so pale icons stay readable on light wallpapers. */
         float iconOutlined(Icon ic, float x, float y, float size, int outline) {
-            int cell = Math.max(1, Math.round(size * u / Sprites.N));
-            int bob = t < 0 ? 0 : Math.round((float) Math.sin(t * 4.2 + x * 0.07) * cell * 0.7f);
-            int o = Math.max(1, Math.round(cell * 0.34f));
-            int[] mono = Sprites.mono(ic, outline);
-            int px = Math.round(x * u), py = Math.round(y * u) + bob;
-            for (int dx = -1; dx <= 1; dx++) {
-                for (int dy = -1; dy <= 1; dy++) {
-                    if (dx != 0 || dy != 0) g.sprite(mono, Sprites.N, Sprites.N, px + dx * o, py + dy * o, cell);
-                }
-            }
-            g.sprite(Sprites.get(ic), Sprites.N, Sprites.N, px, py, cell);
-            return cell * Sprites.N / u;
+            float bob = t < 0 ? 0 : (float) Math.sin(t * 4.2 + x * 0.07) * size * 0.03f;
+            int shadow = (outline & 0x00FFFFFF) | 0x55000000;
+            Glyphs.draw(g, ic, (x + size * 0.015f) * u, (y + bob + size * 0.04f) * u, size * u, t, shadow);
+            Glyphs.draw(g, ic, x * u, (y + bob) * u, size * u, t);
+            return size;
         }
 
         float iconSize(float size) {
-            return Math.max(1, Math.round(size * u / Sprites.N)) * Sprites.N / u;
+            return size;
         }
 
         void rect(float l, float t, float r, float b, float rad, int color) {
@@ -241,7 +233,7 @@ public final class Cards {
         if (env <= 0) return;
         float w = r.w, h = r.h;
         Weather.Now n = d.weather.now(d.nowSec);
-        r.g.clipRoundRect(0, 0, w * r.u, h * r.u, 22 * r.u);
+        r.g.clipRoundRect(0, 0, w * r.u, h * r.u, RAD * r.u);
         int area = (int) (w * h);
 
         if (m == RAINY || m == STORMY) {
@@ -321,24 +313,28 @@ public final class Cards {
 
     // ---- shared chrome -------------------------------------------------------------------------------------------
 
+    private static final float RAD = 28;
+
     private static void base(R r, Mood m) {
-        float rad = 22;
+        float rad = RAD;
         if (r.clear) {
-            // Transparent variant: no fill at all, just a hairline glass edge so the wallpaper shows through.
-            r.g.strokeRoundRect(0.5f * r.u, 0.5f * r.u, (r.w - 0.5f) * r.u, (r.h - 0.5f) * r.u, rad * r.u, 1f * r.u, 0x33FFFFFF);
+            // Transparent variant: no fill at all, just a faint edge so the wallpaper shows through.
+            r.g.strokeRoundRect(0.5f * r.u, 0.5f * r.u, (r.w - 0.5f) * r.u, (r.h - 0.5f) * r.u, rad * r.u, 1f * r.u, 0x29FFFFFF);
             return;
         }
-        // Dark mode is AMOLED: the card fades to pure black so it vanishes into a black wallpaper.
-        int top = r.dark ? alpha(mix(m.top, 0xFF000000, 0.5f), 0x8C) : alpha(m.top, 0xF2);
-        int bottom = r.dark ? 0xE6000000 : alpha(m.bottom, 0xF7);
-        r.g.fillRoundRectGradient(0, 0, r.w * r.u, r.h * r.u, rad * r.u, top, bottom);
-        r.g.clipRoundRect(0, 0, r.w * r.u, r.h * r.u, rad * r.u);
-        r.g.glow(r.w * r.u * 0.9f, -r.h * r.u * 0.1f, Math.max(r.w, r.h) * r.u * 0.75f, alpha(m.glow, r.dark ? 0x26 : 0x55));
-        r.g.restoreClip();
+        int top, bottom;
         if (r.dark) {
-            r.g.strokeRoundRect(0.5f * r.u, 0.5f * r.u, (r.w - 0.5f) * r.u, (r.h - 0.5f) * r.u, rad * r.u, 1f * r.u, 0x2EFFFFFF);
+            // AMOLED: a faint tint of the weather that falls to pure black.
+            top = alpha(mix(m.top, 0xFF000000, 0.62f), 0xF2);
+            bottom = 0xFF000000;
         } else {
-            r.g.strokeRoundRect(0.5f * r.u, 0.5f * r.u, (r.w - 0.5f) * r.u, (r.h - 0.5f) * r.u, rad * r.u, 1f * r.u, 0x22FFFFFF);
+            // Material tonal surface: almost flat, a hint of depth.
+            top = alpha(m.top, 0xFF);
+            bottom = alpha(m.bottom, 0xFF);
+        }
+        r.g.fillRoundRectGradient(0, 0, r.w * r.u, r.h * r.u, rad * r.u, top, bottom);
+        if (r.dark) {
+            r.g.strokeRoundRect(0.5f * r.u, 0.5f * r.u, (r.w - 0.5f) * r.u, (r.h - 0.5f) * r.u, rad * r.u, 1f * r.u, 0x1FFFFFFF);
         }
     }
 
@@ -665,21 +661,24 @@ public final class Cards {
             r.text(u.t(wx.dMin[j]), barLeft - 7, cy + 4.5f, 13, Gfx.FONT_REGULAR, Gfx.RIGHT, T2);
             r.text(u.t(wx.dMax[j]), barRight + 7, cy + 4.5f, 13.5f, Gfx.FONT_BOLD, Gfx.LEFT, WHITE);
 
-            float pitch = 5f, seg = 3.5f;
-            int count = (int) Math.floor(barW / pitch);
-            float sx = barLeft + (barW - count * pitch + (pitch - seg)) / 2;
-            for (int s = 0; s < count; s++) {
-                double t = gmin + (gmax - gmin) * (s + 0.5) / count;
-                double dt = (gmax - gmin) / count;
-                boolean on = t + dt / 2 >= wx.dMin[j] && t - dt / 2 <= wx.dMax[j];
-                int col = TILE;
-                if (on) {
-                    float f = (float) ((t - gmin) / (gmax - gmin));
-                    col = mix(0xFF5DADE2, 0xFFFF9F1C, f);
-                    if (i == 0 && Math.abs(t - n.temp) <= dt / 2 + 0.01) col = WHITE;
-                }
-                float x = sx + s * pitch;
-                r.rect(x, cy - seg / 2 - 0.5f, x + seg, cy + seg / 2 + 0.5f, 1f, col);
+            // smooth range pill: a faint track with the day's min..max filled in cold-to-warm
+            float th = 5f;
+            r.rect(barLeft, cy - th / 2, barRight, cy + th / 2, th / 2, TILE);
+            float x0 = barLeft + barW * (float) clamp((float) ((wx.dMin[j] - gmin) / (gmax - gmin)), 0, 1);
+            float x1 = barLeft + barW * (float) clamp((float) ((wx.dMax[j] - gmin) / (gmax - gmin)), 0, 1);
+            if (x1 - x0 < th) x1 = x0 + th;
+            int steps = Math.max(1, (int) ((x1 - x0) / 2));
+            for (int q = 0; q < steps; q++) {
+                float f0 = (float) q / steps;
+                float xa = x0 + (x1 - x0) * f0, xb = x0 + (x1 - x0) * (q + 1) / steps + 0.4f;
+                int col = mix(0xFF7DB8FF, 0xFFFFA726, (float) ((wx.dMin[j] + (wx.dMax[j] - wx.dMin[j]) * f0 - gmin) / (gmax - gmin)));
+                if (q == 0) r.rect(xa, cy - th / 2, xa + th, cy + th / 2, th / 2, col);
+                else if (q == steps - 1) r.rect(xb - th, cy - th / 2, xb, cy + th / 2, th / 2, col);
+                if (q > 0 && q < steps - 1 || steps == 1) r.rect(xa + (q == 0 ? th / 2 : 0), cy - th / 2, Math.min(xb, x1 - th / 2), cy + th / 2, 0, col);
+            }
+            if (i == 0) {
+                float nx = barLeft + barW * clamp((float) ((n.temp - gmin) / (gmax - gmin)), 0, 1);
+                r.g.fillCircle(nx * r.u, cy * r.u, 3.6f * r.u, WHITE);
             }
         }
     }
@@ -785,7 +784,7 @@ public final class Cards {
             r.pix("LON " + Fmt.coord(p.lon, false), cx, y + coordH + 5, cellC, Gfx.RIGHT, WHITE);
             String alt = Double.isNaN(p.altitudeM) ? "ALT --" : "ALT " + Math.round(p.altitudeM) + " M";
             r.pix(alt, cx, y + 2 * (coordH + 5), cellC, Gfx.RIGHT, T2);
-            r.pix("UPD " + d.units.time(p.fixTimeMs / 1000, d.weather.utcOffset, true), pad, h - pad - coordH, cellC, Gfx.LEFT, T3);
+            r.pix("Updated " + d.units.time(p.fixTimeMs / 1000, d.weather.utcOffset, true), pad, h - pad - coordH, cellC, Gfx.LEFT, T3);
         } else {
             boolean tall = h >= 150;
             float y = h - pad - (tall ? 5 : 2) * coordH - (tall ? 30 : 4);
@@ -798,7 +797,7 @@ public final class Cards {
                 float yy = y + 2 * (coordH + 4) + 6;
                 r.pix(Double.isNaN(p.altitudeM) ? "ALT --" : "ALT " + Math.round(p.altitudeM) + " M", pad, yy, cellC, Gfx.LEFT, T2);
                 r.pix(Float.isNaN(p.accuracyM) ? "ACC --" : "ACC \u00b1" + Math.round(p.accuracyM) + " M", pad, yy + coordH + 4, cellC, Gfx.LEFT, T2);
-                r.pix("UPD " + d.units.time(p.fixTimeMs / 1000, d.weather.utcOffset, true), pad, yy + 2 * (coordH + 4), cellC, Gfx.LEFT, T3);
+                r.pix(d.units.time(p.fixTimeMs / 1000, d.weather.utcOffset, true), pad, yy + 2 * (coordH + 4), cellC, Gfx.LEFT, T3);
             }
         }
     }
@@ -821,18 +820,19 @@ public final class Cards {
         float arcH = clamp(horizonY - pad - (w < 200 ? 26 : 10), 14, w * (w < 200 ? 0.45f : 0.2f));
         float arcL = pad + (w < 200 ? 4 : 10), arcR = w - pad - (w < 200 ? 4 : 10);
 
-        for (float x = pad; x <= w - pad; x += 6) {
-            r.rect(x, horizonY, x + 2, horizonY + 2, 0.5f, 0x38FFFFFF);
-        }
+        r.rect(pad, horizonY, w - pad, horizonY + 1.5f, 0.75f, 0x30FFFFFF);
 
         float f = ss > sr ? clamp((float) (now - sr) / (float) (ss - sr), 0, 1) : 0;
-        int dots = (int) ((arcR - arcL) / 6.5f);
-        for (int i = 0; i <= dots; i++) {
+        int dots = Math.max(8, (int) ((arcR - arcL) / 2.5f));
+        float px = arcL, py = horizonY;
+        for (int i = 1; i <= dots; i++) {
             float t = (float) i / dots;
             float x = arcL + (arcR - arcL) * t;
             float y = horizonY - (float) Math.sin(Math.PI * t) * arcH;
             boolean past = day && t <= f;
-            r.rect(x - 1.2f, y - 1.2f, x + 1.2f, y + 1.2f, 0.5f, past ? SUNY : 0x4AFFFFFF);
+            r.g.line(px * r.u, py * r.u, x * r.u, y * r.u, 2.6f * r.u, past ? SUNY : 0x40FFFFFF);
+            px = x;
+            py = y;
         }
         float isz = 24;
         float real = r.iconSize(isz);
