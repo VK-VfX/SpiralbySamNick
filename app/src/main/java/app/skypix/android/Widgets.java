@@ -65,10 +65,20 @@ public final class Widgets {
     public static final class Icon2x2 extends Base { @Override int variant() { return 21; } }
     public static final class Sun2x2 extends Base { @Override int variant() { return 22; } }
     public static final class Sun4x2 extends Base { @Override int variant() { return 23; } }
-    public static final class Headsup3x1 extends Base { @Override int variant() { return 24; } }
-    public static final class Headsup4x1 extends Base { @Override int variant() { return 25; } }
-    public static final class Headsup2x2 extends Base { @Override int variant() { return 26; } }
-    public static final class Headsup2x3 extends Base { @Override int variant() { return 27; } }
+    public static final class Lineh2x2 extends Base { @Override int variant() { return 24; } }
+    public static final class Lineh4x2 extends Base { @Override int variant() { return 25; } }
+    public static final class Lineh2x3 extends Base { @Override int variant() { return 26; } }
+    public static final class Lined2x2 extends Base { @Override int variant() { return 27; } }
+    public static final class Lined4x2 extends Base { @Override int variant() { return 28; } }
+    public static final class Big2x2 extends Base { @Override int variant() { return 29; } }
+    public static final class Big4x2 extends Base { @Override int variant() { return 30; } }
+    public static final class Big2x3 extends Base { @Override int variant() { return 31; } }
+    public static final class Classic2x2 extends Base { @Override int variant() { return 32; } }
+    public static final class Classic2x3 extends Base { @Override int variant() { return 33; } }
+    public static final class Headsup3x1 extends Base { @Override int variant() { return 34; } }
+    public static final class Headsup4x1 extends Base { @Override int variant() { return 35; } }
+    public static final class Headsup2x2 extends Base { @Override int variant() { return 36; } }
+    public static final class Headsup2x3 extends Base { @Override int variant() { return 37; } }
 
     static final Class<?>[] ALL = {
         Now2x2.class,
@@ -95,6 +105,16 @@ public final class Widgets {
         Icon2x2.class,
         Sun2x2.class,
         Sun4x2.class,
+        Lineh2x2.class,
+        Lineh4x2.class,
+        Lineh2x3.class,
+        Lined2x2.class,
+        Lined4x2.class,
+        Big2x2.class,
+        Big4x2.class,
+        Big2x3.class,
+        Classic2x2.class,
+        Classic2x3.class,
         Headsup3x1.class,
         Headsup4x1.class,
         Headsup2x2.class,

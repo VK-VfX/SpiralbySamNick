@@ -12,8 +12,23 @@ public final class Glyphs {
     private static final class P {
         final Gfx g;
         final int tint;
-        P(Gfx g, int tint) { this.g = g; this.tint = tint; }
-        int c(int color) { return tint != 0 ? tint : color; }
+        final boolean light;
+        P(Gfx g, int tint, boolean light) { this.g = g; this.tint = tint; this.light = light; }
+        int c(int color) {
+            if (tint != 0) return tint;
+            if (!light) return color;
+            // darker, more saturated variants so the glyphs read on a white card
+            switch (color) {
+                case CLOUD: return 0xFFB7C5D9;
+                case CLOUD_SHADE: return 0xFF93A5C0;
+                case STORM_CLOUD: return 0xFF7F90AB;
+                case WIND: return 0xFF8DA2BD;
+                case SNOW: return 0xFF8FB6EE;
+                case MOON: return 0xFFF0B429;
+                case DROP: return 0xFF4C8DF6;
+                default: return color;
+            }
+        }
     }
 
     /** Draws {@code ic} into the square (x, y, s). {@code t} &gt;= 0 adds a little motion (seconds). */
@@ -23,7 +38,12 @@ public final class Glyphs {
 
     /** With {@code tint != 0} every shape is drawn in that one colour (used for soft shadows). */
     public static void draw(Gfx g, Icon ic, float x, float y, float s, float t, int tint) {
-        P p = new P(g, tint);
+        draw(g, ic, x, y, s, t, tint, false);
+    }
+
+    /** {@code onLight} swaps the pale cloud/moon colours for ones that show up on a white card. */
+    public static void draw(Gfx g, Icon ic, float x, float y, float s, float t, int tint, boolean onLight) {
+        P p = new P(g, tint, onLight);
         switch (ic) {
             case SUN: sun(p, x + s * .5f, y + s * .5f, s * .23f, s, t, 1f); break;
             case MOON: moon(p, x + s * .5f, y + s * .5f, s * .3f, s); break;

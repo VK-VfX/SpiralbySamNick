@@ -7,8 +7,9 @@ package app.skypix.core;
 public final class Cards {
     private Cards() {}
 
-    public static final int NOW = 0, NOW_WIDE = 1, HOURLY = 2, FORECAST = 3, DETAILS = 4, LOCATION = 5, SUN = 6, HEADSUP = 7, ICON = 8;
-    public static final int COUNT = 9;
+    public static final int NOW = 0, NOW_WIDE = 1, HOURLY = 2, FORECAST = 3, DETAILS = 4, LOCATION = 5, SUN = 6, HEADSUP = 7, ICON = 8,
+            LINE_HOURLY = 9, LINE_DAILY = 10, BIG = 11, CLASSIC = 12;
+    public static final int COUNT = 13;
 
     public static final class Data {
         public Weather weather;
@@ -36,6 +37,8 @@ public final class Cards {
             case LOCATION: return new int[]{110, 110};
             case ICON: return new int[]{40, 40};
             case SUN: return new int[]{250, 110};
+            case LINE_HOURLY: case LINE_DAILY: case BIG: return new int[]{110, 110};
+            case CLASSIC: return new int[]{110, 110};
             default: return new int[]{250, 56};
         }
     }
@@ -50,6 +53,10 @@ public final class Cards {
             case LOCATION: return "Location";
             case SUN: return "Sun";
             case ICON: return "Icon";
+            case LINE_HOURLY: return "Line hourly";
+            case LINE_DAILY: return "Line daily";
+            case BIG: return "Big number";
+            case CLASSIC: return "Classic";
             default: return "Heads-up";
         }
     }
@@ -168,6 +175,10 @@ public final class Cards {
             return;
         }
         Mood m = mood(d);
+        if (kind >= LINE_HOURLY && d != null && d.ready()) {
+            modern(r, kind, m, d);
+            return;
+        }
         base(r, m);
         fx(r, m, d);
         if (d == null || !d.ready()) {
@@ -386,6 +397,225 @@ public final class Cards {
         r.text(r.fit(Wmo.label(n.code), 12, Gfx.FONT_REGULAR, w - 2 * pad), pad, condBase, 12, Gfx.FONT_REGULAR, Gfx.LEFT, T2);
         float ts = clamp(h * 0.35f, 28, 48);
         r.text(u.t(n.temp), pad - 1, condBase - 17, ts, Gfx.FONT_BOLD, Gfx.LEFT, WHITE);
+    }
+
+    // ---- MODERN CARDS: line charts, big number, classic (Pixel / Material look) --------------------------------
+
+    private static void modern(R r, int kind, Mood m, Data d) {
+        switch (kind) {
+            case LINE_HOURLY: lineCard(r, d, true); break;
+            case LINE_DAILY: lineCard(r, d, false); break;
+            case BIG: bigNumber(r, m, d); break;
+            default: classic(r, m, d); break;
+        }
+    }
+
+    private static final int WARM_L = 0xFFF29900, COOL_L = 0xFF1A73E8, WARM_D = 0xFFFFB74D, COOL_D = 0xFF8AB4F8;
+
+    /** White card in light mode, pure black in dark mode, outline only when "clear". */
+    private static void paperBg(R r) {
+        if (r.clear) {
+            r.g.strokeRoundRect(0.5f * r.u, 0.5f * r.u, (r.w - 0.5f) * r.u, (r.h - 0.5f) * r.u, RAD * r.u, 1f * r.u, 0x29FFFFFF);
+        } else if (r.dark) {
+            r.g.fillRoundRect(0, 0, r.w * r.u, r.h * r.u, RAD * r.u, 0xFF000000);
+            r.g.strokeRoundRect(0.5f * r.u, 0.5f * r.u, (r.w - 0.5f) * r.u, (r.h - 0.5f) * r.u, RAD * r.u, 1f * r.u, 0x1FFFFFFF);
+        } else {
+            r.g.fillRoundRect(0, 0, r.w * r.u, r.h * r.u, RAD * r.u, 0xFFFFFFFF);
+        }
+    }
+
+    private static void lineCard(R r, Data d, boolean hourly) {
+        Weather wx = d.weather;
+        Units u = d.units;
+        float w = r.w, h = r.h;
+        boolean paper = !r.dark;
+        paperBg(r);
+        int ink = paper ? 0xFF1F1F1F : WHITE, ink2 = paper ? 0xFF5F6368 : T2;
+        int warm = paper ? WARM_L : WARM_D, cool = paper ? COOL_L : COOL_D;
+        float pad = clamp(w * 0.085f, 10, 16);
+        Weather.Now n = wx.now(d.nowSec);
+        boolean wide = w >= 200, tall = h >= 150;
+
+        // header
+        float hs = tall || wide ? 15 : 12.5f;
+        float top;
+        String temp = u.t(n.temp);
+        float tsz = tall ? 34 : wide ? 24 : 18;
+        if (tall) {
+            r.text(r.fit(d.place.shortName(), hs, Gfx.FONT_MEDIUM, w - 2 * pad), pad, pad + hs, hs, Gfx.FONT_MEDIUM, Gfx.LEFT, ink);
+            r.text("H: " + u.t(wx.todayMax(d.nowSec)) + "  L: " + u.t(wx.todayMin(d.nowSec)), pad, pad + hs + 18, 13, Gfx.FONT_REGULAR, Gfx.LEFT, ink2);
+            r.text(temp, pad, pad + hs + 18 + tsz + 2, tsz, Gfx.FONT_MEDIUM, Gfx.LEFT, warm);
+            top = pad + hs + 18 + tsz + 8;
+        } else {
+            float tw = r.tw(temp, tsz, Gfx.FONT_MEDIUM);
+            r.text(temp, w - pad, pad + tsz * 0.8f, tsz, Gfx.FONT_MEDIUM, Gfx.RIGHT, warm);
+            r.text(r.fit(d.place.shortName(), hs, Gfx.FONT_MEDIUM, w - 2 * pad - tw - 8), pad, pad + hs, hs, Gfx.FONT_MEDIUM, Gfx.LEFT, ink);
+            if (wide) {
+                r.text("H: " + u.t(wx.todayMax(d.nowSec)) + "  L: " + u.t(wx.todayMin(d.nowSec)), pad, pad + hs + 16, 12.5f, Gfx.FONT_REGULAR, Gfx.LEFT, ink2);
+                top = pad + hs + 20;
+            } else {
+                top = pad + 24;
+            }
+        }
+
+        int base = hourly ? wx.hourIndex(d.nowSec) : wx.dayIndex(d.nowSec);
+        int avail = (hourly ? wx.hTime.length : wx.dTime.length) - base;
+        int cols = (int) clamp((float) Math.floor((w - 2 * pad) / (wide ? 44f : 30f)), 3, 7);
+        cols = Math.min(cols, avail);
+        if (cols < 2) return;
+        double[] vals = new double[cols];
+        Icon[] icons = new Icon[cols];
+        String[] labels = new String[cols];
+        for (int k = 0; k < cols; k++) {
+            int j = base + k;
+            if (hourly) {
+                vals[k] = wx.hTemp[j];
+                icons[k] = Wmo.icon(wx.hCode[j], wx.hDay[j]);
+                labels[k] = k == 0 ? "Now" : (wide ? Fmt.hourTag(wx.hTime[j], wx.utcOffset, u.h24) : String.valueOf(k));
+            } else {
+                vals[k] = wx.dMax[j];
+                icons[k] = Wmo.icon(wx.dCode[j], true);
+                String nm = k == 0 ? "Today" : DAY_NAMES[Fmt.dow(wx.dTime[j] + 43200, wx.utcOffset)];
+                labels[k] = wide ? (k == 0 ? "Today" : nm) : nm.substring(0, 1);
+            }
+        }
+        chart(r, d, pad, w - pad, top, h - pad - 16, vals, icons, labels, ink, ink2, warm, cool, u, paper);
+    }
+
+    /** Smooth temperature curve with a weather glyph on every point and labels above and below. */
+    private static void chart(R r, Data d, float left, float right, float top, float bottom, double[] v, Icon[] icons,
+                              String[] labels, int ink, int ink2, int warm, int cool, Units u, boolean paper) {
+        int n = v.length;
+        float cw = (right - left) / n;
+        float isz = clamp(Math.min(cw * 0.66f, (bottom - top) * 0.42f), 13, 26);
+        float labelH = 15;
+        float plotTop = top + labelH + isz / 2;
+        float plotBot = bottom - isz / 2 - 6;
+        if (plotBot - plotTop < 6) plotBot = plotTop + 6;
+        double lo = 1e9, hi = -1e9;
+        for (double x : v) { lo = Math.min(lo, x); hi = Math.max(hi, x); }
+        if (hi - lo < 2) { double mid = (hi + lo) / 2; hi = mid + 1; lo = mid - 1; }
+        float[] px = new float[n], py = new float[n];
+        for (int k = 0; k < n; k++) {
+            px[k] = left + cw * (k + 0.5f);
+            py[k] = plotBot - (float) ((v[k] - lo) / (hi - lo)) * (plotBot - plotTop);
+        }
+        // unlock animation: the curve draws itself left to right, glyphs pop in as it reaches them
+        float prog = r.t < 0 ? 1f : clamp(r.t / 1.5f, 0, 1);
+        int steps = 14;
+        int total = (n - 1) * steps;
+        int drawn = (int) (total * prog);
+        float lx = px[0], ly = py[0];
+        for (int i = 1; i <= Math.min(drawn, total); i++) {
+            int seg = (i - 1) / steps;
+            float f = ((i - 1) % steps + 1) / (float) steps;
+            float x = catmull(px, seg, f), y = catmull(py, seg, f);
+            double val = v[seg] + (v[Math.min(n - 1, seg + 1)] - v[seg]) * f;
+            int col = mix(cool, warm, (float) ((val - lo) / (hi - lo)));
+            r.g.line(lx * r.u, ly * r.u, x * r.u, y * r.u, 2.4f * r.u, col);
+            lx = x;
+            ly = y;
+        }
+        for (int k = 0; k < n; k++) {
+            float reach = k * steps;
+            float pop = r.t < 0 ? 1f : clamp((drawn - reach) / (steps * 0.8f), 0, 1);
+            if (pop <= 0) continue;
+            float s = isz * (0.6f + 0.4f * pop);
+            if (paper) r.g.fillCircle(px[k] * r.u, py[k] * r.u, (s / 2 + 1.5f) * r.u, 0xFFFFFFFF);
+            else r.g.fillCircle(px[k] * r.u, py[k] * r.u, (s / 2 + 1.5f) * r.u, 0xFF000000);
+            Glyphs.draw(r.g, icons[k], (px[k] - s / 2) * r.u, (py[k] - s / 2) * r.u, s * r.u, r.t < 0 ? -1 : r.t, 0, paper);
+            int c = mix(cool, warm, (float) ((v[k] - lo) / (hi - lo)));
+            r.text(u.t(v[k]), px[k], py[k] - isz / 2 - 3, 12.5f, Gfx.FONT_MEDIUM, Gfx.CENTER, withAlpha(c, pop));
+            r.text(r.fit(labels[k], 12, Gfx.FONT_REGULAR, cw), px[k], bottom + 13, 12, Gfx.FONT_REGULAR, Gfx.CENTER, k == 0 ? ink : ink2);
+        }
+    }
+
+    private static float catmull(float[] p, int seg, float t) {
+        int n = p.length;
+        float p0 = p[Math.max(0, seg - 1)], p1 = p[seg], p2 = p[Math.min(n - 1, seg + 1)], p3 = p[Math.min(n - 1, seg + 2)];
+        float t2 = t * t, t3 = t2 * t;
+        return 0.5f * ((2 * p1) + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 + (-p0 + 3 * p1 - 3 * p2 + p3) * t3);
+    }
+
+    /** Pastel top/bottom colours for the big-number card. */
+    private static int[] pastel(Mood m) {
+        if (m == CLEAR_DAY) return new int[]{0xFFB7A2F0, 0xFF78A8F7};
+        if (m == CLEAR_NIGHT) return new int[]{0xFF5B5FA8, 0xFF2A3470};
+        if (m == CLOUDY) return new int[]{0xFF9FB1CE, 0xFF6F86AC};
+        if (m == RAINY) return new int[]{0xFF7F9CC4, 0xFF4E6F9C};
+        if (m == STORMY) return new int[]{0xFF8888C0, 0xFF4F4C86};
+        if (m == SNOWY) return new int[]{0xFFA9C4E4, 0xFF7FA0C8};
+        return new int[]{0xFFA9B3C2, 0xFF7C8799};
+    }
+
+    private static void tintedBg(R r, int top, int bottom) {
+        if (r.clear) {
+            r.g.strokeRoundRect(0.5f * r.u, 0.5f * r.u, (r.w - 0.5f) * r.u, (r.h - 0.5f) * r.u, RAD * r.u, 1f * r.u, 0x29FFFFFF);
+            return;
+        }
+        if (r.dark) {
+            top = alpha(mix(top, 0xFF000000, 0.6f), 0xF2);
+            bottom = 0xFF000000;
+        }
+        r.g.fillRoundRectGradient(0, 0, r.w * r.u, r.h * r.u, RAD * r.u, top, bottom);
+        if (r.dark) r.g.strokeRoundRect(0.5f * r.u, 0.5f * r.u, (r.w - 0.5f) * r.u, (r.h - 0.5f) * r.u, RAD * r.u, 1f * r.u, 0x1FFFFFFF);
+    }
+
+    private static void bigNumber(R r, Mood m, Data d) {
+        Weather wx = d.weather;
+        Units u = d.units;
+        float w = r.w, h = r.h;
+        int[] pc = pastel(m);
+        tintedBg(r, pc[0], pc[1]);
+        fx(r, m, d);
+        Weather.Now n = wx.now(d.nowSec);
+        float pad = clamp(w * 0.07f, 10, 16);
+
+        // weather orb top-left, high/low top-right
+        boolean compact = w < 150;
+        float isz = compact ? 22 : clamp(Math.min(w, h) * 0.26f, 22, 36);
+        r.iconOutlined(Wmo.icon(n.code, n.isDay), pad - 2, pad - 3, isz, 0xFF20304F);
+        float hiLoCell = compact ? 1.05f : 1.35f;
+        hiLo(r, w - pad, pad + 1, hiLoCell, wx.todayMax(d.nowSec), wx.todayMin(d.nowSec), u, Gfx.RIGHT);
+
+        // giant thin temperature
+        String t = u.t(n.temp);
+        float ts = clamp(Math.min(h * 0.56f, w * 0.44f), 40, 96);
+        float cy = h * 0.5f + ts * 0.33f + 4;
+        r.text(t, w / 2, cy, ts, Gfx.FONT_LIGHT, Gfx.CENTER, WHITE);
+
+        // place and local time
+        String foot = w < 150 ? d.place.shortName() : d.place.shortName() + " @ " + u.time(d.nowSec, wx.utcOffset, true);
+        float fs = 11.5f;
+        r.text(r.fit(foot, fs, Gfx.FONT_MEDIUM, w - 2 * pad - 14), w / 2 + 6, h - pad + 1, fs, Gfx.FONT_MEDIUM, Gfx.CENTER, 0xE6FFFFFF);
+        float fw = Math.min(r.tw(foot, fs, Gfx.FONT_MEDIUM), w - 2 * pad - 14);
+        r.g.fillCircle((w / 2 + 6 - fw / 2 - 7) * r.u, (h - pad - 3.5f) * r.u, 2.6f * r.u, 0xE6FFFFFF);
+    }
+
+    private static void classic(R r, Mood m, Data d) {
+        Weather wx = d.weather;
+        Units u = d.units;
+        float w = r.w, h = r.h;
+        int top = m.top, bottom = mix(m.top, 0xFFFFFFFF, 0.28f);
+        tintedBg(r, top, bottom);
+        fx(r, m, d);
+        Weather.Now n = wx.now(d.nowSec);
+        float pad = clamp(w * 0.09f, 10, 16);
+        float ls = clamp(w * 0.15f, 15, 22);
+        float locBase = pad + ls;
+        r.text(r.fit(d.place.shortName(), ls, Gfx.FONT_MEDIUM, w - 2 * pad), pad, locBase, ls, Gfx.FONT_MEDIUM, Gfx.LEFT, WHITE);
+        float ts = clamp(h * 0.38f, 38, 72);
+        String tt = u.t(n.temp);
+        while (ts > 30 && r.tw(tt, ts, Gfx.FONT_LIGHT) > w - 2 * pad) ts -= 2;
+        r.text(tt, pad - 1, locBase + 6 + ts * 0.82f, ts, Gfx.FONT_LIGHT, Gfx.LEFT, WHITE);
+
+        float lh = 13;
+        float lhBase = h - pad + 2;
+        r.text("L:" + u.t(wx.todayMin(d.nowSec)) + " H:" + u.t(wx.todayMax(d.nowSec)), pad, lhBase, lh, Gfx.FONT_MEDIUM, Gfx.LEFT, WHITE);
+        float cBase = lhBase - 16;
+        float ic = 18;
+        r.icon(Wmo.icon(n.code, n.isDay), pad - 2, cBase - ic - 1, ic);
+        r.text(r.fit(Wmo.label(n.code), lh, Gfx.FONT_MEDIUM, w - 2 * pad - ic), pad + ic - 2, cBase - 4, lh, Gfx.FONT_MEDIUM, Gfx.LEFT, WHITE);
     }
 
     // ---- NOW WIDE (4x2) ------------------------------------------------------------------------------------------

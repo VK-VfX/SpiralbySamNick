@@ -138,6 +138,46 @@
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_sun_4x2" />
         </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Lineh2x2" android:exported="false" android:label="@string/w_lineh_2x2">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_lineh_2x2" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Lineh4x2" android:exported="false" android:label="@string/w_lineh_4x2">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_lineh_4x2" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Lineh2x3" android:exported="false" android:label="@string/w_lineh_2x3">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_lineh_2x3" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Lined2x2" android:exported="false" android:label="@string/w_lined_2x2">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_lined_2x2" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Lined4x2" android:exported="false" android:label="@string/w_lined_4x2">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_lined_4x2" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Big2x2" android:exported="false" android:label="@string/w_big_2x2">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_big_2x2" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Big4x2" android:exported="false" android:label="@string/w_big_4x2">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_big_4x2" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Big2x3" android:exported="false" android:label="@string/w_big_2x3">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_big_2x3" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Classic2x2" android:exported="false" android:label="@string/w_classic_2x2">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_classic_2x2" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Classic2x3" android:exported="false" android:label="@string/w_classic_2x3">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_classic_2x3" />
+        </receiver>
         <receiver android:name="app.skypix.android.Widgets$Headsup3x1" android:exported="false" android:label="@string/w_headsup_3x1">
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_headsup_3x1" />
