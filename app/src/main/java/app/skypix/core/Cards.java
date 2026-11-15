@@ -510,6 +510,29 @@ public final class Cards {
         }
     }
 
+    /** The first wording that fits on one line; if none do, the last one, ellipsised. */
+    private static String pick(R r, float size, int font, float maxW, String... options) {
+        for (String o : options) {
+            if (o != null && r.tw(o, size, font) <= maxW) return o;
+        }
+        return r.fit(options[options.length - 1], size, font, maxW);
+    }
+
+    /** First two words of a short wording, for the tightest strips. */
+    private static String tiny(String s) {
+        if (s == null) return null;
+        String[] w = s.split(" ");
+        return w.length <= 2 ? s : w[0] + " " + w[1];
+    }
+
+    /** Wraps the full wording; if that would be cut off, wraps the short wording instead. */
+    private static java.util.List<String> wrapFit(R r, String full, String shortV, float size, int font, float maxW, int maxLines) {
+        java.util.List<String> lines = wrap(r, full, size, font, maxW, maxLines);
+        boolean cut = !lines.isEmpty() && lines.get(lines.size() - 1).endsWith("\u2026");
+        if (cut && shortV != null && !shortV.equals(full)) lines = wrap(r, shortV, size, font, maxW, maxLines);
+        return lines;
+    }
+
     /** Greedy word wrap; once maxLines is reached the remainder is squeezed into the last line and ellipsised. */
     private static java.util.List<String> wrap(R r, String s, float size, int font, float maxW, int maxLines) {
         java.util.ArrayList<String> out = new java.util.ArrayList<String>();
@@ -952,10 +975,10 @@ public final class Cards {
         if (two) {
             float block = titleSize + detailSize + 4;
             float base = (h - block) / 2 + titleSize - 1;
-            r.text(r.fit(in.title, titleSize, Gfx.FONT_BOLD, maxW), tx, base, titleSize, Gfx.FONT_BOLD, Gfx.LEFT, WHITE);
-            r.text(r.fit(in.detail, detailSize, Gfx.FONT_REGULAR, maxW), tx, base + detailSize + 4, detailSize, Gfx.FONT_REGULAR, Gfx.LEFT, T2);
+            r.text(pick(r, titleSize, Gfx.FONT_BOLD, maxW, in.title, in.shortTitle, tiny(in.shortTitle)), tx, base, titleSize, Gfx.FONT_BOLD, Gfx.LEFT, WHITE);
+            r.text(pick(r, detailSize, Gfx.FONT_REGULAR, maxW, in.detail, in.shortDetail), tx, base + detailSize + 4, detailSize, Gfx.FONT_REGULAR, Gfx.LEFT, T2);
         } else {
-            r.text(r.fit(in.title, titleSize, Gfx.FONT_BOLD, maxW), tx, h / 2 + 5, titleSize, Gfx.FONT_BOLD, Gfx.LEFT, WHITE);
+            r.text(pick(r, titleSize, Gfx.FONT_BOLD, maxW, in.title, in.shortTitle, tiny(in.shortTitle)), tx, h / 2 + 5, titleSize, Gfx.FONT_BOLD, Gfx.LEFT, WHITE);
         }
         if (!compact) r.text(temp, w - pad, h / 2 + tsz * 0.36f, tsz, Gfx.FONT_BOLD, Gfx.RIGHT, WHITE);
     }
@@ -984,14 +1007,14 @@ public final class Cards {
         y += real + 16;
 
         int titleLines = (int) clamp((float) Math.floor((h - pad - y + 4) / 17f), 1, 3);
-        for (String line : wrap(r, in.title, 14, Gfx.FONT_BOLD, maxW, titleLines)) {
+        for (String line : wrapFit(r, in.title, in.shortTitle, 14, Gfx.FONT_BOLD, maxW, titleLines)) {
             r.text(line, pad, y, 14, Gfx.FONT_BOLD, Gfx.LEFT, WHITE);
             y += 17;
         }
         y += 1;
         int detailLines = (int) Math.floor((h - pad - y + 6) / 14f);
         if (detailLines >= 1) {
-            for (String line : wrap(r, in.detail, 11, Gfx.FONT_REGULAR, maxW, Math.min(detailLines, 3))) {
+            for (String line : wrapFit(r, in.detail, in.shortDetail, 11, Gfx.FONT_REGULAR, maxW, Math.min(detailLines, 3))) {
                 r.text(line, pad, y, 11, Gfx.FONT_REGULAR, Gfx.LEFT, T2);
                 y += 14;
             }
@@ -1012,7 +1035,7 @@ public final class Cards {
         r.icon(in.icon, 18, (h - real) / 2, isz);
         float tx = 18 + real + 10;
         float maxW = w - tx - 14;
-        r.text(r.fit(in.title, 14, Gfx.FONT_BOLD, maxW), tx, h / 2 - 1, 14, Gfx.FONT_BOLD, Gfx.LEFT, WHITE);
-        r.text(r.fit(in.detail, 11, Gfx.FONT_REGULAR, maxW), tx, h / 2 + 15, 11, Gfx.FONT_REGULAR, Gfx.LEFT, T2);
+        r.text(pick(r, 14, Gfx.FONT_BOLD, maxW, in.title, in.shortTitle, tiny(in.shortTitle)), tx, h / 2 - 1, 14, Gfx.FONT_BOLD, Gfx.LEFT, WHITE);
+        r.text(pick(r, 11, Gfx.FONT_REGULAR, maxW, in.detail, in.shortDetail), tx, h / 2 + 15, 11, Gfx.FONT_REGULAR, Gfx.LEFT, T2);
     }
 }

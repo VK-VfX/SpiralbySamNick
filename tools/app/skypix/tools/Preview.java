@@ -176,9 +176,9 @@ public final class Preview {
             icons(dir);
         } else if (mode.equals("headsup")) {
             float u = 2.4f;
-            int[][] sz = {{110, 110}, {180, 180}, {250, 40}, {180, 40}};
+            int[][] sz = {{110, 110}, {110, 180}, {180, 180}, {250, 40}, {180, 40}};
             String[] sc = {"clear", "rain"};
-            BufferedImage img = new BufferedImage(Math.round(760 * u), Math.round(420 * u), BufferedImage.TYPE_INT_ARGB);
+            BufferedImage img = new BufferedImage(Math.round(900 * u), Math.round(420 * u), BufferedImage.TYPE_INT_ARGB);
             Graphics2D g = img.createGraphics();
             g.drawImage(backdrop(img.getWidth(), img.getHeight(), true, true), 0, 0, null);
             for (int r = 0; r < sc.length; r++) {
