@@ -113,6 +113,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        Ui.animStartMs = android.os.SystemClock.uptimeMillis();
         rebuild();
         Jobs.sync(this);
         startRefresh(false);
@@ -419,6 +420,14 @@ public class MainActivity extends Activity {
             style.addView(b, new LinearLayout.LayoutParams(-2, -2));
         }
         row(box, "Dark mode widgets", "AMOLED black, or fully see-through", style);
+
+        row(box, "Animate on unlock", "5 seconds of weather motion each time you open your phone",
+                toggle(Store.animate(this), new CompoundButton.OnCheckedChangeListener() {
+                    @Override public void onCheckedChanged(CompoundButton b, boolean on) {
+                        Store.setAnimate(MainActivity.this, on);
+                        Jobs.syncAnimService(getApplicationContext());
+                    }
+                }));
 
         row(box, "Weather alerts", "Rain, storms, heat, UV, wind, air quality",
                 toggle(Store.alerts(this), new CompoundButton.OnCheckedChangeListener() {

@@ -11,6 +11,9 @@
     <!-- Only prompted when you switch alerts on (Android 13+). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Runs the silent unlock listener that plays the 5 second widget animation. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <uses-feature android:name="android.hardware.location" android:required="false" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
@@ -73,6 +76,14 @@
             android:name="app.skypix.android.Jobs$UpdateService"
             android:exported="false"
             android:permission="android.permission.BIND_JOB_SERVICE" />
+        <service
+            android:name="app.skypix.android.Jobs$AnimService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Listens for the screen being unlocked to play a short widget animation" />
+        </service>
         <receiver android:name="app.skypix.android.Jobs$AlarmReceiver" android:exported="false" />
         <receiver android:name="app.skypix.android.Jobs$BootReceiver" android:exported="true">
             <intent-filter>

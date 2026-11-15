@@ -17,6 +17,15 @@ import app.skypix.core.PixelFont;
 final class Ui {
     private Ui() {}
 
+    /** Uptime (ms) when the in-app 5 s weather animation started; 0 = never. */
+    static volatile long animStartMs;
+
+    static float animT() {
+        if (animStartMs == 0) return -1;
+        float t = (android.os.SystemClock.uptimeMillis() - animStartMs) / 1000f;
+        return t < 5f ? t : -1;
+    }
+
     static int dp(Context c, float v) {
         return Math.round(v * c.getResources().getDisplayMetrics().density);
     }
@@ -51,8 +60,11 @@ final class Ui {
             float u = getResources().getDisplayMetrics().density;
             AndroidGfx g = new AndroidGfx(canvas);
             float w = getWidth() / u, h = getHeight() / u;
+            float t = animT();
+            if (data != null) data.anim = t;
             if (insight != null) Cards.renderInsight(g, insight, w, h, u, isDark(getContext()), data);
             else Cards.render(g, kind, w, h, u, isDark(getContext()), data);
+            if (t >= 0) postInvalidateDelayed(33);
         }
     }
 

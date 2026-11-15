@@ -43,12 +43,8 @@ final class WidgetUpdater {
 
     static void update(Context ctx, AppWidgetManager m, int kind, int id, Cards.Data d) {
         d.transparentDark = Store.clearDark(ctx);
-        int[] def = Cards.size(kind);
-        Bundle o = m.getAppWidgetOptions(id);
-        int w = o == null ? 0 : o.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0);
-        int h = o == null ? 0 : o.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 0);
-        if (w < 40) w = def[0];
-        if (h < 30) h = def[1];
+        int[] wh = sizeFor(m, kind, id);
+        int w = wh[0], h = wh[1];
 
         float u = ctx.getResources().getDisplayMetrics().density;
         while (w * u * h * u > MAX_PIXELS && u > 1f) u *= 0.9f;
@@ -69,6 +65,37 @@ final class WidgetUpdater {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         rv.setOnClickPendingIntent(R.id.root, pi);
         m.updateAppWidget(id, rv);
+    }
+
+    private static int[] sizeFor(AppWidgetManager m, int kind, int id) {
+        int[] def = Cards.size(kind);
+        Bundle o = m.getAppWidgetOptions(id);
+        int w = o == null ? 0 : o.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0);
+        int h = o == null ? 0 : o.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 0);
+        if (w < 40) w = def[0];
+        if (h < 30) h = def[1];
+        return new int[]{w, h};
+    }
+
+    /**
+     * One frame of the unlock animation. Only the bitmap for the active theme is sent, at reduced
+     * resolution, so each frame is cheap; the crisp static render replaces it when the animation ends.
+     */
+    static void animateFrame(Context ctx, Cards.Data d, float t, boolean dark) {
+        AppWidgetManager m = AppWidgetManager.getInstance(ctx);
+        d.anim = t;
+        for (int kind = 0; kind < PROVIDERS.length; kind++) {
+            int[] ids = m.getAppWidgetIds(new ComponentName(ctx, PROVIDERS[kind]));
+            for (int id : ids) {
+                int[] wh = sizeFor(m, kind, id);
+                float u = ctx.getResources().getDisplayMetrics().density * 0.7f;
+                int pw = Math.max(1, Math.round(wh[0] * u)), ph = Math.max(1, Math.round(wh[1] * u));
+                Bitmap b = draw(kind, wh[0], wh[1], u, pw, ph, dark, d);
+                RemoteViews rv = new RemoteViews(ctx.getPackageName(), R.layout.widget_frame);
+                rv.setImageViewBitmap(dark ? R.id.img_dark : R.id.img_light, b);
+                m.partiallyUpdateAppWidget(id, rv);
+            }
+        }
     }
 
     static Bitmap draw(int kind, int wDp, int hDp, float u, int pw, int ph, boolean dark, Cards.Data d) {

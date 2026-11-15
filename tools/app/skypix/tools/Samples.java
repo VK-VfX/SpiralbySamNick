@@ -73,6 +73,7 @@ final class Samples {
             else if (sc.equals("snow")) { code = 73; pop = 80; pr = 1.2; }
             else if (sc.equals("rain") && hour >= 17 && hour <= 21 && i < 48) { code = 63; pop = 78; pr = 1.8; }
             else if (sc.equals("rain")) { code = 3; pop = 20; }
+            else if (sc.equals("stormnow")) { code = 95; pop = 90; pr = 5; }
             else if (sc.equals("storm") && hour >= 17 && hour <= 20 && i < 48) { code = 95; pop = 85; pr = 4.0; }
             else if (sc.equals("storm")) { code = 2; pop = 30; }
             else if (sc.equals("night")) code = hour >= 3 && hour < 6 ? 2 : 1;

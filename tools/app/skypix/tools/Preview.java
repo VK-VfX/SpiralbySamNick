@@ -153,6 +153,25 @@ public final class Preview {
             for (String m : moods) {
                 sheet(new File(dir, "mood-" + m + ".png"), new int[]{1, 2, 7}, m, TYPICAL, u);
             }
+        } else if (mode.equals("anim")) {
+            String[] sc = {"clear", "night", "rain", "stormnow", "snow", "cloudy", "fog"};
+            float[] ts = {0.9f, 1.15f, 2.4f};
+            float u = 2f;
+            int cw = 340, ch = 118;
+            BufferedImage img = new BufferedImage(Math.round((cw + 14) * u) * ts.length, Math.round((ch + 14) * u) * sc.length, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g = img.createGraphics();
+            g.drawImage(backdrop(img.getWidth(), img.getHeight(), true, true), 0, 0, null);
+            for (int r = 0; r < sc.length; r++) {
+                for (int c = 0; c < ts.length; c++) {
+                    Cards.Data d = Samples.data(sc[r], false, false);
+                    d.anim = ts[c];
+                    BufferedImage w = render(Cards.NOW_WIDE, cw, ch, u, true, d);
+                    g.drawImage(w, Math.round((7 + c * (cw + 14)) * u), Math.round((7 + r * (ch + 14)) * u), null);
+                }
+            }
+            g.dispose();
+            dir.mkdirs();
+            ImageIO.write(img, "png", new File(dir, "anim.png"));
         } else if (mode.equals("icons")) {
             icons(dir);
         } else if (mode.equals("previews")) {

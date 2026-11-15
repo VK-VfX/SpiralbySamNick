@@ -17,6 +17,8 @@ public final class Cards {
         public long nowSec;
         /** Dark theme only: draw widgets with no fill (see-through) instead of AMOLED black. */
         public boolean transparentDark;
+        /** Seconds into the 5 s unlock animation, or a negative value for the static card. */
+        public float anim = -1;
 
         public boolean ready() {
             return weather != null && weather.valid() && place != null;
@@ -90,6 +92,7 @@ public final class Cards {
         final float u, w, h;
         final boolean dark;
         final boolean clear;
+        float t = -1;
 
         R(Gfx g, float u, float w, float h, boolean dark, boolean clear) {
             this.g = g; this.u = u; this.w = w; this.h = h; this.dark = dark; this.clear = dark && clear;
@@ -127,7 +130,8 @@ public final class Cards {
         /** Draws a sprite and returns the snapped size in dp. */
         float icon(Icon ic, float x, float y, float size) {
             int cell = Math.max(1, Math.round(size * u / Sprites.N));
-            g.sprite(Sprites.get(ic), Sprites.N, Sprites.N, Math.round(x * u), Math.round(y * u), cell);
+            int bob = t < 0 ? 0 : Math.round((float) Math.sin(t * 4.2 + x * 0.07) * cell * 0.7f);
+            g.sprite(Sprites.get(ic), Sprites.N, Sprites.N, Math.round(x * u), Math.round(y * u) + bob, cell);
             return cell * Sprites.N / u;
         }
 
@@ -148,8 +152,10 @@ public final class Cards {
 
     public static void render(Gfx g, int kind, float wDp, float hDp, float u, boolean dark, Data d) {
         R r = new R(g, u, wDp, hDp, dark, d != null && d.transparentDark);
+        r.t = d == null ? -1 : d.anim;
         Mood m = mood(d);
         base(r, m);
+        fx(r, m, d);
         if (d == null || !d.ready()) {
             empty(r);
             return;
@@ -180,6 +186,107 @@ public final class Cards {
             return i.title + ". " + i.detail;
         }
         return base + ". High " + u.temp(d.weather.todayMax(d.nowSec)) + ", low " + u.temp(d.weather.todayMin(d.nowSec)) + ".";
+    }
+
+
+    // ---- unlock animation ----------------------------------------------------------------------------------------
+
+    private static float hash(int i, int salt) {
+        int x = i * 374761393 + salt * 668265263;
+        x = (x ^ (x >>> 13)) * 1274126177;
+        x ^= x >>> 16;
+        return (x & 0xFFFFFF) / 16777216f;
+    }
+
+    private static int withAlpha(int rgb, float a) {
+        int v = Math.max(0, Math.min(255, Math.round(a * 255)));
+        return (v << 24) | (rgb & 0xFFFFFF);
+    }
+
+    /** Weather motion drawn behind the content for the 5 s after unlocking. */
+    private static void fx(R r, Mood m, Data d) {
+        if (d == null || !d.ready() || d.anim < 0) return;
+        float t = d.anim;
+        float env = Math.min(1f, Math.min(t / 0.5f, (5f - t) / 0.7f));
+        if (env <= 0) return;
+        float w = r.w, h = r.h;
+        Weather.Now n = d.weather.now(d.nowSec);
+        r.g.clipRoundRect(0, 0, w * r.u, h * r.u, 22 * r.u);
+        int area = (int) (w * h);
+
+        if (m == RAINY || m == STORMY) {
+            int count = (int) clamp(area / 1300f, 16, 64);
+            float boost = m == STORMY ? 1.35f : 1f;
+            boolean light = n.code >= 51 && n.code <= 57;
+            for (int i = 0; i < count; i++) {
+                float x = hash(i, 1) * w;
+                float speed = (190 + hash(i, 2) * 130) * boost * (light ? 0.7f : 1f);
+                float len = (light ? 4 : 7) + hash(i, 3) * 5;
+                float span = h + 30;
+                float y = ((hash(i, 4) * span + t * speed) % span) - 15;
+                float a = 0.55f * env * (0.45f + 0.55f * hash(i, 5));
+                r.rect(x, y, x + 1.4f, y + len, 0.4f, withAlpha(0x9AD0FF, a));
+            }
+            if (m == STORMY) {
+                float[] strikes = {1.1f, 2.9f, 3.25f};
+                for (float s0 : strikes) {
+                    float dt = t - s0;
+                    if (dt > 0 && dt < 0.2f) {
+                        r.rect(0, 0, w, h, 0, withAlpha(0xFFFFFF, 0.38f * (1 - dt / 0.2f)));
+                    }
+                }
+            }
+        } else if (m == SNOWY) {
+            int count = (int) clamp(area / 1100f, 18, 56);
+            for (int i = 0; i < count; i++) {
+                float sz = 1.8f + hash(i, 3) * 2.2f;
+                float speed = 24 + hash(i, 2) * 30;
+                float span = h + 20;
+                float y = ((hash(i, 4) * span + t * speed) % span) - 10;
+                float x = hash(i, 1) * w + (float) Math.sin(t * 1.3 + hash(i, 6) * 6.28) * 7;
+                r.rect(x, y, x + sz, y + sz, 0.5f, withAlpha(0xFFFFFF, 0.8f * env * (0.5f + 0.5f * hash(i, 5))));
+            }
+        } else if (m == FOGGY) {
+            for (int i = 0; i < 5; i++) {
+                float bw = w * (0.5f + hash(i, 1) * 0.4f);
+                float span = w + bw;
+                float x = ((hash(i, 2) * span + t * (6 + hash(i, 3) * 8)) % span) - bw;
+                float y = h * (0.1f + 0.8f * (i / 4f));
+                r.rect(x, y, x + bw, y + 13, 6.5f, withAlpha(0xFFFFFF, 0.1f * env));
+            }
+        } else if (m == CLEAR_NIGHT) {
+            for (int i = 0; i < 16; i++) {
+                float x = hash(i, 1) * w, y = hash(i, 2) * h * 0.85f;
+                float tw = (float) Math.sin(t * (2 + hash(i, 3) * 2.5) + hash(i, 4) * 6.28);
+                float a = Math.max(0, tw) * env * 0.9f;
+                float sz = hash(i, 5) > 0.7f ? 2.4f : 1.6f;
+                r.rect(x, y, x + sz, y + sz, 0.3f, withAlpha(0xFFF3B0, a));
+            }
+        } else if (m == CLEAR_DAY) {
+            float pulse = 0.55f + 0.1f * (float) Math.sin(t * 2.4);
+            r.g.glow(w * r.u * 0.86f, h * r.u * 0.12f, Math.max(w, h) * r.u * pulse, withAlpha(0xFFD23F, 0.28f * env));
+            for (int i = 0; i < 9; i++) {
+                float x = hash(i, 1) * w, y = hash(i, 2) * h;
+                float tw = (float) Math.sin(t * (2.2 + hash(i, 3) * 2) + hash(i, 4) * 6.28);
+                float a = Math.max(0, tw);
+                a = a * a * a * env * 0.8f;
+                int c = withAlpha(0xFFF0A0, a);
+                r.rect(x, y - 1.6f, x + 1.4f, y + 2.2f, 0.2f, c);
+                r.rect(x - 1.6f, y, x + 3f, y + 1.4f, 0.2f, c);
+            }
+        }
+
+        if (n.code == 2 || n.code == 3 || m == CLOUDY) {
+            for (int i = 0; i < 4; i++) {
+                float cw = 60 + hash(i, 1) * 50, ch = 16 + hash(i, 2) * 10;
+                float span = w + cw + 40;
+                float x = ((hash(i, 3) * span + t * (9 + hash(i, 4) * 9)) % span) - cw;
+                float y = h * (0.08f + 0.6f * hash(i, 5));
+                r.rect(x, y, x + cw, y + ch, ch / 2, withAlpha(0xFFFFFF, 0.1f * env));
+                r.rect(x + cw * 0.2f, y - ch * 0.4f, x + cw * 0.6f, y + ch * 0.4f, ch / 2, withAlpha(0xFFFFFF, 0.1f * env));
+            }
+        }
+        r.g.restoreClip();
     }
 
     // ---- shared chrome -------------------------------------------------------------------------------------------
@@ -620,7 +727,9 @@ public final class Cards {
     /** Alert rows used on the in-app alerts list (same look as the heads-up widget, one per insight). */
     public static void renderInsight(Gfx g, Insights.Insight in, float wDp, float hDp, float u, boolean dark, Data d) {
         R r = new R(g, u, wDp, hDp, dark, d != null && d.transparentDark);
+        r.t = d == null ? -1 : d.anim;
         base(r, mood(d));
+        fx(r, mood(d), d);
         float h = hDp, w = wDp;
         int stripe = in.sev == Insights.WARNING ? 0xFFFF5A5F : in.sev == Insights.NOTICE ? 0xFFFFB020 : 0xFF4DD0E1;
         r.rect(7, h * 0.22f, 10, h * 0.78f, 1.5f, stripe);
