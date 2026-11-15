@@ -17,6 +17,15 @@ import app.skypix.core.PixelFont;
 final class Ui {
     private Ui() {}
 
+    /** Last non-fatal error, shown in the app footer so it can be reported instead of crashing. */
+    static volatile String lastError;
+
+    static void report(String where, Throwable t) {
+        lastError = where + ": " + t;
+        StackTraceElement[] st = t.getStackTrace();
+        for (int i = 0; i < Math.min(4, st.length); i++) lastError += "\n  at " + st[i];
+    }
+
     /** Uptime (ms) when the in-app 5 s weather animation started; 0 = never. */
     static volatile long animStartMs;
 
@@ -61,9 +70,14 @@ final class Ui {
             AndroidGfx g = new AndroidGfx(canvas);
             float w = getWidth() / u, h = getHeight() / u;
             float t = animT();
-            if (data != null) data.anim = t;
-            if (insight != null) Cards.renderInsight(g, insight, w, h, u, isDark(getContext()), data);
-            else Cards.render(g, kind, w, h, u, isDark(getContext()), data);
+            try {
+                if (data != null) data.anim = t;
+                if (insight != null) Cards.renderInsight(g, insight, w, h, u, isDark(getContext()), data);
+                else Cards.render(g, kind, w, h, u, isDark(getContext()), data);
+            } catch (Throwable e) {
+                report("draw card " + kind, e);
+                return;
+            }
             if (t >= 0) postInvalidateDelayed(33);
         }
     }

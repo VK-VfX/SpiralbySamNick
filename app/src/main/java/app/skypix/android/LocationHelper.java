@@ -36,6 +36,7 @@ final class LocationHelper {
 
         LocationListener listener = new LocationListener() {
             @Override public void onLocationChanged(Location loc) {
+                if (loc == null) return;
                 synchronized (lock) {
                     if (better(loc, best[0])) best[0] = loc;
                     if (loc.hasAccuracy() && loc.getAccuracy() <= GOOD_ACCURACY_M

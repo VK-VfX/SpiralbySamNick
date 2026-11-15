@@ -144,7 +144,8 @@ public class MainActivity extends Activity {
             @Override public void run() {
                 try {
                     Updater.run(app, true, 12000, force ? 0 : 8 * 60 * 1000L);
-                } catch (Throwable ignored) {
+                } catch (Throwable t) {
+                    Ui.report("refresh", t);
                 }
                 ui.post(new Runnable() {
                     @Override public void run() {
@@ -169,6 +170,20 @@ public class MainActivity extends Activity {
     }
 
     private void rebuild() {
+        try {
+            rebuildUnsafe();
+        } catch (Throwable t) {
+            Ui.report("rebuild", t);
+            content.removeAllViews();
+            TextView e = new TextView(this);
+            e.setText("Skypix couldn't draw this screen.\n\n" + Ui.lastError);
+            e.setTextColor(0xFFFF8A8A);
+            e.setTextIsSelectable(true);
+            content.addView(e);
+        }
+    }
+
+    private void rebuildUnsafe() {
         final int keepY = scroll.getScrollY();
         content.removeAllViews();
         cardByKind.clear();
@@ -225,6 +240,14 @@ public class MainActivity extends Activity {
         foot.setTextColor(ink2);
         foot.setLineSpacing(0, 1.2f);
         content.addView(foot, lp(-1, -2, 26));
+        if (Ui.lastError != null) {
+            TextView err = new TextView(this);
+            err.setText("Last issue (please send this):\n" + Ui.lastError);
+            err.setTextColor(0xFFFF8A8A);
+            err.setTextSize(10.5f);
+            err.setTextIsSelectable(true);
+            content.addView(err, lp(-1, -2, 14));
+        }
 
         if (pendingScrollKind < 0) scroll.post(new Runnable() {
             @Override public void run() { scroll.scrollTo(0, keepY); }
@@ -329,12 +352,18 @@ public class MainActivity extends Activity {
     @Override
     public void onRequestPermissionsResult(int code, String[] perms, int[] results) {
         super.onRequestPermissionsResult(code, perms, results);
-        Jobs.sync(this);
-        if (code == REQ_LOCATION && Store.anyLocation(this)) {
-            Jobs.kick(this);
-            startRefresh(true);
+        try {
+            Jobs.sync(this);
+            if (code == REQ_LOCATION && Store.anyLocation(this)) {
+                Jobs.kick(this);
+                startRefresh(true);
+            }
+        } catch (Throwable t) {
+            Ui.report("permission result", t);
         }
-        rebuild();
+        ui.post(new Runnable() {
+            @Override public void run() { rebuild(); }
+        });
     }
 
     // ---- settings -------------------------------------------------------------------------------------------------

@@ -102,6 +102,7 @@ final class Updater {
             if (w.valid()) Store.saveWeather(app, fc, air, now);
         } catch (Exception e) {
             // offline or API hiccup: keep showing the cached forecast
+            Ui.report("weather fetch", e);
         }
     }
 }

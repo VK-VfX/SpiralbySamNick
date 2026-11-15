@@ -36,6 +36,14 @@ public final class Jobs {
 
     /** Makes the scheduled work match what's enabled: widgets present, alerts, hourly briefing. */
     static void sync(Context ctx) {
+        try {
+            syncUnsafe(ctx);
+        } catch (Throwable t) {
+            Ui.report("Jobs.sync", t);
+        }
+    }
+
+    private static void syncUnsafe(Context ctx) {
         Context app = ctx.getApplicationContext();
         JobScheduler js = (JobScheduler) app.getSystemService(Context.JOB_SCHEDULER_SERVICE);
         boolean needData = WidgetUpdater.count(app) > 0 || Store.alerts(app) || Store.hourly(app);
@@ -71,13 +79,17 @@ public final class Jobs {
 
     /** Refresh as soon as possible (one-shot). */
     static void kick(Context ctx) {
-        Context app = ctx.getApplicationContext();
-        if (!Store.anyLocation(app)) return;
-        JobScheduler js = (JobScheduler) app.getSystemService(Context.JOB_SCHEDULER_SERVICE);
-        js.schedule(new JobInfo.Builder(ID_KICK, new ComponentName(app, UpdateService.class))
-                .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
-                .setOverrideDeadline(15000)
-                .build());
+        try {
+            Context app = ctx.getApplicationContext();
+            if (!Store.anyLocation(app)) return;
+            JobScheduler js = (JobScheduler) app.getSystemService(Context.JOB_SCHEDULER_SERVICE);
+            js.schedule(new JobInfo.Builder(ID_KICK, new ComponentName(app, UpdateService.class))
+                    .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
+                    .setOverrideDeadline(15000)
+                    .build());
+        } catch (Throwable t) {
+            Ui.report("Jobs.kick", t);
+        }
     }
 
     private static PendingIntent alarmIntent(Context app) {
