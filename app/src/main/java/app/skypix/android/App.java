@@ -22,7 +22,7 @@ public class App extends Application {
                 try {
                     StringWriter sw = new StringWriter();
                     e.printStackTrace(new PrintWriter(sw));
-                    String report = "Purrcast 1.0.7 · Android " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ") · "
+                    String report = "Purrcast 1.0.8 · Android " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ") · "
                             + Build.MANUFACTURER + " " + Build.MODEL + "\nThread: " + t.getName() + "\n\n" + sw;
                     Intent i = new Intent(App.this, CrashActivity.class)
                             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK)

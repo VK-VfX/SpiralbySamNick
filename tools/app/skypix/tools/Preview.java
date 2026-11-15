@@ -192,6 +192,25 @@ public final class Preview {
             g.dispose();
             dir.mkdirs();
             ImageIO.write(img, "png", new File(dir, "headsup.png"));
+        } else if (mode.equals("cats")) {
+            app.skypix.core.Icon[] all = app.skypix.core.Icon.values();
+            int cols = 7, cell = 150, rows = (all.length + cols - 1) / cols;
+            for (int side = 0; side < 2; side++) {
+                AwtGfx g = new AwtGfx(cols * cell, rows * (cell + 26), "SansSerif");
+                java.awt.Graphics2D g2 = g.img.createGraphics();
+                g2.setColor(side == 0 ? new java.awt.Color(0xFFFFFF) : new java.awt.Color(0x000000));
+                g2.fillRect(0, 0, g.img.getWidth(), g.img.getHeight());
+                for (int i = 0; i < all.length; i++) {
+                    float x = (i % cols) * cell + 15, y = (i / cols) * (cell + 26) + 6;
+                    app.skypix.core.Glyphs.draw(g, all[i], x, y, cell - 30, 0.6f, 0, side == 0);
+                    g2.setColor(side == 0 ? java.awt.Color.DARK_GRAY : java.awt.Color.LIGHT_GRAY);
+                    g2.setFont(new java.awt.Font("SansSerif", java.awt.Font.PLAIN, 14));
+                    g2.drawString(all[i].name(), x, y + cell - 14);
+                }
+                g2.dispose();
+                dir.mkdirs();
+                ImageIO.write(g.img, "png", new File(dir, side == 0 ? "cats-light.png" : "cats-dark.png"));
+            }
         } else if (mode.equals("news")) {
             String[] sc = {"clear", "partly", "rain", "stormnow", "snow", "windy", "night"};
             for (String name : sc) {
