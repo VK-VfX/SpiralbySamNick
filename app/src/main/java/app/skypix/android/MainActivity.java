@@ -24,7 +24,6 @@ import android.widget.CompoundButton;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
-import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.TimePicker;
 import android.widget.Toast;
@@ -45,7 +44,7 @@ public class MainActivity extends Activity {
     private final Handler ui = new Handler(Looper.getMainLooper());
     private ScrollView scroll;
     private LinearLayout content;
-    private Ui.PixelText statusText;
+    private TextView statusText;
     private boolean refreshing;
     private int pendingScrollKind = -1;
     private final HashMap<Integer, View> cardByKind = new HashMap<Integer, View>();
@@ -68,7 +67,7 @@ public class MainActivity extends Activity {
         content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         int pad = Ui.dp(this, 16);
-        content.setPadding(pad, Ui.dp(this, 12), pad, Ui.dp(this, 28));
+        content.setPadding(pad, Ui.dp(this, 20), pad, Ui.dp(this, 32));
         scroll.addView(content, new ViewGroup.LayoutParams(-1, -2));
         root.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
         setContentView(root);
@@ -89,7 +88,7 @@ public class MainActivity extends Activity {
 
     private void applySystemBars() {
         boolean dark = Ui.isDark(this);
-        int bg = dark ? 0xFF000000 : 0xFFE7EDF8;
+        int bg = Ui.bg(this);
         getWindow().setStatusBarColor(bg);
         getWindow().setNavigationBarColor(bg);
         int flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE;
@@ -158,7 +157,7 @@ public class MainActivity extends Activity {
     }
 
     private void setStatus(String s) {
-        if (statusText != null) statusText.set(s);
+        if (statusText != null) statusText.setText(s);
     }
 
     // ---- screen -----------------------------------------------------------------------------------------------------
@@ -192,17 +191,18 @@ public class MainActivity extends Activity {
         int ink2 = dark ? 0x99FFFFFF : 0x990E1630;
         final Cards.Data d = Store.data(this);
 
-        // header
+        // header: big Google-style title, quiet status line, round refresh button
         LinearLayout head = new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout titles = new LinearLayout(this);
         titles.setOrientation(LinearLayout.VERTICAL);
-        titles.addView(new Ui.PixelText(this, "SKYPIX", 3.2f, ink, Gfx.LEFT));
-        statusText = new Ui.PixelText(this, statusLine(d), 1.3f, ink2, Gfx.LEFT);
-        titles.addView(statusText, lp(-2, -2, 8));
+        titles.addView(Ui.text(this, "Skypix", 34, 500, Ui.onSurface(this)));
+        statusText = Ui.text(this, statusLine(d), 14, 400, Ui.onSurfaceVar(this));
+        titles.addView(statusText, lp(-2, -2, 4));
         head.addView(titles, new LinearLayout.LayoutParams(0, -2, 1f));
-        Ui.PixelButton refresh = new Ui.PixelButton(this, refreshing ? "..." : "REFRESH", false);
+        Ui.RefreshButton refresh = new Ui.RefreshButton(this);
+        refresh.spinning = refreshing;
         refresh.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
                 if (!Store.anyLocation(MainActivity.this)) requestLocation();
@@ -215,20 +215,20 @@ public class MainActivity extends Activity {
         addBanners();
 
         if (d.ready()) {
-            addCard(Cards.NOW_WIDE, 150, null, d, 16);
+            addCard(Cards.NOW_WIDE, 160, null, d, 20);
             List<Insights.Insight> notes = Insights.compute(d.weather, d.units, d.nowSec);
             int shown = 0;
             for (Insights.Insight in : notes) {
                 if (shown >= 4) break;
-                content.addView(new Ui.CardView(this, Cards.HEADSUP, 68, in, d), lp(-1, -2, 10));
+                content.addView(new Ui.CardView(this, Cards.HEADSUP, 68, in, d), lp(-1, -2, 12));
                 shown++;
             }
-            if (shown == 0) addCard(Cards.HEADSUP, 68, null, d, 10);
-            addCard(Cards.HOURLY, 150, null, d, 10);
-            addCard(Cards.FORECAST, 236, null, d, 10);
-            addCard(Cards.DETAILS, 196, null, d, 10);
-            addCard(Cards.SUN, 150, null, d, 10);
-            addCard(Cards.LOCATION, 150, null, d, 10);
+            if (shown == 0) addCard(Cards.HEADSUP, 68, null, d, 12);
+            addCard(Cards.HOURLY, 150, null, d, 12);
+            addCard(Cards.FORECAST, 236, null, d, 12);
+            addCard(Cards.DETAILS, 196, null, d, 12);
+            addCard(Cards.SUN, 150, null, d, 12);
+            addCard(Cards.LOCATION, 150, null, d, 12);
         }
 
         addSettings(ink, ink2);
@@ -236,8 +236,9 @@ public class MainActivity extends Activity {
 
         TextView foot = new TextView(this);
         foot.setText("Weather & air quality: Open-Meteo.com (CC BY 4.0)\nPlace names: © OpenStreetMap contributors\nNo accounts, no analytics, no Google services.");
-        foot.setTextSize(11);
-        foot.setTextColor(ink2);
+        foot.setTextSize(12);
+        foot.setTypeface(AndroidGfx.typeface(400));
+        foot.setTextColor(Ui.onSurfaceVar(this));
         foot.setLineSpacing(0, 1.2f);
         content.addView(foot, lp(-1, -2, 26));
         if (Ui.lastError != null) {
@@ -268,65 +269,57 @@ public class MainActivity extends Activity {
     }
 
     private String statusLine(Cards.Data d) {
-        if (!Store.anyLocation(this)) return "LOCATION NEEDED";
-        if (refreshing) return "UPDATING...";
-        if (d.place == null) return "FINDING YOU...";
+        if (!Store.anyLocation(this)) return "Location needed";
+        if (refreshing) return "Updating\u2026";
+        if (d.place == null) return "Finding you\u2026";
         long fetched = Store.fetchedAt(this);
         StringBuilder sb = new StringBuilder();
-        if (fetched > 0) sb.append("UPD ").append(Fmt.ago((System.currentTimeMillis() - fetched) / 1000L).toUpperCase());
-        if (!Float.isNaN(d.place.accuracyM)) sb.append("  ±").append(Math.round(d.place.accuracyM)).append("M");
-        return sb.length() == 0 ? "READY" : sb.toString();
+        if (fetched > 0) sb.append("Updated ").append(Fmt.ago((System.currentTimeMillis() - fetched) / 1000L));
+        if (!Float.isNaN(d.place.accuracyM)) sb.append(sb.length() > 0 ? " \u00b7 " : "").append("\u00b1").append(Math.round(d.place.accuracyM)).append(" m");
+        return sb.length() == 0 ? "Ready" : sb.toString();
     }
 
     // ---- banners ----------------------------------------------------------------------------------------------------
 
     private void banner(String title, String body, String button, View.OnClickListener action) {
-        boolean dark = Ui.isDark(this);
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        int p = Ui.dp(this, 16);
+        int p = Ui.dp(this, 20);
         box.setPadding(p, p, p, p);
-        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-        bg.setCornerRadius(Ui.dp(this, 22));
-        bg.setColor(dark ? 0xFF000000 : 0xF2142A5E);
-        bg.setStroke(Ui.dp(this, 1), dark ? 0x33FFFFFF : 0x33FFFFFF);
-        box.setBackground(bg);
-        box.addView(new Ui.PixelText(this, title, 2f, 0xFFFFFFFF, Gfx.LEFT));
-        TextView t = new TextView(this);
-        t.setText(body);
-        t.setTextColor(0xCCFFFFFF);
-        t.setTextSize(13.5f);
-        t.setLineSpacing(0, 1.15f);
-        box.addView(t, lp(-1, -2, 10));
-        Ui.PixelButton b = new Ui.PixelButton(this, button, true);
+        box.setBackground(Ui.surface(this, Ui.primaryContainer(this), 28));
+        box.addView(Ui.text(this, title, 20, 500, Ui.onPrimaryContainer(this)));
+        TextView t = Ui.text(this, body, 14.5f, 400, Ui.onPrimaryContainer(this));
+        t.setLineSpacing(0, 1.2f);
+        box.addView(t, lp(-1, -2, 8));
+        Ui.Btn b = new Ui.Btn(this, button, true);
         b.setOnClickListener(action);
-        box.addView(b, lp(-2, -2, 10));
+        box.addView(b, lp(-2, -2, 14));
         content.addView(box, lp(-1, -2, 16));
     }
 
     private void addBanners() {
         if (!Store.anyLocation(this)) {
-            banner("WHERE ARE YOU?", "Skypix only needs your location. It is used to show weather for the exact spot you are standing, and it never leaves your phone except as coordinates sent to the weather service.",
-                    "ALLOW LOCATION", new View.OnClickListener() {
+            banner("Where are you?", "Skypix only needs your location. It is used to show weather for the exact spot you are standing, and it never leaves your phone except as coordinates sent to the weather service.",
+                    "Allow location", new View.OnClickListener() {
                         @Override public void onClick(View v) { requestLocation(); }
                     });
             return;
         }
         if (!Store.fine(this)) {
-            banner("APPROXIMATE ONLY", "Android is only sharing a rough area. Switch Location to \"Precise\" for street-level accuracy.",
-                    "OPEN SETTINGS", new View.OnClickListener() {
+            banner("Approximate only", "Android is only sharing a rough area. Switch Location to \"Precise\" for street-level accuracy.",
+                    "Open settings", new View.OnClickListener() {
                         @Override public void onClick(View v) { openAppSettings(); }
                     });
         }
         if (!locationServicesOn()) {
-            banner("LOCATION IS OFF", "Turn on location services so Skypix can find where you are.",
-                    "OPEN SETTINGS", new View.OnClickListener() {
+            banner("Location is off", "Turn on location services so Skypix can find where you are.",
+                    "Open settings", new View.OnClickListener() {
                         @Override public void onClick(View v) { startActivity(new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)); }
                     });
         }
         if (Build.VERSION.SDK_INT >= 33 && !Store.notificationsAllowed(this) && (Store.alerts(this) || Store.hourly(this))) {
-            banner("TURN ON ALERTS", "Allow notifications to get weather alerts and the hourly briefing.",
-                    "ALLOW", new View.OnClickListener() {
+            banner("Turn on alerts", "Allow notifications to get weather alerts and the hourly briefing.",
+                    "Allow", new View.OnClickListener() {
                         @Override public void onClick(View v) {
                             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIFY);
                         }
@@ -369,62 +362,57 @@ public class MainActivity extends Activity {
     // ---- settings -------------------------------------------------------------------------------------------------
 
     private LinearLayout section(String title, int ink) {
-        content.addView(new Ui.PixelText(this, title, 2f, ink, Gfx.LEFT), lp(-2, -2, 30));
+        content.addView(Ui.text(this, title, 15, 500, Ui.primary(this)), lp(-2, -2, 32));
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        int p = Ui.dp(this, 14);
-        box.setPadding(p, p, p, p);
-        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-        bg.setCornerRadius(Ui.dp(this, 22));
-        boolean dark = Ui.isDark(this);
-        bg.setColor(dark ? 0xFF000000 : 0xF2142A5E);
-        bg.setStroke(Ui.dp(this, 1), dark ? 0x33FFFFFF : 0x22FFFFFF);
-        box.setBackground(bg);
-        content.addView(box, lp(-1, -2, 10));
+        box.setPadding(Ui.dp(this, 20), Ui.dp(this, 6), Ui.dp(this, 14), Ui.dp(this, 6));
+        box.setBackground(Ui.surface(this, Ui.container(this), 28));
+        content.addView(box, lp(-1, -2, 12));
         return box;
     }
 
     private LinearLayout row(LinearLayout parent, String title, String sub, View control) {
+        if (parent.getChildCount() > 0) {
+            View div = new View(this);
+            div.setBackgroundColor(Ui.divider(this));
+            parent.addView(div, new LinearLayout.LayoutParams(-1, Math.max(1, Ui.dp(this, 1))));
+        }
         LinearLayout r = new LinearLayout(this);
         r.setOrientation(LinearLayout.HORIZONTAL);
         r.setGravity(Gravity.CENTER_VERTICAL);
+        r.setMinimumHeight(Ui.dp(this, 64));
         LinearLayout text = new LinearLayout(this);
         text.setOrientation(LinearLayout.VERTICAL);
-        TextView t = new TextView(this);
-        t.setText(title);
-        t.setTextColor(Color.WHITE);
-        t.setTextSize(15);
-        text.addView(t);
+        text.setPadding(0, Ui.dp(this, 12), Ui.dp(this, 8), Ui.dp(this, 12));
+        text.addView(Ui.text(this, title, 16.5f, 400, Ui.onSurface(this)));
         if (sub != null) {
-            TextView s = new TextView(this);
-            s.setText(sub);
-            s.setTextColor(0xB3FFFFFF);
-            s.setTextSize(12);
-            text.addView(s);
+            TextView st = Ui.text(this, sub, 13.5f, 400, Ui.onSurfaceVar(this));
+            st.setLineSpacing(0, 1.12f);
+            text.addView(st, lp(-1, -2, 2));
         }
         r.addView(text, new LinearLayout.LayoutParams(0, -2, 1f));
         if (control != null) r.addView(control, new LinearLayout.LayoutParams(-2, -2));
-        parent.addView(r, lp(-1, -2, parent.getChildCount() == 0 ? 0 : 6));
+        parent.addView(r, new LinearLayout.LayoutParams(-1, -2));
         return r;
     }
 
-    private Switch toggle(boolean on, CompoundButton.OnCheckedChangeListener l) {
-        Switch s = new Switch(this);
+    private CompoundButton toggle(boolean on, CompoundButton.OnCheckedChangeListener l) {
+        Ui.Toggle s = new Ui.Toggle(this);
         s.setChecked(on);
         s.setOnCheckedChangeListener(l);
         return s;
     }
 
     private void addSettings(int ink, int ink2) {
-        LinearLayout box = section("SETTINGS", ink);
+        LinearLayout box = section("Settings", ink);
 
         // units
         LinearLayout seg = new LinearLayout(this);
         seg.setOrientation(LinearLayout.HORIZONTAL);
         String cur = Store.tempPref(this);
-        String[][] opts = {{"AUTO", "auto"}, {"°C", "c"}, {"°F", "f"}};
+        String[][] opts = {{"Auto", "auto"}, {"°C", "c"}, {"°F", "f"}};
         for (final String[] o : opts) {
-            Ui.PixelButton b = new Ui.PixelButton(this, o[0], cur.equals(o[1]));
+            Ui.Btn b = new Ui.Btn(this, o[0], cur.equals(o[1]));
             b.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
                     Store.setTempPref(MainActivity.this, o[1]);
@@ -439,7 +427,7 @@ public class MainActivity extends Activity {
         LinearLayout style = new LinearLayout(this);
         style.setOrientation(LinearLayout.HORIZONTAL);
         for (final boolean clearOpt : new boolean[]{false, true}) {
-            Ui.PixelButton b = new Ui.PixelButton(this, clearOpt ? "CLEAR" : "BLACK", Store.clearDark(this) == clearOpt);
+            Ui.Btn b = new Ui.Btn(this, clearOpt ? "Clear" : "Black", Store.clearDark(this) == clearOpt);
             b.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
                     Store.setClearDark(MainActivity.this, clearOpt);
@@ -459,7 +447,7 @@ public class MainActivity extends Activity {
                     }
                 }));
 
-        Ui.PixelButton playNow = new Ui.PixelButton(this, "PLAY NOW", false);
+        Ui.Btn playNow = new Ui.Btn(this, "Play now", false);
         playNow.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
                 if (WidgetUpdater.count(MainActivity.this) == 0) {
@@ -504,11 +492,11 @@ public class MainActivity extends Activity {
         if (Store.quiet(this)) {
             LinearLayout times = new LinearLayout(this);
             times.setOrientation(LinearLayout.HORIZONTAL);
-            Ui.PixelButton from = new Ui.PixelButton(this, "FROM " + hourLabel(Store.quietStart(this)), false);
+            Ui.Btn from = new Ui.Btn(this, "From " + hourLabel(Store.quietStart(this)), false);
             from.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) { pickHour(true); }
             });
-            Ui.PixelButton to = new Ui.PixelButton(this, "TO " + hourLabel(Store.quietEnd(this)), false);
+            Ui.Btn to = new Ui.Btn(this, "To " + hourLabel(Store.quietEnd(this)), false);
             to.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) { pickHour(false); }
             });
@@ -519,14 +507,14 @@ public class MainActivity extends Activity {
 
         // location accuracy
         String locState = Store.fine(this) ? "Precise location is on" : Store.coarse(this) ? "Approximate only" : "Not allowed yet";
-        Ui.PixelButton bg = null;
+        Ui.Btn bg = null;
         String bgSub;
         if (Build.VERSION.SDK_INT < 29) bgSub = "Widgets refresh your position automatically";
         else if (Store.background(this)) bgSub = "Widgets follow you in the background";
         else {
             bgSub = "Widgets use your last known spot until you open Skypix";
             if (Store.fine(this)) {
-                bg = new Ui.PixelButton(this, "ALWAYS", false);
+                bg = new Ui.Btn(this, "Always", false);
                 bg.setOnClickListener(new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         if (Build.VERSION.SDK_INT >= 30) {
@@ -576,31 +564,50 @@ public class MainActivity extends Activity {
     // ---- widget picker --------------------------------------------------------------------------------------------
 
     private void addWidgetPicker(int ink, int ink2) {
-        LinearLayout box = section("ADD WIDGETS", ink);
+        content.addView(Ui.text(this, "Add widgets", 15, 500, Ui.primary(this)), lp(-2, -2, 32));
         final AppWidgetManager awm = AppWidgetManager.getInstance(this);
         boolean canPin = Build.VERSION.SDK_INT >= 26 && awm.isRequestPinAppWidgetSupported();
-        int lastKind = -1;
         for (int v = 0; v < Variants.COUNT; v++) {
             final int variant = v;
-            if (Variants.KIND[v] != lastKind && lastKind != -1) {
-                View gap = new View(this);
-                box.addView(gap, lp(-1, Ui.dp(this, 6), 0));
+            LinearLayout card = new LinearLayout(this);
+            card.setOrientation(LinearLayout.VERTICAL);
+            card.setPadding(Ui.dp(this, 20), Ui.dp(this, 16), Ui.dp(this, 14), Ui.dp(this, 14));
+            card.setBackground(Ui.surface(this, Ui.container(this), 28));
+
+            int res = getResources().getIdentifier("preview_" + Variants.KEY[v], "drawable", getPackageName());
+            if (res != 0) {
+                android.widget.ImageView img = new android.widget.ImageView(this);
+                img.setImageResource(res);
+                img.setAdjustViewBounds(true);
+                img.setMaxHeight(Ui.dp(this, 150));
+                img.setScaleType(android.widget.ImageView.ScaleType.FIT_START);
+                img.setContentDescription(Variants.TITLE[v] + " widget preview");
+                card.addView(img, lp(-2, -2, 0));
             }
-            lastKind = Variants.KIND[v];
-            Ui.PixelButton add = canPin ? new Ui.PixelButton(this, "ADD", true) : null;
-            if (add != null) add.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View view) {
-                    awm.requestPinAppWidget(new ComponentName(MainActivity.this, Widgets.ALL[variant]), null, null);
-                }
-            });
-            row(box, Variants.TITLE[v] + "  \u00b7  " + Variants.size(v), Variants.BLURB[v], add);
+            LinearLayout line = new LinearLayout(this);
+            line.setOrientation(LinearLayout.HORIZONTAL);
+            line.setGravity(Gravity.CENTER_VERTICAL);
+            LinearLayout text = new LinearLayout(this);
+            text.setOrientation(LinearLayout.VERTICAL);
+            text.addView(Ui.text(this, Variants.TITLE[v] + "  \u00b7  " + Variants.size(v), 16.5f, 500, Ui.onSurface(this)));
+            TextView sub = Ui.text(this, Variants.BLURB[v], 13.5f, 400, Ui.onSurfaceVar(this));
+            sub.setLineSpacing(0, 1.12f);
+            text.addView(sub, lp(-1, -2, 2));
+            line.addView(text, new LinearLayout.LayoutParams(0, -2, 1f));
+            if (canPin) {
+                Ui.Btn add = new Ui.Btn(this, "Add", true);
+                add.setOnClickListener(new View.OnClickListener() {
+                    @Override public void onClick(View view) {
+                        awm.requestPinAppWidget(new ComponentName(MainActivity.this, Widgets.ALL[variant]), null, null);
+                    }
+                });
+                line.addView(add, new LinearLayout.LayoutParams(-2, -2));
+            }
+            card.addView(line, lp(-1, -2, res != 0 ? 12 : 0));
+            content.addView(card, lp(-1, -2, 12));
         }
         if (!canPin) {
-            TextView hint = new TextView(this);
-            hint.setText("Long-press your home screen, tap Widgets, and look for Skypix.");
-            hint.setTextColor(0xB3FFFFFF);
-            hint.setTextSize(12);
-            box.addView(hint, lp(-1, -2, 10));
+            content.addView(Ui.text(this, "Long-press your home screen, tap Widgets, and look for Skypix.", 13.5f, 400, Ui.onSurfaceVar(this)), lp(-1, -2, 12));
         }
     }
 }

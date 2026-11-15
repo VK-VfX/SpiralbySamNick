@@ -15,8 +15,7 @@ fetch https://repo.maven.apache.org/maven2/org/robolectric/android-all/14-robole
 fetch https://repo.maven.apache.org/maven2/com/jakewharton/android/repackaged/dalvik-dx/11.0.0_r3/dalvik-dx-11.0.0_r3.jar "$DX_JAR"
 fetch https://repo.maven.apache.org/maven2/org/json/json/20240303/json-20240303.jar "$DEPS/json.jar"
 
-# 1. regenerate generated assets (icons + widget-picker previews) from the real renderer
-MODE=icons scripts/preview.sh app/src/main/res/drawable
+# 1. regenerate widget-picker previews (the app icon is hand-authored vector art) from the real renderer
 MODE=previews scripts/preview.sh app/src/main/res/drawable-nodpi
 
 # 2. resources -> R.java + unsigned apk

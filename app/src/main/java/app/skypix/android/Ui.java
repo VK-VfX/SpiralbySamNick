@@ -4,14 +4,11 @@ import android.content.Context;
 import android.content.res.Configuration;
 import android.graphics.Canvas;
 import android.graphics.Paint;
-import android.graphics.RadialGradient;
-import android.graphics.Shader;
 import android.view.View;
 
 import app.skypix.core.Cards;
 import app.skypix.core.Gfx;
 import app.skypix.core.Insights;
-import app.skypix.core.PixelFont;
 
 /** Small custom views so the app screen shares the widgets' pixel look. */
 final class Ui {
@@ -82,61 +79,47 @@ final class Ui {
         }
     }
 
-    /** Text in the 5x7 pixel font. */
-    static final class PixelText extends View {
-        private String text;
-        private final float cellDp;
-        private int color;
-        private final int align;
+    // ---- Material 3 palette (Pixel look; dark is AMOLED) ------------------------------------------------------------
 
-        PixelText(Context c, String text, float cellDp, int color, int align) {
-            super(c);
-            this.text = text;
-            this.cellDp = cellDp;
-            this.color = color;
-            this.align = align;
-        }
+    static int bg(Context c) { return isDark(c) ? 0xFF000000 : 0xFFF0F4F9; }
+    static int container(Context c) { return isDark(c) ? 0xFF131416 : 0xFFFFFFFF; }
+    static int onSurface(Context c) { return isDark(c) ? 0xFFE3E3E3 : 0xFF1F1F1F; }
+    static int onSurfaceVar(Context c) { return isDark(c) ? 0xFFC4C7C5 : 0xFF444746; }
+    static int primary(Context c) { return isDark(c) ? 0xFFA8C7FA : 0xFF0B57D0; }
+    static int onPrimary(Context c) { return isDark(c) ? 0xFF062E6F : 0xFFFFFFFF; }
+    static int primaryContainer(Context c) { return isDark(c) ? 0xFF0B2A57 : 0xFFD3E3FD; }
+    static int onPrimaryContainer(Context c) { return isDark(c) ? 0xFFD3E3FD : 0xFF041E49; }
+    static int tonal(Context c) { return isDark(c) ? 0xFF1B3157 : 0xFFD3E3FD; }
+    static int onTonal(Context c) { return isDark(c) ? 0xFFD3E3FD : 0xFF041E49; }
+    static int divider(Context c) { return isDark(c) ? 0xFF2A2B2E : 0xFFE3E7EC; }
+    static int outline(Context c) { return isDark(c) ? 0xFF8E918F : 0xFF747775; }
 
-        void set(String t) {
-            text = t;
-            requestLayout();
-            invalidate();
-        }
-
-        void setColor(int c) {
-            color = c;
-            invalidate();
-        }
-
-        private int cell() {
-            return Math.max(1, Math.round(cellDp * getResources().getDisplayMetrics().density));
-        }
-
-        @Override
-        protected void onMeasure(int wSpec, int hSpec) {
-            int cell = cell();
-            int w = Math.round(PixelFont.width(new AndroidGfx(new Canvas()), text, cell));
-            int mode = MeasureSpec.getMode(wSpec);
-            int size = MeasureSpec.getSize(wSpec);
-            int mw = mode == MeasureSpec.EXACTLY ? size : (mode == MeasureSpec.AT_MOST ? Math.min(w, size) : w);
-            setMeasuredDimension(mw, PixelFont.H * cell + dp(getContext(), 2));
-        }
-
-        @Override
-        protected void onDraw(Canvas canvas) {
-            AndroidGfx g = new AndroidGfx(canvas);
-            float x = align == Gfx.CENTER ? getWidth() / 2f : align == Gfx.RIGHT ? getWidth() : 0;
-            PixelFont.draw(g, text, x, 0, cell(), align, color);
-        }
+    /** A TextView in Google Sans (on Pixel) at the given weight. */
+    static android.widget.TextView text(Context c, String s, float sp, int weight, int color) {
+        android.widget.TextView t = new android.widget.TextView(c);
+        t.setText(s);
+        t.setTextSize(sp);
+        t.setTextColor(color);
+        t.setTypeface(AndroidGfx.typeface(weight));
+        t.setIncludeFontPadding(false);
+        return t;
     }
 
-    /** Pill button with a pixel-font label. */
-    static final class PixelButton extends View {
+    /** Rounded surface used for cards and groups. */
+    static android.graphics.drawable.GradientDrawable surface(Context c, int color, float radiusDp) {
+        android.graphics.drawable.GradientDrawable d = new android.graphics.drawable.GradientDrawable();
+        d.setCornerRadius(dp(c, radiusDp));
+        d.setColor(color);
+        return d;
+    }
+
+    /** Material pill button: filled (primary) or tonal. */
+    static final class Btn extends View {
         private String label;
         private boolean filled;
-        private int accent = 0xFF3D7BFF;
+        private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
 
-        PixelButton(Context c, String label, boolean filled) {
+        Btn(Context c, String label, boolean filled) {
             super(c);
             this.label = label;
             this.filled = filled;
@@ -157,41 +140,31 @@ final class Ui {
             invalidate();
         }
 
-        void setAccent(int c) {
-            accent = c;
-            invalidate();
-        }
-
-        private int cell() {
-            return Math.max(1, Math.round(1.8f * getResources().getDisplayMetrics().density));
+        private float textPx() {
+            return 14f * getResources().getDisplayMetrics().scaledDensity;
         }
 
         @Override
         protected void onMeasure(int wSpec, int hSpec) {
-            int w = Math.round(PixelFont.width(new AndroidGfx(new Canvas()), label, cell())) + dp(getContext(), 32);
+            int w = Math.round(new AndroidGfx(new Canvas()).textWidth(label, textPx(), Gfx.FONT_MEDIUM)) + dp(getContext(), 40);
             int mode = MeasureSpec.getMode(wSpec);
             int size = MeasureSpec.getSize(wSpec);
             int mw = mode == MeasureSpec.EXACTLY ? size : (mode == MeasureSpec.AT_MOST ? Math.min(w, size) : w);
-            setMeasuredDimension(mw, dp(getContext(), 48));
+            setMeasuredDimension(Math.max(mw, dp(getContext(), 64)), dp(getContext(), 48));
         }
 
         @Override
         protected void onDraw(Canvas canvas) {
+            Context c = getContext();
             AndroidGfx g = new AndroidGfx(canvas);
             float u = getResources().getDisplayMetrics().density;
-            boolean dark = isDark(getContext());
-            float top = (getHeight() - 38 * u) / 2f, bottom = top + 38 * u;
-            int ink = dark ? 0xFFFFFFFF : 0xFF0E1630;
-            if (filled) {
-                g.fillRoundRect(0, top, getWidth(), bottom, 19 * u, isPressed() ? (accent & 0x00FFFFFF) | 0xCC000000 : accent);
-                ink = 0xFFFFFFFF;
-            } else {
-                g.fillRoundRect(0, top, getWidth(), bottom, 19 * u, isPressed() ? 0x33808080 : (dark ? 0x1FFFFFFF : 0x14000000));
-                g.strokeRoundRect(0.5f * u, top + 0.5f * u, getWidth() - 0.5f * u, bottom - 0.5f * u, 19 * u, 1f * u, dark ? 0x40FFFFFF : 0x33000000);
-            }
-            int cell = cell();
-            float ty = top + (38 * u - PixelFont.H * cell) / 2f;
-            PixelFont.draw(g, label, getWidth() / 2f, ty, cell, Gfx.CENTER, ink);
+            float top = (getHeight() - 40 * u) / 2f, bottom = top + 40 * u;
+            int fill = filled ? primary(c) : tonal(c);
+            int ink = filled ? onPrimary(c) : onTonal(c);
+            if (isPressed()) fill = mixColor(fill, ink, 0.14f);
+            g.fillRoundRect(0, top, getWidth(), bottom, 20 * u, fill);
+            float tp = textPx();
+            g.text(label, getWidth() / 2f, top + 20 * u + tp * 0.36f, tp, Gfx.FONT_MEDIUM, Gfx.CENTER, ink);
         }
 
         @Override
@@ -201,32 +174,117 @@ final class Ui {
         }
     }
 
-    /** Light: soft colour blobs. Dark: pure AMOLED black. */
-    static final class Backdrop extends View {
+    static int mixColor(int a, int b, float f) {
+        int r = Math.round(((a >> 16) & 255) * (1 - f) + ((b >> 16) & 255) * f);
+        int g = Math.round(((a >> 8) & 255) * (1 - f) + ((b >> 8) & 255) * f);
+        int bl = Math.round((a & 255) * (1 - f) + (b & 255) * f);
+        return 0xFF000000 | (r << 16) | (g << 8) | bl;
+    }
+
+    /** Round tonal refresh button; the arrow spins while {@link #spinning}. */
+    static final class RefreshButton extends View {
+        boolean spinning;
+        private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final android.graphics.RectF rf = new android.graphics.RectF();
+
+        RefreshButton(Context c) {
+            super(c);
+            setClickable(true);
+            setFocusable(true);
+            setContentDescription("Refresh");
+        }
+
+        @Override
+        protected void onMeasure(int w, int h) {
+            setMeasuredDimension(dp(getContext(), 48), dp(getContext(), 48));
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            Context c = getContext();
+            float u = getResources().getDisplayMetrics().density;
+            float cx = getWidth() / 2f, cy = getHeight() / 2f;
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(isPressed() ? mixColor(tonal(c), onTonal(c), 0.14f) : tonal(c));
+            canvas.drawCircle(cx, cy, 20 * u, p);
+            float rot = spinning ? (android.os.SystemClock.uptimeMillis() % 900) / 900f * 360f : 0;
+            canvas.save();
+            canvas.rotate(rot, cx, cy);
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(2.2f * u);
+            p.setStrokeCap(Paint.Cap.ROUND);
+            p.setColor(onTonal(c));
+            float r = 7.5f * u;
+            rf.set(cx - r, cy - r, cx + r, cy + r);
+            canvas.drawArc(rf, -40, 290, false, p);
+            // arrow head at the arc's open end
+            double a = Math.toRadians(-40);
+            float ax = cx + (float) Math.cos(a) * r, ay = cy + (float) Math.sin(a) * r;
+            p.setStyle(Paint.Style.FILL);
+            android.graphics.Path head = new android.graphics.Path();
+            head.moveTo(ax + 4.2f * u, ay - 4.6f * u);
+            head.lineTo(ax + 4.2f * u, ay + 3.2f * u);
+            head.lineTo(ax - 3.6f * u, ay + 0.6f * u);
+            head.close();
+            canvas.drawPath(head, p);
+            canvas.restore();
+            if (spinning) postInvalidateOnAnimation();
+        }
+
+        @Override
+        public void setPressed(boolean pressed) {
+            super.setPressed(pressed);
+            invalidate();
+        }
+    }
+
+    /** Material 3 switch (52 x 32). */
+    static final class Toggle extends android.widget.CompoundButton {
         private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
 
+        Toggle(Context c) {
+            super(c);
+            setButtonDrawable(null);
+            setBackground(null);
+        }
+
+        @Override
+        protected void onMeasure(int w, int h) {
+            setMeasuredDimension(dp(getContext(), 52), dp(getContext(), 48));
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            Context c = getContext();
+            float u = getResources().getDisplayMetrics().density;
+            float top = (getHeight() - 32 * u) / 2f;
+            boolean on = isChecked();
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(on ? primary(c) : container(c) == 0xFFFFFFFF ? 0xFFE1E3E1 : 0xFF2B2D30);
+            canvas.drawRoundRect(0, top, getWidth(), top + 32 * u, 16 * u, 16 * u, p);
+            if (!on) {
+                p.setStyle(Paint.Style.STROKE);
+                p.setStrokeWidth(2 * u);
+                p.setColor(outline(c));
+                canvas.drawRoundRect(u, top + u, getWidth() - u, top + 31 * u, 15 * u, 15 * u, p);
+                p.setStyle(Paint.Style.FILL);
+            }
+            float tr = (on ? 12 : 8) * u;
+            float tx = on ? getWidth() - 16 * u : 16 * u;
+            p.setColor(on ? onPrimary(c) : outline(c));
+            canvas.drawCircle(tx, top + 16 * u, tr, p);
+        }
+    }
+
+    /** Flat page background: Google surface in light, pure black in dark. */
+    static final class Backdrop extends View {
         Backdrop(Context c) {
             super(c);
         }
 
         @Override
         protected void onDraw(Canvas canvas) {
-            boolean dark = isDark(getContext());
-            float w = getWidth(), h = getHeight();
-            p.setShader(null);
-            p.setColor(dark ? 0xFF000000 : 0xFFE7EDF8);
-            canvas.drawRect(0, 0, w, h, p);
-            if (!dark) {
-                blob(canvas, w * 0.1f, h * 0.12f, w * 0.9f, 0x88FFB6C1);
-                blob(canvas, w * 0.95f, h * 0.45f, w * 1.0f, 0x889FD3FF);
-                blob(canvas, w * 0.3f, h * 0.92f, w * 0.9f, 0x88B8F0C8);
-            }
-        }
-
-        private void blob(Canvas c, float cx, float cy, float r, int color) {
-            p.setShader(new RadialGradient(cx, cy, r, color, color & 0x00FFFFFF, Shader.TileMode.CLAMP));
-            c.drawCircle(cx, cy, r, p);
-            p.setShader(null);
+            canvas.drawColor(bg(getContext()));
         }
     }
 }
