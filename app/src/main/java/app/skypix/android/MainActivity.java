@@ -29,6 +29,7 @@ import android.widget.TimePicker;
 import android.widget.Toast;
 
 import app.skypix.core.Cards;
+import app.skypix.weather.R;
 import app.skypix.core.Fmt;
 import app.skypix.core.Gfx;
 import app.skypix.core.Insights;
@@ -179,7 +180,7 @@ public class MainActivity extends Activity {
             Ui.report("rebuild", t);
             content.removeAllViews();
             TextView e = new TextView(this);
-            e.setText("Skypix couldn't draw this screen.\n\n" + Ui.lastError);
+            e.setText("Purrcast couldn't draw this screen.\n\n" + Ui.lastError);
             e.setTextColor(0xFFFF8A8A);
             e.setTextIsSelectable(true);
             content.addView(e);
@@ -199,9 +200,21 @@ public class MainActivity extends Activity {
         LinearLayout head = new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(Gravity.CENTER_VERTICAL);
+        android.widget.ImageView logo = new android.widget.ImageView(this);
+        logo.setImageResource(R.drawable.purrcast_mark);
+        logo.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+        logo.setContentDescription("Purrcast");
+        logo.setClipToOutline(true);
+        final int logoRadius = Ui.dp(this, 15);
+        logo.setOutlineProvider(new android.view.ViewOutlineProvider() {
+            @Override public void getOutline(View v, android.graphics.Outline o) { o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), logoRadius); }
+        });
+        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(Ui.dp(this, 52), Ui.dp(this, 52));
+        logoLp.rightMargin = Ui.dp(this, 14);
+        head.addView(logo, logoLp);
         LinearLayout titles = new LinearLayout(this);
         titles.setOrientation(LinearLayout.VERTICAL);
-        TextView title = Ui.text(this, "Skypix", 34, 500, Ui.onSurface(this));
+        TextView title = Ui.text(this, "Purrcast", 34, 500, Ui.onSurface(this));
         title.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
                 long now = android.os.SystemClock.uptimeMillis();
@@ -317,7 +330,7 @@ public class MainActivity extends Activity {
 
     private void addBanners() {
         if (!Store.anyLocation(this)) {
-            banner("Where are you?", "Skypix only needs your location. It is used to show weather for the exact spot you are standing, and it never leaves your phone except as coordinates sent to the weather service.",
+            banner("Where are you?", "Purrcast only needs your location. It is used to show weather for the exact spot you are standing, and it never leaves your phone except as coordinates sent to the weather service.",
                     "Allow location", new View.OnClickListener() {
                         @Override public void onClick(View v) { requestLocation(); }
                     });
@@ -330,7 +343,7 @@ public class MainActivity extends Activity {
                     });
         }
         if (!locationServicesOn()) {
-            banner("Location is off", "Turn on location services so Skypix can find where you are.",
+            banner("Location is off", "Turn on location services so Purrcast can find where you are.",
                     "Open settings", new View.OnClickListener() {
                         @Override public void onClick(View v) { startActivity(new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)); }
                     });
@@ -560,7 +573,7 @@ public class MainActivity extends Activity {
         if (Build.VERSION.SDK_INT < 29) bgSub = "Widgets refresh your position automatically";
         else if (Store.background(this)) bgSub = "Widgets follow you in the background";
         else {
-            bgSub = "Widgets use your last known spot until you open Skypix";
+            bgSub = "Widgets use your last known spot until you open Purrcast";
             if (Store.fine(this)) {
                 bg = new Ui.Btn(this, "Always", false);
                 bg.setOnClickListener(new View.OnClickListener() {
@@ -626,7 +639,7 @@ public class MainActivity extends Activity {
                 if (AppUpdate.available != null) installUpdate(); else checkUpdate();
             }
         });
-        LinearLayout r = row(box, "Skypix " + AppUpdate.installedName(this), sub, action);
+        LinearLayout r = row(box, "Purrcast " + AppUpdate.installedName(this), sub, action);
         View col = r.getChildAt(0);
         updateSub = col instanceof LinearLayout && ((LinearLayout) col).getChildCount() > 1 ? (TextView) ((LinearLayout) col).getChildAt(1) : null;
         row(box, "Check automatically", "Once a day. Only contacts GitHub, nothing about you is sent",
@@ -665,7 +678,7 @@ public class MainActivity extends Activity {
         final AppUpdate.Info info = AppUpdate.available;
         if (info == null) return;
         if (!AppUpdate.ensureInstallPermission(this)) {
-            setUpdateStatus("Allow Skypix to install apps, come back, then tap Install again");
+            setUpdateStatus("Allow Purrcast to install apps, come back, then tap Install again");
             return;
         }
         AppUpdate.busy = true;
@@ -743,7 +756,7 @@ public class MainActivity extends Activity {
             content.addView(card, lp(-1, -2, 12));
         }
         if (!canPin) {
-            content.addView(Ui.text(this, "Long-press your home screen, tap Widgets, and look for Skypix.", 13.5f, 400, Ui.onSurfaceVar(this)), lp(-1, -2, 12));
+            content.addView(Ui.text(this, "Long-press your home screen, tap Widgets, and look for Purrcast.", 13.5f, 400, Ui.onSurfaceVar(this)), lp(-1, -2, 12));
         }
     }
 }

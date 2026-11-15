@@ -114,9 +114,9 @@ for key, kind, cw, ch, title, desc in VARIANTS:
 ''' % (dp(cw), dp(ch), dp(cw), dp(ch), cw, ch, key, key))
 
 # ---- strings ----
-s = ['<?xml version="1.0" encoding="utf-8"?>', '<resources>', '    <string name="app_name">Skypix</string>']
+s = ['<?xml version="1.0" encoding="utf-8"?>', '<resources>', '    <string name="app_name">Purrcast</string>']
 for key, kind, cw, ch, title, desc in VARIANTS:
-    s.append('    <string name="w_%s">Skypix · %s %d×%d</string>' % (key, title, cw, ch))
+    s.append('    <string name="w_%s">Purrcast · %s %d×%d</string>' % (key, title, cw, ch))
     s.append('    <string name="d_%s">%s</string>' % (key, desc.replace("'", "\\'")))
 s += ['</resources>', '']
 w(P('app/src/main/res/values/strings.xml'), '\n'.join(s))

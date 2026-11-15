@@ -7,9 +7,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # Bump both for every release; the in-app updater compares VERSION_CODE (it must always go up).
-VERSION_CODE=7
-VERSION_NAME=1.0.6
-RELEASE_NOTES="Cat weather news every 2 hours, morning briefing, flood and storm alerts, and in-app updates."
+VERSION_CODE=8
+VERSION_NAME=1.0.7
+RELEASE_NOTES="Skypix is now Purrcast: new name and a brand new icon."
 UPDATE_BASE=https://raw.githubusercontent.com/VK-VfX/Sam-s-Signal-Stabilizer/claude/signal-stabilizer-game-8le0y5/dist
 
 DEPS=build/deps

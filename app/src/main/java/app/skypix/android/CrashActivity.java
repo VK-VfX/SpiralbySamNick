@@ -29,7 +29,7 @@ public class CrashActivity extends Activity {
         root.setPadding(p, p * 2, p, p);
 
         TextView title = new TextView(this);
-        title.setText("Skypix hit a problem");
+        title.setText("Purrcast hit a problem");
         title.setTextColor(Color.WHITE);
         title.setTextSize(20);
         title.setTypeface(Typeface.DEFAULT_BOLD);
@@ -60,7 +60,7 @@ public class CrashActivity extends Activity {
         copy.setText("COPY");
         copy.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
-                ((ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Skypix crash", report));
+                ((ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Purrcast crash", report));
                 Toast.makeText(CrashActivity.this, "Copied", Toast.LENGTH_SHORT).show();
             }
         });

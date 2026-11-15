@@ -49,7 +49,7 @@ final class Notifier {
         NotificationChannel morning = new NotificationChannel(CH_MORNING, "Morning briefing", NotificationManager.IMPORTANCE_DEFAULT);
         morning.setDescription("What the day looks like and what to carry");
         NotificationChannel updates = new NotificationChannel(CH_UPDATES, "App updates", NotificationManager.IMPORTANCE_LOW);
-        updates.setDescription("Tells you when a new version of Skypix is ready");
+        updates.setDescription("Tells you when a new version of Purrcast is ready");
         updates.setShowBadge(false);
         nm.createNotificationChannel(alerts);
         nm.createNotificationChannel(emergency);
@@ -131,9 +131,9 @@ final class Notifier {
         Notification.Builder b = builder(c, CH_UPDATES);
         b.setSmallIcon(R.drawable.ic_stat_weather)
                 .setLargeIcon(largeIcon(Icon.SUN))
-                .setContentTitle("Skypix " + versionName + " is ready")
-                .setContentText(notes.length() > 0 ? notes : "Open Skypix to install the update")
-                .setStyle(new Notification.BigTextStyle().bigText((notes.length() > 0 ? notes + "\n" : "") + "Open Skypix and tap Install."))
+                .setContentTitle("Purrcast " + versionName + " is ready")
+                .setContentText(notes.length() > 0 ? notes : "Open Purrcast to install the update")
+                .setStyle(new Notification.BigTextStyle().bigText((notes.length() > 0 ? notes + "\n" : "") + "Open Purrcast and tap Install."))
                 .setColor(0xFF1A73E8)
                 .setAutoCancel(true)
                 .setContentIntent(open(c, 14));

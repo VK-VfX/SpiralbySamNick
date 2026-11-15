@@ -210,7 +210,7 @@ public final class Insights {
     public static Insight headline(Weather w, Units u, long nowSec) {
         List<Insight> all = compute(w, u, nowSec);
         if (!all.isEmpty()) return all.get(0);
-        if (w == null || !w.valid()) return new Insight("none", INFO, Icon.CLOUD, "No data yet", "Open Skypix to get started", "No data", "Open Skypix", 0L);
+        if (w == null || !w.valid()) return new Insight("none", INFO, Icon.CLOUD, "No data yet", "Open Purrcast to get started", "No data", "Open Purrcast", 0L);
         Weather.Now n = w.now(nowSec);
         int hi = w.hourIndex(nowSec);
         int end = Math.min(hi + 12, w.hTime.length - 1);

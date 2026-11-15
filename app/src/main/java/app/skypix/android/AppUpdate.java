@@ -29,7 +29,7 @@ import java.security.MessageDigest;
  *   <li>{@link #check} reads a tiny {@code update.json} published next to the APK.</li>
  *   <li>{@link #download} fetches the APK and verifies its SHA-256.</li>
  *   <li>{@link #install} hands it to Android's PackageInstaller. Android itself checks that the new APK is signed
- *       with the same key as the installed app, so a swapped file cannot replace Skypix.</li>
+ *       with the same key as the installed app, so a swapped file cannot replace Purrcast.</li>
  * </ol>
  */
 final class AppUpdate {
@@ -155,7 +155,7 @@ final class AppUpdate {
         }
     }
 
-    /** True when Android will let Skypix install packages; otherwise opens the one-time permission screen. */
+    /** True when Android will let Purrcast install packages; otherwise opens the one-time permission screen. */
     static boolean ensureInstallPermission(Context c) {
         if (Build.VERSION.SDK_INT < 26 || c.getPackageManager().canRequestPackageInstalls()) return true;
         Intent i = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + c.getPackageName()))

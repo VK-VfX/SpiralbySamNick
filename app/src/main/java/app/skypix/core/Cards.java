@@ -1,7 +1,7 @@
 package app.skypix.core;
 
 /**
- * Draws every Skypix card/widget. Coordinates are in dp; {@code u} is pixels per dp.
+ * Draws every Purrcast card/widget. Coordinates are in dp; {@code u} is pixels per dp.
  * Light system theme => deep, near-opaque cards. Dark system theme => translucent glass cards.
  */
 public final class Cards {
@@ -209,7 +209,7 @@ public final class Cards {
     }
 
     public static String describe(int kind, Data d) {
-        if (d == null || !d.ready()) return "Skypix. Tap to set up.";
+        if (d == null || !d.ready()) return "Purrcast. Tap to set up.";
         Weather.Now n = d.weather.now(d.nowSec);
         Units u = d.units;
         String base = d.place.title() + ": " + u.temp(n.temp) + " degrees " + (u.fahrenheit ? "Fahrenheit" : "Celsius")

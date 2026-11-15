@@ -9,7 +9,7 @@ import java.net.URL;
 final class Net {
     private Net() {}
 
-    static final String UA = "Skypix/1.0 (Android weather app; offline-first, no tracking)";
+    static final String UA = "Purrcast/1.0 (Android weather app; offline-first, no tracking)";
 
     static String get(String url) throws IOException {
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();

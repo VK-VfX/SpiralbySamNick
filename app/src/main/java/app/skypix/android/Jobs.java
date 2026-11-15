@@ -249,8 +249,8 @@ public final class Jobs {
             Intent open = new Intent(this, MainActivity.class).setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
             Notification n = new Notification.Builder(this, "anim")
                     .setSmallIcon(R.drawable.ic_stat_weather)
-                    .setContentTitle("Skypix is ready to animate your widgets")
-                    .setContentText("Turn this off in Skypix settings")
+                    .setContentTitle("Purrcast is ready to animate your widgets")
+                    .setContentText("Turn this off in Purrcast settings")
                     .setContentIntent(PendingIntent.getActivity(this, 21, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT))
                     .setOngoing(true)
                     .build();

@@ -3,7 +3,7 @@ package app.skypix.core;
 import java.util.List;
 
 /**
- * The words of Skypix's notifications: a cat-voiced "weather news" bulletin, the morning briefing and the
+ * The words of Purrcast's notifications: a cat-voiced "weather news" bulletin, the morning briefing and the
  * practical tip that goes with every alert. Everything is written from the live forecast numbers; nothing is invented.
  */
 public final class CatNews {
