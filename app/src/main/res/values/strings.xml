@@ -39,6 +39,12 @@
     <string name="d_location_2x3">Place, coordinates, altitude and accuracy.</string>
     <string name="w_location_4x2">Skypix · Location 4×2</string>
     <string name="d_location_4x2">Wide place card with live coordinates.</string>
+    <string name="w_icon_1x1">Skypix · Icon 1×1</string>
+    <string name="d_icon_1x1">Just the weather icon and temperature, no background.</string>
+    <string name="w_icon_2x1">Skypix · Icon 2×1</string>
+    <string name="d_icon_2x1">Weather icon beside the temperature, no background.</string>
+    <string name="w_icon_2x2">Skypix · Icon 2×2</string>
+    <string name="d_icon_2x2">Big weather icon with temperature and condition, no background.</string>
     <string name="w_sun_2x2">Skypix · Sun 2×2</string>
     <string name="d_sun_2x2">Sun arc with sunrise and sunset.</string>
     <string name="w_sun_4x2">Skypix · Sun 4×2</string>

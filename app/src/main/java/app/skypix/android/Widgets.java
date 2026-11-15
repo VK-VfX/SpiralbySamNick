@@ -60,12 +60,15 @@ public final class Widgets {
     public static final class Location2x2 extends Base { @Override int variant() { return 16; } }
     public static final class Location2x3 extends Base { @Override int variant() { return 17; } }
     public static final class Location4x2 extends Base { @Override int variant() { return 18; } }
-    public static final class Sun2x2 extends Base { @Override int variant() { return 19; } }
-    public static final class Sun4x2 extends Base { @Override int variant() { return 20; } }
-    public static final class Headsup3x1 extends Base { @Override int variant() { return 21; } }
-    public static final class Headsup4x1 extends Base { @Override int variant() { return 22; } }
-    public static final class Headsup2x2 extends Base { @Override int variant() { return 23; } }
-    public static final class Headsup2x3 extends Base { @Override int variant() { return 24; } }
+    public static final class Icon1x1 extends Base { @Override int variant() { return 19; } }
+    public static final class Icon2x1 extends Base { @Override int variant() { return 20; } }
+    public static final class Icon2x2 extends Base { @Override int variant() { return 21; } }
+    public static final class Sun2x2 extends Base { @Override int variant() { return 22; } }
+    public static final class Sun4x2 extends Base { @Override int variant() { return 23; } }
+    public static final class Headsup3x1 extends Base { @Override int variant() { return 24; } }
+    public static final class Headsup4x1 extends Base { @Override int variant() { return 25; } }
+    public static final class Headsup2x2 extends Base { @Override int variant() { return 26; } }
+    public static final class Headsup2x3 extends Base { @Override int variant() { return 27; } }
 
     static final Class<?>[] ALL = {
         Now2x2.class,
@@ -87,6 +90,9 @@ public final class Widgets {
         Location2x2.class,
         Location2x3.class,
         Location4x2.class,
+        Icon1x1.class,
+        Icon2x1.class,
+        Icon2x2.class,
         Sun2x2.class,
         Sun4x2.class,
         Headsup3x1.class,

@@ -174,6 +174,30 @@ public final class Preview {
             ImageIO.write(img, "png", new File(dir, "anim.png"));
         } else if (mode.equals("icons")) {
             icons(dir);
+        } else if (mode.equals("iconsheet")) {
+            String[] sc = {"clear", "night", "partly", "cloudy", "fog", "rain", "stormnow", "snow", "windy"};
+            int[] ks = {0, 1, 2};
+            int[][] sz = {{56, 56}, {150, 56}, {110, 110}};
+            float u = 2.2f;
+            for (int side = 0; side < 2; side++) {
+                boolean dark = side == 1;
+                int W = 340, H = 14 + sc.length * 124;
+                BufferedImage img = new BufferedImage(Math.round(W * u), Math.round(H * u), BufferedImage.TYPE_INT_ARGB);
+                Graphics2D g = img.createGraphics();
+                g.drawImage(backdrop(img.getWidth(), img.getHeight(), dark, dark), 0, 0, null);
+                for (int r = 0; r < sc.length; r++) {
+                    Cards.Data d = Samples.data(sc[r], false, false);
+                    int x = 14;
+                    for (int c = 0; c < ks.length; c++) {
+                        BufferedImage w = render(Cards.ICON, sz[c][0], sz[c][1], u, dark, d);
+                        g.drawImage(w, Math.round(x * u), Math.round((14 + r * 124) * u), null);
+                        x += sz[c][0] + 18;
+                    }
+                }
+                g.dispose();
+                dir.mkdirs();
+                ImageIO.write(img, "png", new File(dir, dark ? "icon-dark.png" : "icon-light.png"));
+            }
         } else if (mode.equals("variants")) {
             for (int side = 0; side < 2; side++) {
                 boolean dark = side == 1;

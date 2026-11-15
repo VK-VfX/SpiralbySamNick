@@ -82,7 +82,7 @@ final class Samples {
         int hi = w.hourIndex(now);
         w.curTime = now;
         w.temp = w.hTemp[hi]; w.feels = w.hFeels[hi]; w.humidity = w.hHum[hi];
-        w.windKmh = 12; w.windDir = 80; w.gustKmh = 21; w.pressure = 1009; w.cloud = 35;
+        w.windKmh = sc.equals("windy") ? 42 : 12; w.windDir = 80; w.gustKmh = sc.equals("windy") ? 61 : 21; w.pressure = 1009; w.cloud = 35;
         w.precipNow = (sc.equals("rain") || sc.equals("snow")) ? 0.4 : 0;
         w.code = sc.equals("rain") ? 61 : w.hCode[hi];
         w.isDay = w.hDay[hi];

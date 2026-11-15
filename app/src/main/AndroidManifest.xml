@@ -116,6 +116,18 @@
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_location_4x2" />
         </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Icon1x1" android:exported="false" android:label="@string/w_icon_1x1">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_icon_1x1" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Icon2x1" android:exported="false" android:label="@string/w_icon_2x1">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_icon_2x1" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Icon2x2" android:exported="false" android:label="@string/w_icon_2x2">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_icon_2x2" />
+        </receiver>
         <receiver android:name="app.skypix.android.Widgets$Sun2x2" android:exported="false" android:label="@string/w_sun_2x2">
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_sun_2x2" />

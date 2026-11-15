@@ -28,12 +28,19 @@ public final class Sprites {
     }
 
     /** Same silhouette in a single colour, used for the notification glyph. */
-    public static int[] mono(Icon icon, int argb) {
-        int[] src = get(icon);
-        int[] out = new int[src.length];
-        for (int i = 0; i < src.length; i++) out[i] = (src[i] >>> 24) > 100 ? argb : 0;
+    public static synchronized int[] mono(Icon icon, int argb) {
+        String key = icon.name() + ":" + argb;
+        int[] out = MONO.get(key);
+        if (out == null) {
+            int[] src = get(icon);
+            out = new int[src.length];
+            for (int i = 0; i < src.length; i++) out[i] = (src[i] >>> 24) > 100 ? argb : 0;
+            MONO.put(key, out);
+        }
         return out;
     }
+
+    private static final java.util.HashMap<String, int[]> MONO = new java.util.HashMap<String, int[]>();
 
     private static int[] build(Icon icon) {
         int[] p = new int[N * N];
@@ -48,6 +55,7 @@ public final class Sprites {
             case RAIN: rain(p); break;
             case STORM: storm(p); break;
             case SNOW: snow(p); break;
+            case WIND: wind(p); break;
             case PIN: pin(p); break;
             case ALERT: alert(p); break;
             default: break;
@@ -166,6 +174,31 @@ public final class Sprites {
     private static void snow(int[] p) {
         cloud(p, 8f, 6f, 1.0f, GREY_T, GREY_B);
         pts(p, SNOW_W, 4, 11, 3, 12, 4, 12, 5, 12, 4, 13, 11, 11, 10, 12, 11, 12, 12, 12, 11, 13, 8, 14, 7, 15, 9, 15);
+    }
+
+    private static final String[] WIND = {
+        "................",
+        "................",
+        "......WWWWW.....",
+        ".....WW...WW....",
+        "..........WW....",
+        "..........WW....",
+        ".WWWWWWWWWW.....",
+        "................",
+        ".WWWWWWWWWWWWW..",
+        "..............W.",
+        "..............W.",
+        "....WWWWWWWWWW..",
+        "................",
+        "...WWWWWWWW.....",
+        "..........WW....",
+        ".......WWWW....."};
+
+    private static void wind(int[] p) {
+        art(p, WIND, 'W', 0xFFE3ECFF);
+        for (int x = 1; x <= 10; x++) set(p, x, 7, 0xFF9FB0D3);
+        for (int x = 1; x <= 13; x++) set(p, x, 9, 0xFF9FB0D3);
+        for (int x = 4; x <= 13; x++) set(p, x, 12, 0xFF9FB0D3);
     }
 
     private static final String[] PIN = {

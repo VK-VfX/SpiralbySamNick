@@ -7,8 +7,8 @@ package app.skypix.core;
 public final class Cards {
     private Cards() {}
 
-    public static final int NOW = 0, NOW_WIDE = 1, HOURLY = 2, FORECAST = 3, DETAILS = 4, LOCATION = 5, SUN = 6, HEADSUP = 7;
-    public static final int COUNT = 8;
+    public static final int NOW = 0, NOW_WIDE = 1, HOURLY = 2, FORECAST = 3, DETAILS = 4, LOCATION = 5, SUN = 6, HEADSUP = 7, ICON = 8;
+    public static final int COUNT = 9;
 
     public static final class Data {
         public Weather weather;
@@ -34,6 +34,7 @@ public final class Cards {
             case FORECAST: return new int[]{250, 180};
             case DETAILS: return new int[]{250, 110};
             case LOCATION: return new int[]{110, 110};
+            case ICON: return new int[]{40, 40};
             case SUN: return new int[]{250, 110};
             default: return new int[]{250, 56};
         }
@@ -48,6 +49,7 @@ public final class Cards {
             case DETAILS: return "Details";
             case LOCATION: return "Location";
             case SUN: return "Sun";
+            case ICON: return "Icon";
             default: return "Heads-up";
         }
     }
@@ -135,6 +137,22 @@ public final class Cards {
             return cell * Sprites.N / u;
         }
 
+        /** Sprite with a thin dark pixel outline so pale icons stay readable on light wallpapers. */
+        float iconOutlined(Icon ic, float x, float y, float size, int outline) {
+            int cell = Math.max(1, Math.round(size * u / Sprites.N));
+            int bob = t < 0 ? 0 : Math.round((float) Math.sin(t * 4.2 + x * 0.07) * cell * 0.7f);
+            int o = Math.max(1, Math.round(cell * 0.34f));
+            int[] mono = Sprites.mono(ic, outline);
+            int px = Math.round(x * u), py = Math.round(y * u) + bob;
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dy = -1; dy <= 1; dy++) {
+                    if (dx != 0 || dy != 0) g.sprite(mono, Sprites.N, Sprites.N, px + dx * o, py + dy * o, cell);
+                }
+            }
+            g.sprite(Sprites.get(ic), Sprites.N, Sprites.N, px, py, cell);
+            return cell * Sprites.N / u;
+        }
+
         float iconSize(float size) {
             return Math.max(1, Math.round(size * u / Sprites.N)) * Sprites.N / u;
         }
@@ -153,6 +171,10 @@ public final class Cards {
     public static void render(Gfx g, int kind, float wDp, float hDp, float u, boolean dark, Data d) {
         R r = new R(g, u, wDp, hDp, dark, d != null && d.transparentDark);
         r.t = d == null ? -1 : d.anim;
+        if (kind == ICON) {
+            iconWidget(r, d);
+            return;
+        }
         Mood m = mood(d);
         base(r, m);
         fx(r, m, d);
@@ -185,6 +207,7 @@ public final class Cards {
         Units u = d.units;
         String base = d.place.title() + ": " + u.temp(n.temp) + " degrees " + (u.fahrenheit ? "Fahrenheit" : "Celsius")
                 + ", " + Wmo.label(n.code);
+        if (kind == ICON) return u.temp(n.temp) + " degrees, " + Wmo.label(n.code);
         if (kind == LOCATION) {
             return "Location: " + d.place.title() + ", accuracy " + Math.round(d.place.accuracyM) + " meters";
         }
@@ -826,6 +849,79 @@ public final class Cards {
         } else {
             r.pix(label, w / 2, blockTop, cell, Gfx.CENTER, T3);
             r.text(value, w / 2, blockTop + r.pixH(cell) + 14, 14, Gfx.FONT_MEDIUM, Gfx.CENTER, WHITE);
+        }
+    }
+
+
+    // ---- ICON (1x1, 2x1, 2x2): no card, just the weather and the temperature ------------------------------------
+
+    private static Icon iconFor(Weather.Now n) {
+        Icon base = Wmo.icon(n.code, n.isDay);
+        boolean calm = base == Icon.SUN || base == Icon.MOON || base == Icon.PARTLY_DAY
+                || base == Icon.PARTLY_NIGHT || base == Icon.CLOUD;
+        double wind = Double.isNaN(n.wind) ? 0 : n.wind;
+        double gust = Double.isNaN(n.gust) ? 0 : n.gust;
+        return calm && (wind >= 35 || gust >= 55) ? Icon.WIND : base;
+    }
+
+    private static void iconInk(R r, Icon icon, float x, float y, float size) {
+        if (r.dark) r.icon(icon, x, y, size);
+        else r.iconOutlined(icon, x, y, size, 0xCC0E1630);
+    }
+
+    private static void shadowText(R r, String s, float x, float base, float size, int font, int align, int ink) {
+        if (!r.dark) {
+            // a whisper of light behind dark ink keeps it readable over busy wallpapers
+            r.text(s, x + 0.6f, base + 0.6f, size, font, align, 0x40FFFFFF);
+        } else {
+            r.text(s, x + 0.8f, base + 0.8f, size, font, align, 0x66000000);
+        }
+        r.text(s, x, base, size, font, align, ink);
+    }
+
+    private static void iconWidget(R r, Data d) {
+        float w = r.w, h = r.h;
+        int ink = r.dark ? 0xFFFFFFFF : 0xFF0E1630;
+        int ink2 = r.dark ? 0xCCFFFFFF : 0xB30E1630;
+        if (d == null || !d.ready()) {
+            float sz = clamp(Math.min(w, h) * 0.6f, 16, 48);
+            float real = r.iconSize(sz);
+            r.icon(Icon.PIN, (w - real) / 2, (h - real) / 2, sz);
+            return;
+        }
+        Weather.Now n = d.weather.now(d.nowSec);
+        Icon icon = iconFor(n);
+        Units u = d.units;
+        String temp = u.t(n.temp);
+        boolean wide = w >= h * 1.6f;
+        if (wide) {
+            float isz = clamp(h * 0.8f, 18, 70);
+            float real = r.iconSize(isz);
+            float ts = clamp(h * 0.52f, 14, 40);
+            String text = u.tUnit(n.temp);
+            while (ts > 12 && real + 8 + r.tw(text, ts, Gfx.FONT_BOLD) > w - 4) ts -= 1;
+            float tw = r.tw(text, ts, Gfx.FONT_BOLD);
+            float x0 = (w - (real + 8 + tw)) / 2;
+            iconInk(r, icon, x0, (h - real) / 2, isz);
+            shadowText(r, text, x0 + real + 8, h / 2 + ts * 0.36f, ts, Gfx.FONT_BOLD, Gfx.LEFT, ink);
+        } else {
+            boolean label = h >= 90;
+            float ts = clamp(h * (label ? 0.24f : 0.3f), 11, 30);
+            float lsz = 11.5f;
+            float isz = clamp(Math.min(w * 0.62f, h * (label ? 0.5f : 0.56f)), 16, 80);
+            float real = r.iconSize(isz);
+            float textH = ts * 0.78f + (label ? lsz + 5 : 0);
+            float total = real + 3 + textH;
+            float y0 = (h - total) / 2;
+            iconInk(r, icon, (w - real) / 2, y0, isz);
+            float base = y0 + real + 3 + ts * 0.78f;
+            String text = w >= 80 ? u.tUnit(n.temp) : temp;
+            while (ts > 10 && r.tw(text, ts, Gfx.FONT_BOLD) > w - 4) ts -= 1;
+            shadowText(r, text, w / 2, base, ts, Gfx.FONT_BOLD, Gfx.CENTER, ink);
+            if (label) {
+                String l = icon == Icon.WIND ? "windy" : Wmo.label(n.code);
+                r.text(r.fit(l, lsz, Gfx.FONT_MEDIUM, w - 8), w / 2, base + lsz + 4, lsz, Gfx.FONT_MEDIUM, Gfx.CENTER, ink2);
+            }
         }
     }
 
