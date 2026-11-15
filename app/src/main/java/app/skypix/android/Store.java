@@ -44,6 +44,9 @@ final class Store {
     static int quietEnd(Context c) { return sp(c).getInt("qe", 7); }
     static void setQuietHours(Context c, int start, int end) { sp(c).edit().putInt("qs", start).putInt("qe", end).apply(); }
 
+    static boolean cats(Context c) { return sp(c).getBoolean("cats", true); }
+    static void setCats(Context c, boolean v) { sp(c).edit().putBoolean("cats", v).apply(); }
+
     static boolean animate(Context c) { return sp(c).getBoolean("animate", true); }
     static void setAnimate(Context c, boolean v) { sp(c).edit().putBoolean("animate", v).apply(); }
 

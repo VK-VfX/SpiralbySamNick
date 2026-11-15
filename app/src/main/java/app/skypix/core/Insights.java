@@ -196,9 +196,12 @@ public final class Insights {
         int end = Math.min(hi + 12, w.hTime.length - 1);
         double maxPop = 0;
         for (int j = hi; j <= end; j++) maxPop = Math.max(maxPop, w.hPop[j]);
+        int pun = (int) (((nowSec + w.utcOffset) / 3600L) % 4);
+        String[] punTitle = {"Purrfectly calm next 12 hours", "Nap weather for the next 12 hours", "Cat approved for the next 12 hours", "Nothing to hiss at for 12 hours"};
+        String[] punShort = {"Purrfect", "Nap weather", "Cat approved", "All calm"};
         return new Insight("steady", INFO, Wmo.icon(n.code, n.isDay),
-                "Steady for the next 12 hours",
-                "Feels like " + u.t(n.feels) + " · rain chance up to " + Math.round(maxPop) + "%", "Steady 12 h", "Rain up to " + Math.round(maxPop) + "%", 0L);
+                punTitle[pun],
+                "Feels like " + u.t(n.feels) + " · rain chance up to " + Math.round(maxPop) + "%", punShort[pun], "Rain up to " + Math.round(maxPop) + "%", 0L);
     }
 
     /** Multi-line body for the hourly notification. */

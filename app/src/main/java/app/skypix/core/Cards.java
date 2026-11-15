@@ -323,6 +323,14 @@ public final class Cards {
                 r.rect(x + cw * 0.2f, y - ch * 0.4f, x + cw * 0.6f, y + ch * 0.4f, ch / 2, withAlpha(0xFFFFFF, 0.1f * env));
             }
         }
+        // easter egg: now and then a cat dashes across the bottom of the card
+        if (((d.nowSec / 60) % 3) == 0 && t > 0.5f && t < 4.3f && Glyphs.cats) {
+            float f = (t - 0.5f) / 3.8f;
+            float size = clamp(h * 0.2f, 18, 28);
+            float x = w + size - (w + 2 * size) * f;
+            float y = h - size - 3 - Math.abs((float) Math.sin(t * 10)) * 4;
+            r.g.emoji("walk", x * r.u, y * r.u, size * r.u);
+        }
         r.g.restoreClip();
     }
 
@@ -466,8 +474,12 @@ public final class Cards {
             r.text(temp, w - pad, pad + tsz * 0.8f, tsz, Gfx.FONT_MEDIUM, Gfx.RIGHT, warm);
             r.text(r.fit(d.place.shortName(), hs, Gfx.FONT_MEDIUM, w - 2 * pad - tw - 8), pad, pad + hs, hs, Gfx.FONT_MEDIUM, Gfx.LEFT, ink);
             if (wide) {
-                r.text("H: " + u.t(wx.todayMax(d.nowSec)) + "  L: " + u.t(wx.todayMin(d.nowSec)), pad, pad + hs + 16, 12.5f, Gfx.FONT_REGULAR, Gfx.LEFT, ink2);
-                top = pad + hs + 20;
+                // high/low sits on the place's line so the chart gets the whole lower half
+                String nm = r.fit(d.place.shortName(), hs, Gfx.FONT_MEDIUM, w - 2 * pad - tw - 8);
+                float hx = pad + r.tw(nm, hs, Gfx.FONT_MEDIUM) + 10;
+                String hl = "H:" + u.t(wx.todayMax(d.nowSec)) + " L:" + u.t(wx.todayMin(d.nowSec));
+                if (hx + r.tw(hl, 12, Gfx.FONT_REGULAR) < w - pad - tw - 6) r.text(hl, hx, pad + hs, 12, Gfx.FONT_REGULAR, Gfx.LEFT, ink2);
+                top = pad + hs + 8;
             } else {
                 top = pad + 24;
             }
@@ -630,7 +642,7 @@ public final class Cards {
         float cBase = lhBase - 16;
         float ic = 18;
         r.icon(Wmo.icon(n.code, n.isDay), pad - 2, cBase - ic - 1, ic);
-        r.text(r.fit(Wmo.label(n.code), lh, Gfx.FONT_MEDIUM, w - 2 * pad - ic), pad + ic - 2, cBase - 4, lh, Gfx.FONT_MEDIUM, Gfx.LEFT, WHITE);
+        r.text(r.fit(Wmo.label(n.code), lh, Gfx.FONT_MEDIUM, w - 2 * pad - ic - 4), pad + ic + 3, cBase - 4, lh, Gfx.FONT_MEDIUM, Gfx.LEFT, WHITE);
     }
 
     // ---- NOW WIDE (4x2) ------------------------------------------------------------------------------------------

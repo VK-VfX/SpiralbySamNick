@@ -276,6 +276,54 @@ final class Ui {
         }
     }
 
+    /** Easter egg: a few seconds of Noto cats raining down the screen. */
+    static final class CatRain extends View {
+        private static final String[] NAMES = {"plain", "grin", "smile", "joy", "love", "smirk", "kiss", "weary", "cry", "pout", "walk", "black"};
+        private final long start = android.os.SystemClock.uptimeMillis();
+        private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+        private final android.graphics.RectF rf = new android.graphics.RectF();
+
+        CatRain(Context c) {
+            super(c);
+            setClickable(false);
+        }
+
+        private static float rnd(int i, int salt) {
+            double v = Math.sin(i * 12.9898 + salt * 78.233) * 43758.5453;
+            return (float) (v - Math.floor(v));
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            float u = getResources().getDisplayMetrics().density;
+            float t = (android.os.SystemClock.uptimeMillis() - start) / 1000f;
+            if (t > 4.5f) {
+                post(new Runnable() {
+                    @Override public void run() {
+                        if (getParent() instanceof android.view.ViewGroup) ((android.view.ViewGroup) getParent()).removeView(CatRain.this);
+                    }
+                });
+                return;
+            }
+            float h = getHeight(), w = getWidth();
+            for (int i = 0; i < 30; i++) {
+                android.graphics.Bitmap b = AndroidGfx.emojiBitmap(NAMES[(int) (rnd(i, 1) * NAMES.length) % NAMES.length]);
+                if (b == null) continue;
+                float size = (26 + rnd(i, 2) * 30) * u;
+                float x = rnd(i, 3) * (w - size);
+                float speed = (230 + rnd(i, 4) * 260) * u;
+                float y = -size + t * speed - rnd(i, 5) * h * 0.5f;
+                if (y > h || y < -size) continue;
+                canvas.save();
+                canvas.rotate((rnd(i, 6) - 0.5f) * 50f + t * (rnd(i, 7) - 0.5f) * 90f, x + size / 2, y + size / 2);
+                rf.set(x, y, x + size, y + size);
+                canvas.drawBitmap(b, null, rf, p);
+                canvas.restore();
+            }
+            postInvalidateOnAnimation();
+        }
+    }
+
     /** Flat page background: Google surface in light, pure black in dark. */
     static final class Backdrop extends View {
         Backdrop(Context c) {

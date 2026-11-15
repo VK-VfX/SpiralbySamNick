@@ -45,6 +45,9 @@ public class MainActivity extends Activity {
     private ScrollView scroll;
     private LinearLayout content;
     private TextView statusText;
+    private FrameLayout rootView;
+    private int titleTaps;
+    private long lastTitleTap;
     private boolean refreshing;
     private int pendingScrollKind = -1;
     private final HashMap<Integer, View> cardByKind = new HashMap<Integer, View>();
@@ -60,6 +63,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         FrameLayout root = new FrameLayout(this);
+        rootView = root;
         root.addView(new Ui.Backdrop(this), new FrameLayout.LayoutParams(-1, -1));
         scroll = new ScrollView(this);
         scroll.setFillViewport(true);
@@ -197,7 +201,20 @@ public class MainActivity extends Activity {
         head.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout titles = new LinearLayout(this);
         titles.setOrientation(LinearLayout.VERTICAL);
-        titles.addView(Ui.text(this, "Skypix", 34, 500, Ui.onSurface(this)));
+        TextView title = Ui.text(this, "Skypix", 34, 500, Ui.onSurface(this));
+        title.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                long now = android.os.SystemClock.uptimeMillis();
+                titleTaps = now - lastTitleTap < 900 ? titleTaps + 1 : 1;
+                lastTitleTap = now;
+                if (titleTaps >= 7) {
+                    titleTaps = 0;
+                    Toast.makeText(MainActivity.this, "Meow! \uD83D\uDE3A", Toast.LENGTH_SHORT).show();
+                    if (rootView != null) rootView.addView(new Ui.CatRain(MainActivity.this), new FrameLayout.LayoutParams(-1, -1));
+                }
+            }
+        });
+        titles.addView(title);
         statusText = Ui.text(this, statusLine(d), 14, 400, Ui.onSurfaceVar(this));
         titles.addView(statusText, lp(-2, -2, 4));
         head.addView(titles, new LinearLayout.LayoutParams(0, -2, 1f));
@@ -235,7 +252,7 @@ public class MainActivity extends Activity {
         addWidgetPicker(ink, ink2);
 
         TextView foot = new TextView(this);
-        foot.setText("Weather & air quality: Open-Meteo.com (CC BY 4.0)\nPlace names: © OpenStreetMap contributors\nNo accounts, no analytics, no Google services.");
+        foot.setText("Weather & air quality: Open-Meteo.com (CC BY 4.0)\nPlace names: © OpenStreetMap contributors\nCat emoji: Google Noto Emoji (Apache 2.0)\nNo accounts, no analytics, no Google services.");
         foot.setTextSize(12);
         foot.setTypeface(AndroidGfx.typeface(400));
         foot.setTextColor(Ui.onSurfaceVar(this));
@@ -440,6 +457,16 @@ public class MainActivity extends Activity {
             style.addView(b, new LinearLayout.LayoutParams(-2, -2));
         }
         row(box, "Widget background", "Solid, see-through glass, or fully clear (dark mode)", style);
+
+        row(box, "Cat icons", "Weather shown as Google Noto cats, a different mood for every sky",
+                toggle(Store.cats(this), new CompoundButton.OnCheckedChangeListener() {
+                    @Override public void onCheckedChanged(CompoundButton b, boolean on) {
+                        Store.setCats(MainActivity.this, on);
+                        app.skypix.core.Glyphs.cats = on;
+                        WidgetUpdater.updateAll(MainActivity.this);
+                        rebuild();
+                    }
+                }));
 
         row(box, "Animate on unlock", "5 seconds of weather motion each time you open your phone",
                 toggle(Store.animate(this), new CompoundButton.OnCheckedChangeListener() {

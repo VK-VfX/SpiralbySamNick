@@ -35,6 +35,9 @@ public interface Gfx {
     /** Draws a pixel sprite scaled by an integer cell size, nearest-neighbour. */
     void sprite(int[] argb, int w, int h, float x, float y, int cell);
 
+    /** Draws a bundled Noto Emoji image (cat_<name>.png) into the square (x, y, size). */
+    void emoji(String name, float x, float y, float size);
+
     /** A crescent moon: a disc of radius r with a second, offset disc cut out of it. */
     void crescent(float cx, float cy, float r, int argb);
 

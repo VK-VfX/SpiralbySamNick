@@ -19,6 +19,29 @@ import java.util.HashMap;
 final class AndroidGfx implements Gfx {
     private static final HashMap<int[], Bitmap> SPRITES = new HashMap<int[], Bitmap>();
     private static Typeface[] faces;
+    private static android.content.res.Resources res;
+    private static final HashMap<String, Bitmap> EMOJI = new HashMap<String, Bitmap>();
+    private final Paint emojiPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+
+    static void init(android.content.Context c) {
+        res = c.getApplicationContext().getResources();
+    }
+
+    static Bitmap emojiBitmap(String name) {
+        synchronized (EMOJI) {
+            Bitmap b = EMOJI.get(name);
+            if (b == null && res != null) {
+                int id = res.getIdentifier("cat_" + name, "drawable", "app.skypix.weather");
+                if (id != 0) {
+                    android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+                    o.inScaled = false;
+                    b = android.graphics.BitmapFactory.decodeResource(res, id, o);
+                    if (b != null) EMOJI.put(name, b);
+                }
+            }
+            return b;
+        }
+    }
 
     private final Canvas c;
     private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -145,6 +168,14 @@ final class AndroidGfx implements Gfx {
         int ix = Math.round(x), iy = Math.round(y);
         dst.set(ix, iy, ix + w * cell, iy + h * cell);
         c.drawBitmap(bmp, src, dst, spritePaint);
+    }
+
+    @Override public void emoji(String name, float x, float y, float size) {
+        Bitmap b = emojiBitmap(name);
+        if (b == null) return;
+        src.set(0, 0, b.getWidth(), b.getHeight());
+        rf.set(x, y, x + size, y + size);
+        c.drawBitmap(b, src, rf, emojiPaint);
     }
 
     @Override public void crescent(float cx, float cy, float r, int argb) {

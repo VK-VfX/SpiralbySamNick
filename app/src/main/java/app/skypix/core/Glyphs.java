@@ -4,6 +4,27 @@ package app.skypix.core;
 public final class Glyphs {
     private Glyphs() {}
 
+    /** When true every weather glyph is a Google Noto cat emoji (one cat mood per weather). */
+    public static volatile boolean cats = true;
+
+    public static String catFor(Icon ic) {
+        switch (ic) {
+            case SUN: return "smile";
+            case MOON: return "black";
+            case PARTLY_DAY: return "grin";
+            case PARTLY_NIGHT: return "kiss";
+            case CLOUD: return "plain";
+            case FOG: return "smirk";
+            case DRIZZLE: return "pout";
+            case RAIN: return "cry";
+            case STORM: return "weary";
+            case SNOW: return "love";
+            case WIND: return "joy";
+            case PIN: return "walk";
+            default: return "weary";
+        }
+    }
+
     private static final int SUN = 0xFFFFC62E, SUN_RAY = 0xFFFFB300, MOON = 0xFFF6E7B4;
     private static final int CLOUD = 0xFFF4F7FB, CLOUD_SHADE = 0xFFB9C4D2, STORM_CLOUD = 0xFF9AA6B8;
     private static final int DROP = 0xFF7DB8FF, BOLT = 0xFFFFD43B, SNOW = 0xFFFFFFFF, WIND = 0xFFE9F0F7;
@@ -43,6 +64,11 @@ public final class Glyphs {
 
     /** {@code onLight} swaps the pale cloud/moon colours for ones that show up on a white card. */
     public static void draw(Gfx g, Icon ic, float x, float y, float s, float t, int tint, boolean onLight) {
+        if (cats) {
+            // the cat has its own colours, so the soft-shadow pass is skipped
+            if (tint == 0) g.emoji(catFor(ic), x, y, s);
+            return;
+        }
         P p = new P(g, tint, onLight);
         switch (ic) {
             case SUN: sun(p, x + s * .5f, y + s * .5f, s * .23f, s, t, 1f); break;

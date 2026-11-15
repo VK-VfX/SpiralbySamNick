@@ -83,6 +83,22 @@ final class AwtGfx implements Gfx {
         g.draw(new Line2D.Float(x1, y1, x2, y2));
     }
 
+    private static final java.util.HashMap<String, java.awt.image.BufferedImage> EMOJI = new java.util.HashMap<String, java.awt.image.BufferedImage>();
+
+    @Override public void emoji(String name, float x, float y, float size) {
+        java.awt.image.BufferedImage b = EMOJI.get(name);
+        if (b == null) {
+            try {
+                b = javax.imageio.ImageIO.read(new java.io.File("app/src/main/res/drawable-nodpi/cat_" + name + ".png"));
+            } catch (Exception e) {
+                return;
+            }
+            EMOJI.put(name, b);
+        }
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+        g.drawImage(b, Math.round(x), Math.round(y), Math.round(size), Math.round(size), null);
+    }
+
     @Override public void crescent(float cx, float cy, float r, int argb) {
         java.awt.geom.Area a = new java.awt.geom.Area(new java.awt.geom.Ellipse2D.Float(cx - r, cy - r, 2 * r, 2 * r));
         float r2 = r * 0.82f, cx2 = cx + r * 0.52f, cy2 = cy - r * 0.26f;
