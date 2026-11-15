@@ -34,6 +34,7 @@ import app.skypix.core.Fmt;
 import app.skypix.core.Gfx;
 import app.skypix.core.Insights;
 import app.skypix.core.Place;
+import app.skypix.core.Variants;
 
 import java.util.HashMap;
 import java.util.List;
@@ -517,26 +518,25 @@ public class MainActivity extends Activity {
 
     // ---- widget picker --------------------------------------------------------------------------------------------
 
-    private static final String[] SIZES = {"2×2", "4×2", "4×2", "4×3", "4×2", "2×2", "4×2", "4×1"};
-    private static final String[] BLURBS = {
-        "Temperature, condition, high/low", "Big temperature with humidity", "Next hours with rain chance",
-        "Five-day outlook with range bars", "Feels like, humidity, wind, UV, air, pressure", "Exact place, coordinates and GPS accuracy",
-        "Sun arc, sunrise, sunset, daylight left", "The one thing to know right now"
-    };
-
     private void addWidgetPicker(int ink, int ink2) {
         LinearLayout box = section("ADD WIDGETS", ink);
         final AppWidgetManager awm = AppWidgetManager.getInstance(this);
         boolean canPin = Build.VERSION.SDK_INT >= 26 && awm.isRequestPinAppWidgetSupported();
-        for (int k = 0; k < Cards.COUNT; k++) {
-            final int kind = k;
+        int lastKind = -1;
+        for (int v = 0; v < Variants.COUNT; v++) {
+            final int variant = v;
+            if (Variants.KIND[v] != lastKind && lastKind != -1) {
+                View gap = new View(this);
+                box.addView(gap, lp(-1, Ui.dp(this, 6), 0));
+            }
+            lastKind = Variants.KIND[v];
             Ui.PixelButton add = canPin ? new Ui.PixelButton(this, "ADD", true) : null;
             if (add != null) add.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) {
-                    awm.requestPinAppWidget(new ComponentName(MainActivity.this, WidgetUpdater.PROVIDERS[kind]), null, null);
+                @Override public void onClick(View view) {
+                    awm.requestPinAppWidget(new ComponentName(MainActivity.this, Widgets.ALL[variant]), null, null);
                 }
             });
-            row(box, Cards.title(k) + "  ·  " + SIZES[k], BLURBS[k], add);
+            row(box, Variants.TITLE[v] + "  \u00b7  " + Variants.size(v), Variants.BLURB[v], add);
         }
         if (!canPin) {
             TextView hint = new TextView(this);

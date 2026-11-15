@@ -174,14 +174,33 @@ public final class Preview {
             ImageIO.write(img, "png", new File(dir, "anim.png"));
         } else if (mode.equals("icons")) {
             icons(dir);
-        } else if (mode.equals("previews")) {
-            // widget-picker preview images (opaque, light-theme look), written into res/drawable-nodpi
-            String[] names = {"now", "now_wide", "hourly", "forecast", "details", "location", "sun", "headsup"};
-            Cards.Data d = Samples.data("clear", false, false);
-            for (int k = 0; k < Cards.COUNT; k++) {
-                BufferedImage img = render(k, TYPICAL[k][0], TYPICAL[k][1], 2f, false, d);
+        } else if (mode.equals("variants")) {
+            for (int side = 0; side < 2; side++) {
+                boolean dark = side == 1;
+                float u = 1.6f;
+                int W = 1180, H = 1500;
+                BufferedImage img = new BufferedImage(Math.round(W * u), Math.round(H * u), BufferedImage.TYPE_INT_ARGB);
+                Graphics2D g = img.createGraphics();
+                g.drawImage(backdrop(img.getWidth(), img.getHeight(), dark, false), 0, 0, null);
+                Cards.Data d = Samples.data("clear", false, false);
+                int x = 14, y = 14, rowH = 0;
+                for (int v = 0; v < app.skypix.core.Variants.COUNT; v++) {
+                    int vw = app.skypix.core.Variants.widthDp(v), vh = app.skypix.core.Variants.heightDp(v);
+                    if (x + vw > W - 14) { x = 14; y += rowH + 14; rowH = 0; }
+                    g.drawImage(render(app.skypix.core.Variants.KIND[v], vw, vh, u, dark, d), Math.round(x * u), Math.round(y * u), null);
+                    x += vw + 14;
+                    rowH = Math.max(rowH, vh);
+                }
+                g.dispose();
                 dir.mkdirs();
-                ImageIO.write(img, "png", new File(dir, "preview_" + names[k] + ".png"));
+                ImageIO.write(img, "png", new File(dir, dark ? "variants-dark.png" : "variants-light.png"));
+            }
+        } else if (mode.equals("previews")) {
+            Cards.Data d = Samples.data("clear", false, false);
+            dir.mkdirs();
+            for (int v = 0; v < app.skypix.core.Variants.COUNT; v++) {
+                BufferedImage img = render(app.skypix.core.Variants.KIND[v], app.skypix.core.Variants.widthDp(v), app.skypix.core.Variants.heightDp(v), 2f, false, d);
+                ImageIO.write(img, "png", new File(dir, "preview_" + app.skypix.core.Variants.KEY[v] + ".png"));
             }
         }
     }

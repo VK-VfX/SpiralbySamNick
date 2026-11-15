@@ -161,9 +161,16 @@ public final class Cards {
             return;
         }
         switch (kind) {
-            case NOW: now(r, d); break;
+            case NOW:
+                if (r.w >= r.h * 1.7f) nowWide(r, d);
+                else if (r.h >= 150 && r.h >= r.w * 1.3f) nowTall(r, d);
+                else now(r, d);
+                break;
             case NOW_WIDE: nowWide(r, d); break;
-            case HOURLY: hourly(r, d); break;
+            case HOURLY:
+                if (r.w < 200 && r.h >= 150) hourlyTall(r, d);
+                else hourly(r, d);
+                break;
             case FORECAST: forecast(r, d); break;
             case DETAILS: details(r, d); break;
             case LOCATION: location(r, d); break;
@@ -404,6 +411,106 @@ public final class Cards {
         r.text(r.fit(label, csz, Gfx.FONT_LIGHT, 2 * half), rightCx, iy + real + csz + 5 * s, csz, Gfx.FONT_LIGHT, Gfx.CENTER, WHITE);
     }
 
+
+    // ---- NOW TALL (2x3, 2x4) -------------------------------------------------------------------------------------
+
+    private static void nowTall(R r, Data d) {
+        float w = r.w, h = r.h;
+        float pad = clamp(w * 0.1f, 10, 16);
+        Weather wx = d.weather;
+        Units u = d.units;
+        Weather.Now n = wx.now(d.nowSec);
+        float isz = clamp(w * 0.26f, 22, 40);
+        float real = r.icon(Wmo.icon(n.code, n.isDay), w - pad - isz, pad - 3, isz);
+        r.text(r.fit(d.place.shortName(), 12, Gfx.FONT_MEDIUM, w - 2 * pad - real - 4), pad, pad + 10, 12, Gfx.FONT_MEDIUM, Gfx.LEFT, T2);
+        float ts = clamp(w * 0.36f, 32, 50);
+        float tBase = pad + 18 + ts * 0.8f;
+        r.text(u.t(n.temp), pad - 1, tBase, ts, Gfx.FONT_BOLD, Gfx.LEFT, WHITE);
+        float cBase = tBase + 17;
+        r.text(r.fit(Wmo.label(n.code), 12, Gfx.FONT_REGULAR, w - 2 * pad), pad, cBase, 12, Gfx.FONT_REGULAR, Gfx.LEFT, T2);
+        float cell = 1.5f;
+        float pY = cBase + 9;
+        hiLo(r, pad, pY, cell, wx.todayMax(d.nowSec), wx.todayMin(d.nowSec), u, Gfx.LEFT);
+        float y0 = pY + r.pixH(cell) + 10;
+        r.rect(pad, y0, w - pad, y0 + 1, 0.5f, 0x22FFFFFF);
+
+        float top = y0 + 6;
+        float rowH = 28;
+        int hi = wx.hourIndex(d.nowSec);
+        int rows = (int) Math.floor((h - pad - top + 2) / rowH);
+        rows = Math.min(rows, Math.min(6, wx.hTime.length - hi - 1));
+        for (int k = 1; k <= rows; k++) {
+            int j = hi + k;
+            float cy = top + (k - 1) * rowH + rowH / 2;
+            r.pix(Fmt.hourTag(wx.hTime[j], wx.utcOffset, u.h24), pad, cy - r.pixH(1.2f) / 2, 1.2f, Gfx.LEFT, T2);
+            float ix = pad + (w < 150 ? 38 : 56);
+            r.icon(Wmo.icon(wx.hCode[j], wx.hDay[j]), ix, cy - r.iconSize(20) / 2, 20);
+            r.text(u.t(wx.hTemp[j]), w - pad, cy + 5, 14, Gfx.FONT_BOLD, Gfx.RIGHT, WHITE);
+            if (w >= 150 && wx.hPop[j] >= 20) {
+                r.pix(Math.round(wx.hPop[j]) + "%", w - pad - 40, cy - r.pixH(1.2f) / 2, 1.2f, Gfx.RIGHT, POP);
+            }
+        }
+    }
+
+    // ---- HOURLY TALL (2x3, 2x4) ----------------------------------------------------------------------------------
+
+    private static void hourlyTall(R r, Data d) {
+        Weather wx = d.weather;
+        Units u = d.units;
+        float w = r.w, h = r.h;
+        float pad = clamp(w * 0.08f, 10, 14);
+        Weather.Now n = wx.now(d.nowSec);
+        int hi = wx.hourIndex(d.nowSec);
+        String temp = u.t(n.temp);
+        r.text(r.fit(d.place.shortName(), 13, Gfx.FONT_BOLD, w - 2 * pad), pad, pad + 12, 13, Gfx.FONT_BOLD, Gfx.LEFT, WHITE);
+        float tsz = 24;
+        float tw = r.tw(temp, tsz, Gfx.FONT_BOLD);
+        r.text(temp, pad - 1, pad + 12 + 6 + tsz * 0.8f, tsz, Gfx.FONT_BOLD, Gfx.LEFT, WHITE);
+        r.text(r.fit(Wmo.label(n.code), 11, Gfx.FONT_REGULAR, w - 2 * pad - tw - 8), w - pad, pad + 12 + 6 + tsz * 0.8f - 2, 11, Gfx.FONT_REGULAR, Gfx.RIGHT, T2);
+
+        float top = pad + 12 + 6 + tsz + 8;
+        float rowH = h >= 220 ? 30 : 28;
+        int rows = (int) Math.floor((h - pad - top + 4) / rowH);
+        rows = Math.max(1, Math.min(rows, Math.min(9, wx.hTime.length - hi)));
+        for (int k = 0; k < rows; k++) {
+            int j = hi + k;
+            float y = top + k * rowH, cy = y + rowH / 2;
+            if (k == 0) r.rect(pad - 3, y + 1, w - pad + 3, y + rowH - 1, 10, TILE);
+            String tag = k == 0 ? "NOW" : Fmt.hourTag(wx.hTime[j], wx.utcOffset, u.h24);
+            r.pix(tag, pad + 3, cy - r.pixH(1.2f) / 2, 1.2f, Gfx.LEFT, k == 0 ? WHITE : T2);
+            float ix = pad + (w < 150 ? 36 : 54);
+            r.icon(Wmo.icon(wx.hCode[j], wx.hDay[j]), ix, cy - r.iconSize(20) / 2, 20);
+            r.text(u.t(wx.hTemp[j]), w - pad - 3, cy + 5, 14, Gfx.FONT_BOLD, Gfx.RIGHT, WHITE);
+            if (w >= 150 && wx.hPop[j] >= 20) {
+                r.pix(Math.round(wx.hPop[j]) + "%", w - pad - 48, cy - r.pixH(1.2f) / 2, 1.2f, Gfx.RIGHT, POP);
+            }
+        }
+    }
+
+    /** Greedy word wrap; the last allowed line is ellipsised. */
+    private static java.util.List<String> wrap(R r, String s, float size, int font, float maxW, int maxLines) {
+        java.util.ArrayList<String> out = new java.util.ArrayList<String>();
+        String[] words = s.split(" ");
+        String line = "";
+        for (int i = 0; i < words.length; i++) {
+            String tryLine = line.length() == 0 ? words[i] : line + " " + words[i];
+            if (r.tw(tryLine, size, font) <= maxW || line.length() == 0) {
+                line = tryLine;
+            } else {
+                out.add(line);
+                line = words[i];
+                if (out.size() == maxLines - 1) {
+                    StringBuilder rest = new StringBuilder(line);
+                    for (int k = i + 1; k < words.length; k++) rest.append(' ').append(words[k]);
+                    line = rest.toString();
+                    break;
+                }
+            }
+        }
+        if (line.length() > 0) out.add(r.fit(line, size, font, maxW));
+        return out;
+    }
+
     // ---- HOURLY (4x2) --------------------------------------------------------------------------------------------
 
     private static void hourly(R r, Data d) {
@@ -468,11 +575,12 @@ public final class Cards {
         float pad = clamp(w * 0.05f, 12, 18);
         int di = wx.dayIndex(d.nowSec);
         r.text(r.fit(d.place.shortName(), 14, Gfx.FONT_BOLD, w * 0.55f), pad, pad + 13, 14, Gfx.FONT_BOLD, Gfx.LEFT, WHITE);
-        r.pix("FORECAST", w - pad, pad + 3, 1.3f, Gfx.RIGHT, T3);
+        boolean narrow = w < 200;
+        if (!narrow) r.pix("FORECAST", w - pad, pad + 3, 1.3f, Gfx.RIGHT, T3);
 
         float top = pad + 24;
         float avail = h - top - pad + 4;
-        int rows = (int) clamp((float) Math.floor(avail / 25f), 1, 7);
+        int rows = (int) clamp((float) Math.floor(avail / (narrow ? 30f : 25f)), 1, 7);
         rows = Math.min(rows, wx.dTime.length - di);
         float rowH = avail / rows;
 
@@ -495,6 +603,13 @@ public final class Cards {
             float cy = y0 + rowH / 2;
             if (i > 0) r.rect(pad, y0 - 0.5f, w - pad, y0 + 0.5f, 0.5f, 0x14FFFFFF);
             String name = i == 0 ? "Today" : DAY_NAMES[Fmt.dow(wx.dTime[j] + 43200, wx.utcOffset)];
+            if (narrow) {
+                r.text(name, pad, cy + 4.5f, 12, i == 0 ? Gfx.FONT_BOLD : Gfx.FONT_MEDIUM, Gfx.LEFT, WHITE);
+                r.icon(Wmo.icon(wx.dCode[j], true), pad + 38, cy - r.iconSize(18) / 2, 18);
+                r.text(u.t(wx.dMax[j]), w - pad, cy - 0.5f, 13, Gfx.FONT_BOLD, Gfx.RIGHT, WHITE);
+                r.text(u.t(wx.dMin[j]), w - pad, cy + 11, 10.5f, Gfx.FONT_REGULAR, Gfx.RIGHT, T2);
+                continue;
+            }
             r.text(name, pad, cy + 4.5f, 13.5f, i == 0 ? Gfx.FONT_BOLD : Gfx.FONT_MEDIUM, Gfx.LEFT, WHITE);
             float isz = clamp(rowH - 5, 16, 24);
             float ix = pad + 50;
@@ -559,18 +674,24 @@ public final class Cards {
         for (int j = hi; j < Math.min(hi + 24, wx.hTime.length); j++) maxPop = Math.max(maxPop, wx.hPop[j]);
         t[8] = new String[]{"RAIN", Math.round(maxPop) + "%", "next 24h"};
 
-        int rows = h >= 165 ? 3 : 2;
-        float tw = (w - 2 * pad - 2 * gap) / 3f;
+        int cols = w >= 200 ? 3 : 2;
+        int maxRows = cols == 3 ? 3 : 4;
+        int rows = (int) clamp(Math.round((h - 2 * pad + gap) / (46f + gap)), 1, maxRows);
+        float tw = (w - 2 * pad - (cols - 1) * gap) / cols;
         float th = (h - 2 * pad - (rows - 1) * gap) / rows;
-        for (int i = 0; i < rows * 3; i++) {
-            int col = i % 3, row = i / 3;
+        for (int i = 0; i < Math.min(9, rows * cols); i++) {
+            int col = i % cols, row = i / cols;
             float x = pad + col * (tw + gap), y = pad + row * (th + gap);
             r.rect(x, y, x + tw, y + th, 13, TILE);
-            r.pix(t[i][0], x + 9, y + 6, 1.1f, Gfx.LEFT, T3);
-            float vs = clamp(th * 0.36f, 14, 21);
-            String val = r.fit(t[i][1], vs, Gfx.FONT_BOLD, tw - 14);
-            r.text(val, x + 9, y + th - 16, vs, Gfx.FONT_BOLD, Gfx.LEFT, WHITE);
-            r.text(r.fit(t[i][2], 9.5f, Gfx.FONT_REGULAR, tw - 14), x + 9, y + th - 5, 9.5f, Gfx.FONT_REGULAR, Gfx.LEFT, subCol[i]);
+            r.pix(t[i][0], x + 8, y + 6, 1.1f, Gfx.LEFT, T3);
+            boolean showSub = tw >= 56;
+            float vs = clamp(th * 0.36f, 13, 21);
+            if (showSub && th < 48) vs = Math.min(vs, 14);
+            String raw = showSub ? t[i][1] : t[i][1].replace(" ", "");
+            while (vs > 11 && r.tw(raw, vs, Gfx.FONT_BOLD) > tw - 12) vs -= 0.5f;
+            String val = r.fit(raw, vs, Gfx.FONT_BOLD, tw - 12);
+            r.text(val, x + 8, y + th - (showSub ? (th < 48 ? 14.5f : 16) : 8), vs, Gfx.FONT_BOLD, Gfx.LEFT, WHITE);
+            if (showSub) r.text(r.fit(t[i][2], 9.5f, Gfx.FONT_REGULAR, tw - 12), x + 8, y + th - 5, 9.5f, Gfx.FONT_REGULAR, Gfx.LEFT, subCol[i]);
         }
     }
 
@@ -609,10 +730,10 @@ public final class Cards {
         float maxName = w - 2 * pad;
         if (wide) {
             float left = pad;
-            float split = w * 0.56f;
-            r.text(r.fit(p.shortName(), nameSize, Gfx.FONT_BOLD, split - left - 6), left, h * 0.58f, nameSize, Gfx.FONT_BOLD, Gfx.LEFT, WHITE);
+            float split = w * 0.5f;
+            r.text(r.fit(p.shortName(), nameSize, Gfx.FONT_BOLD, split - left - 8), left, h * 0.58f, nameSize, Gfx.FONT_BOLD, Gfx.LEFT, WHITE);
             String sub = p.subtitle().length() > 0 ? p.subtitle() + ", " + p.country : p.country;
-            r.text(r.fit(sub, 11.5f, Gfx.FONT_REGULAR, split - left - 6), left, h * 0.58f + 17, 11.5f, Gfx.FONT_REGULAR, Gfx.LEFT, T2);
+            r.text(r.fit(sub, 11.5f, Gfx.FONT_REGULAR, split - left - 8), left, h * 0.58f + 17, 11.5f, Gfx.FONT_REGULAR, Gfx.LEFT, T2);
             float cx = w - pad;
             float y = h - pad - 3 * (coordH + 5);
             r.pix("LAT " + Fmt.coord(p.lat, true), cx, y, cellC, Gfx.RIGHT, WHITE);
@@ -621,12 +742,19 @@ public final class Cards {
             r.pix(alt, cx, y + 2 * (coordH + 5), cellC, Gfx.RIGHT, T2);
             r.pix("UPD " + d.units.time(p.fixTimeMs / 1000, d.weather.utcOffset, true), pad, h - pad - coordH, cellC, Gfx.LEFT, T3);
         } else {
-            float y = h - pad - 2 * coordH - 4;
+            boolean tall = h >= 150;
+            float y = h - pad - (tall ? 5 : 2) * coordH - (tall ? 30 : 4);
             r.text(r.fit(p.shortName(), nameSize, Gfx.FONT_BOLD, maxName), pad, y - 22, nameSize, Gfx.FONT_BOLD, Gfx.LEFT, WHITE);
             String sub = p.neighborhood.length() > 0 ? p.neighborhood : (p.region.length() > 0 ? p.region : p.country);
             r.text(r.fit(sub, 10.5f, Gfx.FONT_REGULAR, maxName), pad, y - 8, 10.5f, Gfx.FONT_REGULAR, Gfx.LEFT, T2);
             r.pix(Fmt.coord(p.lat, true), pad, y, cellC, Gfx.LEFT, WHITE);
             r.pix(Fmt.coord(p.lon, false), pad, y + coordH + 4, cellC, Gfx.LEFT, WHITE);
+            if (tall) {
+                float yy = y + 2 * (coordH + 4) + 6;
+                r.pix(Double.isNaN(p.altitudeM) ? "ALT --" : "ALT " + Math.round(p.altitudeM) + " M", pad, yy, cellC, Gfx.LEFT, T2);
+                r.pix(Float.isNaN(p.accuracyM) ? "ACC --" : "ACC \u00b1" + Math.round(p.accuracyM) + " M", pad, yy + coordH + 4, cellC, Gfx.LEFT, T2);
+                r.pix("UPD " + d.units.time(p.fixTimeMs / 1000, d.weather.utcOffset, true), pad, yy + 2 * (coordH + 4), cellC, Gfx.LEFT, T3);
+            }
         }
     }
 
@@ -643,10 +771,10 @@ public final class Cards {
         boolean day = now >= sr && now <= ss;
 
         float cell = 1.3f;
-        float blockTop = h - pad - r.pixH(cell) - 18;
+        float blockTop = h - pad - r.pixH(cell) - (w < 200 ? 16 : 18);
         float horizonY = blockTop - 10;
-        float arcH = clamp(horizonY - pad - 10, 20, w * 0.2f);
-        float arcL = pad + 10, arcR = w - pad - 10;
+        float arcH = clamp(horizonY - pad - (w < 200 ? 26 : 10), 14, w * (w < 200 ? 0.45f : 0.2f));
+        float arcL = pad + (w < 200 ? 4 : 10), arcR = w - pad - (w < 200 ? 4 : 10);
 
         for (float x = pad; x <= w - pad; x += 6) {
             r.rect(x, horizonY, x + 2, horizonY + 2, 0.5f, 0x38FFFFFF);
@@ -671,11 +799,18 @@ public final class Cards {
             r.icon(Icon.MOON, w / 2 - real / 2, horizonY - arcH * 0.7f - real / 2, isz);
         }
 
-        r.text(r.fit(d.place.shortName(), 12.5f, Gfx.FONT_MEDIUM, w * 0.35f), pad, pad + 11, 12.5f, Gfx.FONT_MEDIUM, Gfx.LEFT, T2);
-        r.pix("SUNRISE", pad, blockTop, cell, Gfx.LEFT, T3);
-        r.text(u.time(sr, wx.utcOffset, true), pad, blockTop + r.pixH(cell) + 14, 14, Gfx.FONT_BOLD, Gfx.LEFT, WHITE);
-        r.pix("SUNSET", w - pad, blockTop, cell, Gfx.RIGHT, T3);
-        r.text(u.time(ss, wx.utcOffset, true), w - pad, blockTop + r.pixH(cell) + 14, 14, Gfx.FONT_BOLD, Gfx.RIGHT, WHITE);
+        if (w >= 200 || h >= 120) r.text(r.fit(d.place.shortName(), 12.5f, Gfx.FONT_MEDIUM, w * (w < 200 ? 0.8f : 0.35f)), pad, pad + 11, 12.5f, Gfx.FONT_MEDIUM, Gfx.LEFT, T2);
+        boolean narrow = w < 200;
+        float ts = narrow ? 11.5f : 14;
+        String srT = u.time(sr, wx.utcOffset, true), ssT = u.time(ss, wx.utcOffset, true);
+        if (narrow) {
+            srT = srT.replace(" AM", "a").replace(" PM", "p");
+            ssT = ssT.replace(" AM", "a").replace(" PM", "p");
+        }
+        r.pix(narrow ? "RISE" : "SUNRISE", pad, blockTop, cell, Gfx.LEFT, T3);
+        r.text(srT, pad, blockTop + r.pixH(cell) + ts, ts, Gfx.FONT_BOLD, Gfx.LEFT, WHITE);
+        r.pix(narrow ? "SET" : "SUNSET", w - pad, blockTop, cell, Gfx.RIGHT, T3);
+        r.text(ssT, w - pad, blockTop + r.pixH(cell) + ts, ts, Gfx.FONT_BOLD, Gfx.RIGHT, WHITE);
 
         String label, value;
         if (day) {
@@ -686,14 +821,19 @@ public final class Cards {
             label = "SUNRISE IN";
             value = Fmt.duration(next - now);
         }
-        r.pix(label, w / 2, blockTop, cell, Gfx.CENTER, T3);
-        r.text(value, w / 2, blockTop + r.pixH(cell) + 14, 14, Gfx.FONT_MEDIUM, Gfx.CENTER, WHITE);
+        if (narrow) {
+            r.pix(value.toUpperCase().replace(" ", ""), w / 2, pad + 1, cell * 1.15f, Gfx.CENTER, T2);
+        } else {
+            r.pix(label, w / 2, blockTop, cell, Gfx.CENTER, T3);
+            r.text(value, w / 2, blockTop + r.pixH(cell) + 14, 14, Gfx.FONT_MEDIUM, Gfx.CENTER, WHITE);
+        }
     }
 
     // ---- HEADS-UP (4x1) ------------------------------------------------------------------------------------------
 
     private static void headsUp(R r, Data d) {
         float w = r.w, h = r.h;
+        if (w < 200 && h >= 80) { headsUpTall(r, d); return; }
         float pad = clamp(h * 0.22f, 10, 16);
         Insights.Insight in = Insights.headline(d.weather, d.units, d.nowSec);
         int stripe = in.sev == Insights.WARNING ? 0xFFFF5A5F : in.sev == Insights.NOTICE ? 0xFFFFB020 : 0xFF4DD0E1;
@@ -706,8 +846,9 @@ public final class Cards {
 
         Weather.Now n = d.weather.now(d.nowSec);
         String temp = d.units.t(n.temp);
+        boolean compact = w < 200;
         float tsz = clamp(h * 0.42f, 18, 28);
-        float tw = r.tw(temp, tsz, Gfx.FONT_BOLD);
+        float tw = compact ? 0 : r.tw(temp, tsz, Gfx.FONT_BOLD);
         float tx = ix + real + 10;
         float maxW = w - tx - pad - tw - 10;
         boolean two = h >= 46;
@@ -721,7 +862,32 @@ public final class Cards {
         } else {
             r.text(r.fit(in.title, titleSize, Gfx.FONT_BOLD, maxW), tx, h / 2 + 5, titleSize, Gfx.FONT_BOLD, Gfx.LEFT, WHITE);
         }
-        r.text(temp, w - pad, h / 2 + tsz * 0.36f, tsz, Gfx.FONT_BOLD, Gfx.RIGHT, WHITE);
+        if (!compact) r.text(temp, w - pad, h / 2 + tsz * 0.36f, tsz, Gfx.FONT_BOLD, Gfx.RIGHT, WHITE);
+    }
+
+    private static void headsUpTall(R r, Data d) {
+        float w = r.w, h = r.h;
+        float pad = clamp(w * 0.1f, 10, 16);
+        Insights.Insight in = Insights.headline(d.weather, d.units, d.nowSec);
+        int stripe = in.sev == Insights.WARNING ? 0xFFFF5A5F : in.sev == Insights.NOTICE ? 0xFFFFB020 : 0xFF4DD0E1;
+        r.rect(pad, pad, pad + 24, pad + 3, 1.5f, stripe);
+        float isz = clamp(w * 0.3f, 26, 40);
+        r.icon(in.icon, pad - 2, pad + 10, isz);
+        Weather.Now n = d.weather.now(d.nowSec);
+        r.text(d.units.t(n.temp), w - pad, pad + 10 + isz * 0.62f, 22, Gfx.FONT_BOLD, Gfx.RIGHT, WHITE);
+        float y = pad + 10 + r.iconSize(isz) + 18;
+        float maxW = w - 2 * pad;
+        int lines = h >= 150 ? 4 : 3;
+        for (String line : wrap(r, in.title, 14, Gfx.FONT_BOLD, maxW, Math.min(lines, 3))) {
+            r.text(line, pad, y, 14, Gfx.FONT_BOLD, Gfx.LEFT, WHITE);
+            y += 17;
+        }
+        y += 3;
+        for (String line : wrap(r, in.detail, 11, Gfx.FONT_REGULAR, maxW, lines)) {
+            if (y > h - pad + 2) break;
+            r.text(line, pad, y, 11, Gfx.FONT_REGULAR, Gfx.LEFT, T2);
+            y += 14;
+        }
     }
 
     /** Alert rows used on the in-app alerts list (same look as the heads-up widget, one per insight). */
