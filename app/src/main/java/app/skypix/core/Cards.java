@@ -18,6 +18,8 @@ public final class Cards {
         public long nowSec;
         /** Dark theme only: draw widgets with no fill (see-through) instead of AMOLED black. */
         public boolean transparentDark;
+        /** Opacity of the card background: 1 = solid, lower = frosted glass (applies in light and dark). */
+        public float bgAlpha = 1f;
         /** Seconds into the 5 s unlock animation, or a negative value for the static card. */
         public float anim = -1;
 
@@ -101,6 +103,7 @@ public final class Cards {
         final float u, w, h;
         final boolean dark;
         final boolean clear;
+        float fill = 1f;
         float t = -1;
 
         R(Gfx g, float u, float w, float h, boolean dark, boolean clear) {
@@ -169,6 +172,7 @@ public final class Cards {
 
     public static void render(Gfx g, int kind, float wDp, float hDp, float u, boolean dark, Data d) {
         R r = new R(g, u, wDp, hDp, dark, d != null && d.transparentDark);
+        r.fill = fillFor(d, dark);
         r.t = d == null ? -1 : d.anim;
         if (kind == ICON) {
             iconWidget(r, d);
@@ -326,6 +330,17 @@ public final class Cards {
 
     private static final float RAD = 28;
 
+    /** See-through "clear" only exists in dark mode; in light mode it becomes a light frosted glass. */
+    private static float fillFor(Data d, boolean dark) {
+        if (d == null) return 1f;
+        if (d.transparentDark && !dark) return 0.5f;
+        return d.bgAlpha;
+    }
+
+    private static int fade(int argb, float f) {
+        return ((Math.round(((argb >>> 24) & 255) * f)) << 24) | (argb & 0xFFFFFF);
+    }
+
     private static void base(R r, Mood m) {
         float rad = RAD;
         if (r.clear) {
@@ -343,7 +358,7 @@ public final class Cards {
             top = alpha(m.top, 0xFF);
             bottom = alpha(m.bottom, 0xFF);
         }
-        r.g.fillRoundRectGradient(0, 0, r.w * r.u, r.h * r.u, rad * r.u, top, bottom);
+        r.g.fillRoundRectGradient(0, 0, r.w * r.u, r.h * r.u, rad * r.u, fade(top, r.fill), fade(bottom, r.fill));
         if (r.dark) {
             r.g.strokeRoundRect(0.5f * r.u, 0.5f * r.u, (r.w - 0.5f) * r.u, (r.h - 0.5f) * r.u, rad * r.u, 1f * r.u, 0x1FFFFFFF);
         }
@@ -417,10 +432,10 @@ public final class Cards {
         if (r.clear) {
             r.g.strokeRoundRect(0.5f * r.u, 0.5f * r.u, (r.w - 0.5f) * r.u, (r.h - 0.5f) * r.u, RAD * r.u, 1f * r.u, 0x29FFFFFF);
         } else if (r.dark) {
-            r.g.fillRoundRect(0, 0, r.w * r.u, r.h * r.u, RAD * r.u, 0xFF000000);
+            r.g.fillRoundRect(0, 0, r.w * r.u, r.h * r.u, RAD * r.u, fade(0xFF000000, r.fill));
             r.g.strokeRoundRect(0.5f * r.u, 0.5f * r.u, (r.w - 0.5f) * r.u, (r.h - 0.5f) * r.u, RAD * r.u, 1f * r.u, 0x1FFFFFFF);
         } else {
-            r.g.fillRoundRect(0, 0, r.w * r.u, r.h * r.u, RAD * r.u, 0xFFFFFFFF);
+            r.g.fillRoundRect(0, 0, r.w * r.u, r.h * r.u, RAD * r.u, fade(0xFFFFFFFF, r.fill));
         }
     }
 
@@ -557,7 +572,7 @@ public final class Cards {
             top = alpha(mix(top, 0xFF000000, 0.6f), 0xF2);
             bottom = 0xFF000000;
         }
-        r.g.fillRoundRectGradient(0, 0, r.w * r.u, r.h * r.u, RAD * r.u, top, bottom);
+        r.g.fillRoundRectGradient(0, 0, r.w * r.u, r.h * r.u, RAD * r.u, fade(top, r.fill), fade(bottom, r.fill));
         if (r.dark) r.g.strokeRoundRect(0.5f * r.u, 0.5f * r.u, (r.w - 0.5f) * r.u, (r.h - 0.5f) * r.u, RAD * r.u, 1f * r.u, 0x1FFFFFFF);
     }
 
@@ -1254,6 +1269,7 @@ public final class Cards {
     /** Alert rows used on the in-app alerts list (same look as the heads-up widget, one per insight). */
     public static void renderInsight(Gfx g, Insights.Insight in, float wDp, float hDp, float u, boolean dark, Data d) {
         R r = new R(g, u, wDp, hDp, dark, d != null && d.transparentDark);
+        r.fill = fillFor(d, dark);
         r.t = d == null ? -1 : d.anim;
         base(r, mood(d));
         fx(r, mood(d), d);

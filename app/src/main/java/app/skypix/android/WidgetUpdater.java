@@ -47,7 +47,7 @@ final class WidgetUpdater {
      */
     private static void push(Context ctx, AppWidgetManager m, int variant, int id, Cards.Data d, int onlyTheme, float scale) {
         int kind = Variants.KIND[variant];
-        d.transparentDark = Store.clearDark(ctx);
+        Store.applyBackground(ctx, d);
         int[] wh = sizeFor(m, variant, id);
         int w = wh[0], h = wh[1];
 
@@ -105,7 +105,7 @@ final class WidgetUpdater {
 
     private static void pushFlipbook(Context ctx, AppWidgetManager m, int variant, int id, Cards.Data d, boolean dark, long limit) {
         int kind = Variants.KIND[variant];
-        d.transparentDark = Store.clearDark(ctx);
+        Store.applyBackground(ctx, d);
         int[] wh = sizeFor(m, variant, id);
         int w = wh[0], h = wh[1];
         float u0 = ctx.getResources().getDisplayMetrics().density;

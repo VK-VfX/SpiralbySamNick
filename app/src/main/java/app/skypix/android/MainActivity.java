@@ -426,18 +426,20 @@ public class MainActivity extends Activity {
 
         LinearLayout style = new LinearLayout(this);
         style.setOrientation(LinearLayout.HORIZONTAL);
-        for (final boolean clearOpt : new boolean[]{false, true}) {
-            Ui.Btn b = new Ui.Btn(this, clearOpt ? "Clear" : "Black", Store.clearDark(this) == clearOpt);
+        String[] bgNames = {"Solid", "Glass", "Clear"};
+        for (int m = 0; m < 3; m++) {
+            final int mode = m;
+            Ui.Btn b = new Ui.Btn(this, bgNames[m], Store.bgMode(this) == m);
             b.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
-                    Store.setClearDark(MainActivity.this, clearOpt);
+                    Store.setBgMode(MainActivity.this, mode);
                     WidgetUpdater.updateAll(MainActivity.this);
                     rebuild();
                 }
             });
             style.addView(b, new LinearLayout.LayoutParams(-2, -2));
         }
-        row(box, "Dark mode widgets", "AMOLED black, or fully see-through", style);
+        row(box, "Widget background", "Solid, see-through glass, or fully clear (dark mode)", style);
 
         row(box, "Animate on unlock", "5 seconds of weather motion each time you open your phone",
                 toggle(Store.animate(this), new CompoundButton.OnCheckedChangeListener() {

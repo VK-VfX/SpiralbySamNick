@@ -47,8 +47,20 @@ final class Store {
     static boolean animate(Context c) { return sp(c).getBoolean("animate", true); }
     static void setAnimate(Context c, boolean v) { sp(c).edit().putBoolean("animate", v).apply(); }
 
-    static boolean clearDark(Context c) { return sp(c).getBoolean("clear_dark", false); }
-    static void setClearDark(Context c, boolean v) { sp(c).edit().putBoolean("clear_dark", v).apply(); }
+    /** Widget background: 0 = solid, 1 = frosted glass, 2 = clear (dark mode fully see-through). */
+    static int bgMode(Context c) {
+        SharedPreferences p = sp(c);
+        if (p.contains("bg_mode")) return p.getInt("bg_mode", 0);
+        return p.getBoolean("clear_dark", false) ? 2 : 0;
+    }
+
+    static void setBgMode(Context c, int mode) { sp(c).edit().putInt("bg_mode", mode).apply(); }
+
+    static void applyBackground(Context c, Cards.Data d) {
+        int mode = bgMode(c);
+        d.transparentDark = mode == 2;
+        d.bgAlpha = mode == 1 ? 0.6f : 1f;
+    }
 
     static Units units(Context c) {
         return Units.resolve(tempPref(c), Locale.getDefault(), DateFormat.is24HourFormat(c));
