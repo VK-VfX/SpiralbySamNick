@@ -22,7 +22,7 @@ MODE=previews scripts/preview.sh app/src/main/res/drawable-nodpi
 rm -rf build/gen/* build/classes/* build/dex/*
 aapt package -f -m -J build/gen -M app/src/main/AndroidManifest.xml -S app/src/main/res \
   -I "$ANDROID_JAR" --min-sdk-version 26 --target-sdk-version 34 \
-  --version-code 5 --version-name 1.0.4 -F build/unsigned.apk
+  --version-code 6 --version-name 1.0.5 -F build/unsigned.apk
 
 # 3. java -> class -> dex (no lambdas / default methods: dx 11 (repackaged AOSP dx) can't desugar them)
 javac -nowarn --release 8 -encoding UTF-8 -classpath "$ANDROID_JAR" -d build/classes \
