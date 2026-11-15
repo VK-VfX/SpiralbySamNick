@@ -20,6 +20,7 @@
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
     <application
+        android:name="app.skypix.android.App"
         android:label="@string/app_name"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
@@ -153,6 +154,14 @@
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_headsup_2x3" />
         </receiver>
         <!-- widgets:end -->
+
+        <activity
+            android:name="app.skypix.android.CrashActivity"
+            android:exported="false"
+            android:process=":crash"
+            android:taskAffinity=""
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Material.NoActionBar" />
 
         <service
             android:name="app.skypix.android.Jobs$UpdateService"
