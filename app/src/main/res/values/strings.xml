@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Skypix</string>
+    <string name="w_now">Skypix · Now</string>
+    <string name="d_now">Temperature, condition and high/low.</string>
+    <string name="w_now_wide">Skypix · Now wide</string>
+    <string name="d_now_wide">Big temperature with humidity and condition.</string>
+    <string name="w_hourly">Skypix · Hourly</string>
+    <string name="d_hourly">The next hours with rain chances.</string>
+    <string name="w_forecast">Skypix · Forecast</string>
+    <string name="d_forecast">Five-day outlook with temperature range bars.</string>
+    <string name="w_details">Skypix · Details</string>
+    <string name="d_details">Feels like, humidity, wind, UV, air quality and pressure.</string>
+    <string name="w_location">Skypix · Location</string>
+    <string name="d_location">Your exact place, coordinates and GPS accuracy.</string>
+    <string name="w_sun">Skypix · Sun</string>
+    <string name="d_sun">Sun arc with sunrise, sunset and daylight left.</string>
+    <string name="w_headsup">Skypix · Heads-up</string>
+    <string name="d_headsup">The one thing worth knowing right now.</string>
+</resources>
