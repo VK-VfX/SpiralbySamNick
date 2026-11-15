@@ -44,22 +44,35 @@ public final class Jobs {
 
     private static void syncUnsafe(Context ctx) {
         Context app = ctx.getApplicationContext();
-        JobScheduler js = (JobScheduler) app.getSystemService(Context.JOB_SCHEDULER_SERVICE);
-        boolean needData = WidgetUpdater.count(app) > 0 || Store.alerts(app) || Store.hourly(app);
-        if (needData && Store.anyLocation(app)) {
-            if (js.getPendingJob(ID_PERIODIC) == null) {
-                js.schedule(new JobInfo.Builder(ID_PERIODIC, new ComponentName(app, UpdateService.class))
-                        .setPeriodic(PERIOD_MS)
-                        .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
-                        .setPersisted(true)
-                        .build());
+        // each step is isolated so one failure can never stop the others (the unlock listener most of all)
+        try {
+            JobScheduler js = (JobScheduler) app.getSystemService(Context.JOB_SCHEDULER_SERVICE);
+            boolean needData = WidgetUpdater.count(app) > 0 || Store.alerts(app) || Store.hourly(app);
+            if (needData && Store.anyLocation(app)) {
+                if (js.getPendingJob(ID_PERIODIC) == null) {
+                    js.schedule(new JobInfo.Builder(ID_PERIODIC, new ComponentName(app, UpdateService.class))
+                            .setPeriodic(PERIOD_MS)
+                            .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
+                            .setPersisted(true)
+                            .build());
+                }
+            } else {
+                js.cancel(ID_PERIODIC);
             }
-        } else {
-            js.cancel(ID_PERIODIC);
+        } catch (Throwable t) {
+            Ui.report("Jobs.periodic", t);
         }
-        if (Store.hourly(app) && Store.anyLocation(app)) scheduleHourlyAlarm(app);
-        else cancelHourlyAlarm(app);
-        syncAnimService(app);
+        try {
+            if (Store.hourly(app) && Store.anyLocation(app)) scheduleHourlyAlarm(app);
+            else cancelHourlyAlarm(app);
+        } catch (Throwable t) {
+            Ui.report("Jobs.alarm", t);
+        }
+        try {
+            syncAnimService(app);
+        } catch (Throwable t) {
+            Ui.report("Jobs.animService", t);
+        }
     }
 
     /** Runs the unlock-animation listener only while it's enabled and there is a widget to animate. */
