@@ -7,9 +7,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # Bump both for every release; the in-app updater compares VERSION_CODE (it must always go up).
-VERSION_CODE=12
-VERSION_NAME=1.0.11
-RELEASE_NOTES="Fixes the sized widgets missing from the launcher and home screen. They are back as normal home-screen widgets."
+VERSION_CODE=13
+VERSION_NAME=1.0.12
+RELEASE_NOTES="Sharper, more readable widgets, fixes for the Hourly and Day clock widgets, Your widgets settings list, and New York sample previews."
 UPDATE_BASE=https://raw.githubusercontent.com/VK-VfX/Sam-s-Signal-Stabilizer/claude/signal-stabilizer-game-8le0y5/dist
 
 DEPS=build/deps

@@ -1,7 +1,7 @@
 {
-  "versionCode": 12,
-  "versionName": "1.0.11",
+  "versionCode": 13,
+  "versionName": "1.0.12",
   "apkUrl": "https://raw.githubusercontent.com/VK-VfX/Sam-s-Signal-Stabilizer/claude/signal-stabilizer-game-8le0y5/dist/skypix.apk",
-  "sha256": "02c6e9fd3fec625beb5ef604bc8e8b45ca5ed359b15bdfb131bbc7775892d3f5",
-  "notes": "Fixes the sized widgets missing from the launcher and home screen. They are back as normal home-screen widgets."
+  "sha256": "55b12c0c2caba09e9dbf13f64a5c151592bcf4f5e41d72182a21564b52c3c79b",
+  "notes": "Sharper, more readable widgets, fixes for the Hourly and Day clock widgets, Your widgets settings list, and New York sample previews."
 }
