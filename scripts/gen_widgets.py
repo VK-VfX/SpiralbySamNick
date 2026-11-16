@@ -153,10 +153,12 @@ for key, kind, cw, ch, title, desc in VARIANTS:
     lines += ['    android:targetCellWidth="%d"' % cw, '    android:targetCellHeight="%d"' % ch,
               '    android:resizeMode="horizontal|vertical"', '    android:updatePeriodMillis="1800000"',
               '    android:initialLayout="@layout/widget_frame"', '    android:previewImage="@drawable/preview_%s"' % key,
-              '    android:description="@string/d_%s"' % key,
-              '    android:configure="app.skypix.weather/app.skypix.android.PlaceConfigActivity"',
-              '    android:widgetFeatures="reconfigurable"',
-              '    android:widgetCategory="%s" />' % ('keyguard' if legacy else 'home_screen'), '']
+              '    android:description="@string/d_%s"' % key]
+    if not legacy:
+        # only the resizable widgets have "Widget settings"; the sized ones behave exactly as before
+        lines += ['    android:configure="app.skypix.weather/app.skypix.android.PlaceConfigActivity"',
+                  '    android:widgetFeatures="reconfigurable"']
+    lines += ['    android:widgetCategory="home_screen" />', '']
     w(P('app/src/main/res/xml/widget_%s.xml' % key), '\n'.join(lines))
 
 # ---- strings ----
