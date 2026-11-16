@@ -194,8 +194,8 @@ public final class Preview {
             dir.mkdirs();
             ImageIO.write(img, "png", new File(dir, "headsup.png"));
         } else if (mode.equals("clocks")) {
-            int[] kinds = {Cards.CLOCK_WORD, Cards.CLOCK_SKY, Cards.CLOCK_SKY, Cards.CLOCK_DOTS, Cards.CLOCK_PILL, Cards.CLOCK_PILL, Cards.CLOCK_RINGS, Cards.CLOCK_SCHEDULE, Cards.CLOCK_WORLD};
-            int[][] sz = {{250, 180}, {250, 110}, {110, 110}, {250, 110}, {250, 110}, {110, 110}, {110, 110}, {250, 110}, {250, 180}};
+            int[] kinds = {Cards.CLOCK_FLIP, Cards.CLOCK_FLIP, Cards.CLOCK_SEG, Cards.CLOCK_NEON, Cards.CLOCK_POSTER, Cards.CLOCK_POSTER};
+            int[][] sz = {{250, 110}, {110, 110}, {250, 110}, {250, 110}, {250, 110}, {110, 110}};
             float u = 1.7f;
             int perRow = 4;
             String[] times = {"2026-11-16T10:10", "2026-11-16T18:05", "2026-11-16T22:10"};

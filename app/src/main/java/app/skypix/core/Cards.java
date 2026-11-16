@@ -10,8 +10,9 @@ public final class Cards {
     public static final int NOW = 0, NOW_WIDE = 1, HOURLY = 2, FORECAST = 3, DETAILS = 4, LOCATION = 5, SUN = 6, HEADSUP = 7, ICON = 8,
             LINE_HOURLY = 9, LINE_DAILY = 10, BIG = 11, CLASSIC = 12, RAIN_SOON = 13,
             CLOCK_BIG = 14, CLOCK_WORD = 15, CLOCK_WORLD = 16, CLOCK_DAY = 17,
-            CLOCK_SKY = 18, CLOCK_DOTS = 19, CLOCK_PILL = 20, CLOCK_RINGS = 21, CLOCK_SCHEDULE = 22;
-    public static final int COUNT = 23;
+            CLOCK_SKY = 18, CLOCK_DOTS = 19, CLOCK_PILL = 20, CLOCK_FLIP = 21, CLOCK_SCHEDULE = 22,
+            CLOCK_SEG = 23, CLOCK_NEON = 24, CLOCK_POSTER = 25;
+    public static final int COUNT = 26;
 
     public static final class Data {
         public Weather weather;
@@ -48,9 +49,9 @@ public final class Cards {
             case LOCATION: return new int[]{110, 110};
             case ICON: return new int[]{40, 40};
             case SUN: return new int[]{250, 110};
-            case LINE_HOURLY: case LINE_DAILY: case BIG: case RAIN_SOON: case CLOCK_BIG: case CLOCK_PILL: case CLOCK_RINGS: return new int[]{110, 110};
+            case LINE_HOURLY: case LINE_DAILY: case BIG: case RAIN_SOON: case CLOCK_BIG: case CLOCK_PILL: case CLOCK_FLIP: case CLOCK_POSTER: return new int[]{110, 110};
             case CLOCK_WORD: return new int[]{250, 180};
-            case CLOCK_WORLD: case CLOCK_DAY: case CLOCK_SKY: case CLOCK_DOTS: case CLOCK_SCHEDULE: return new int[]{250, 110};
+            case CLOCK_WORLD: case CLOCK_DAY: case CLOCK_SKY: case CLOCK_DOTS: case CLOCK_SCHEDULE: case CLOCK_SEG: case CLOCK_NEON: return new int[]{250, 110};
             case CLASSIC: return new int[]{110, 110};
             default: return new int[]{250, 56};
         }
@@ -76,7 +77,10 @@ public final class Cards {
             case CLOCK_SKY: return "Sky clock";
             case CLOCK_DOTS: return "Dot clock";
             case CLOCK_PILL: return "Pill clock";
-            case CLOCK_RINGS: return "Rings clock";
+            case CLOCK_FLIP: return "Flip clock";
+            case CLOCK_SEG: return "LCD clock";
+            case CLOCK_NEON: return "Neon clock";
+            case CLOCK_POSTER: return "Poster clock";
             case CLOCK_SCHEDULE: return "Cat schedule";
             case CLOCK_WORLD: return "World clock";
             case CLOCK_DAY: return "Day clock";
@@ -777,7 +781,10 @@ public final class Cards {
             case CLOCK_SKY: clockSky(r, m, d); break;
             case CLOCK_DOTS: clockDots(r, d); break;
             case CLOCK_PILL: clockPill(r, m, d); break;
-            case CLOCK_RINGS: clockRings(r, d); break;
+            case CLOCK_FLIP: clockFlip(r, d); break;
+            case CLOCK_SEG: clockSeg(r, d); break;
+            case CLOCK_NEON: clockNeon(r, d); break;
+            case CLOCK_POSTER: clockPoster(r, d); break;
             case CLOCK_SCHEDULE: clockSchedule(r, m, d); break;
             case CLOCK_WORLD: clockWorld(r, d); break;
             default: clockDay(r, m, d); break;
@@ -1127,42 +1134,199 @@ public final class Cards {
         }
     }
 
-    // ---- rings clock ----
-    private static void ring(R r, float cx, float cy, float rad, float frac, float width, int color, int track) {
-        int steps = 72;
-        for (int pass = 0; pass < 2; pass++) {
-            int n = pass == 0 ? steps : Math.max(0, Math.round(steps * clamp(frac, 0, 1)));
-            float lx = cx, ly = cy - rad;
-            for (int i = 1; i <= n; i++) {
-                double a = 2 * Math.PI * i / steps;
-                float x = cx + (float) Math.sin(a) * rad, y = cy - (float) Math.cos(a) * rad;
-                r.g.line(lx * r.u, ly * r.u, x * r.u, y * r.u, width * r.u, pass == 0 ? track : color);
-                lx = x;
-                ly = y;
+    // ---- flip clock ----
+    private static void flipCard(R r, float x, float y, float w, float h, String text, float fs, int card, int ink, int hinge) {
+        r.rect(x, y, x + w, y + h, 14, card);
+        r.g.clipRoundRect(x * r.u, y * r.u, (x + w) * r.u, (y + h) * r.u, 14 * r.u);
+        r.rect(x, y + h / 2, x + w, y + h, 0, 0x2A000000);
+        r.g.restoreClip();
+        r.text(text, x + w / 2, y + h / 2 + fs * 0.36f, fs, Gfx.FONT_BOLD, Gfx.CENTER, ink);
+        r.rect(x, y + h / 2 - 1, x + w, y + h / 2 + 1, 0, hinge);
+        r.g.fillCircle((x + 1) * r.u, (y + h / 2) * r.u, 3 * r.u, hinge);
+        r.g.fillCircle((x + w - 1) * r.u, (y + h / 2) * r.u, 3 * r.u, hinge);
+    }
+
+    /** Two split-flap cards, hinge and all. No card behind them, so they sit straight on the wallpaper. */
+    private static void clockFlip(R r, Data d) {
+        float w = r.w, h = r.h;
+        int[] t = hms(d, d.tzOffset);
+        boolean is24 = d.units.h24;
+        int card = r.dark ? 0xFF1C1D21 : 0xFF2B2D33, hinge = r.dark ? 0xFF000000 : 0xFF121317;
+        float gap = 8, labelH = w < 160 ? 20 : 24;
+        float ch = h - labelH;
+        float cw = (w - gap) / 2f;
+        float fs = clamp(Math.min(ch * 0.78f, cw / 1.38f), 24, 92);
+        flipCard(r, 0, 0, cw, ch, hourText(t[0], is24), fs, card, 0xFFF4F4F6, hinge);
+        flipCard(r, cw + gap, 0, cw, ch, minText(t[1]), fs, card, 0xFFF4F4F6, hinge);
+        if (!is24) r.text(t[0] < 12 ? "AM" : "PM", 10, 17, 10.5f, Gfx.FONT_BOLD, Gfx.LEFT, 0x99FFFFFF);
+        int ink = r.dark ? 0xFFE3E3E3 : 0xFF1F1F1F;
+        r.text(dateText(d, d.tzOffset), w / 2, h - 4, 12.5f, Gfx.FONT_MEDIUM, Gfx.CENTER, r.dark ? 0xFFC4C7C5 : 0xFF444746);
+    }
+
+    // ---- LCD / 7-segment clock ----
+    private static final String[] SEGS = {"abcdef", "bc", "abged", "abgcd", "fgbc", "afgcd", "afgedc", "abc", "abcdefg", "abcdfg"};
+
+    private static void seg7(R r, float x, float y, float w, float h, float t, int digit, int on, int off, float shear) {
+        String lit = digit >= 0 ? SEGS[digit] : "";
+        float g = t * 0.14f, yb = y + h;
+        String[] all = {"a", "b", "c", "d", "e", "f", "g"};
+        for (String sgm : all) {
+            float[] px, py;
+            float h2 = t / 2;
+            if (sgm.equals("a") || sgm.equals("g") || sgm.equals("d")) {
+                float yc = sgm.equals("a") ? y + h2 : sgm.equals("g") ? y + h / 2 : y + h - h2;
+                float xl = x + h2 + g, xr = x + w - h2 - g;
+                px = new float[]{xl, xl + h2, xr - h2, xr, xr - h2, xl + h2};
+                py = new float[]{yc, yc - h2, yc - h2, yc, yc + h2, yc + h2};
+            } else {
+                boolean left = sgm.equals("e") || sgm.equals("f");
+                boolean top = sgm.equals("b") || sgm.equals("f");
+                float xc = left ? x + h2 : x + w - h2;
+                float yt = top ? y + h2 + g : y + h / 2 + g, ye = top ? y + h / 2 - g : y + h - h2 - g;
+                px = new float[]{xc, xc + h2, xc + h2, xc, xc - h2, xc - h2};
+                py = new float[]{yt, yt + h2, ye - h2, ye, ye - h2, yt + h2};
             }
-            if (pass == 1 && n > 0) r.g.fillCircle(lx * r.u, ly * r.u, width / 2 * r.u, color);
+            for (int i = 0; i < px.length; i++) px[i] += (yb - py[i]) * shear;
+            poly(r, px, py, lit.contains(sgm) ? on : off);
         }
     }
 
-    /** Three activity-style rings: the day, the hour and the minute, with the digital time in the middle. */
-    private static void clockRings(R r, Data d) {
+    /** A retro calculator / digital-watch LCD with ghost segments and a slanted face. */
+    private static void clockSeg(R r, Data d) {
         float w = r.w, h = r.h;
-        paperBg(r);
-        boolean light = !r.dark && !r.clear;
-        int ink = light ? 0xFF1F1F1F : WHITE, ink2 = light ? 0xFF5F6368 : T2, track = light ? 0xFFEDEFF2 : 0xFF2A2C31;
+        int bg, on, off, ink2;
+        if (r.dark) { bg = 0xFF000000; on = 0xFF7CFFCB; off = 0xFF0F2A22; ink2 = 0xB37CFFCB; }
+        else { bg = 0xFFB9C9A0; on = 0xFF1F2A14; off = 0x2E2B3A1C; ink2 = 0xFF2B3A1C; }
+        if (r.clear) {
+            r.g.strokeRoundRect(0.5f * r.u, 0.5f * r.u, (w - 0.5f) * r.u, (h - 0.5f) * r.u, RAD * r.u, 1f * r.u, 0x29FFFFFF);
+            on = 0xFF7CFFCB; off = 0x227CFFCB; ink2 = 0xB37CFFCB;
+        } else {
+            r.g.fillRoundRect(0, 0, w * r.u, h * r.u, RAD * r.u, fade(bg, r.fill));
+            if (r.dark) r.g.strokeRoundRect(0.5f * r.u, 0.5f * r.u, (w - 0.5f) * r.u, (h - 0.5f) * r.u, RAD * r.u, 1f * r.u, 0x26FFFFFF);
+        }
         int[] t = hms(d, d.tzOffset);
-        float cx = w / 2, cy = h / 2 - 7;
-        float R0 = Math.min(w, h) * 0.38f, wd = Math.max(5, R0 * 0.14f);
-        ring(r, cx, cy, R0, (t[0] * 3600 + t[1] * 60 + t[2]) / 86400f, wd, light ? 0xFFF9AB00 : 0xFFFFC107, track);
-        ring(r, cx, cy, R0 - wd * 1.5f, ((t[0] % 12) * 60 + t[1]) / 720f, wd, light ? 0xFF1A73E8 : 0xFF8AB4F8, track);
-        ring(r, cx, cy, R0 - wd * 3f, (t[1] * 60 + t[2]) / 3600f, wd, light ? 0xFFEA4335 : 0xFFFF8A80, track);
+        boolean is24 = d.units.h24;
+        int hh = is24 ? t[0] : (t[0] % 12 == 0 ? 12 : t[0] % 12);
+        int[] digs = {hh / 10 == 0 && !is24 ? -1 : hh / 10, hh % 10, t[1] / 10, t[1] % 10};
+        float padX = clamp(w * 0.08f, 14, 22);
+        float dh = clamp(h * 0.58f, 34, 70), dw = dh * 0.56f, th = dh * 0.15f, gap = dh * 0.12f, colonW = dh * 0.3f;
+        float total = 4 * dw + 2 * gap + colonW + 2 * gap;
+        while (total > w - 2 * padX && dh > 24) { dh -= 2; dw = dh * 0.56f; th = dh * 0.15f; gap = dh * 0.12f; colonW = dh * 0.3f; total = 4 * dw + 4 * gap + colonW; }
+        float x = (w - total) / 2f, y = clamp((h - dh) / 2f - 7, 10, 28);
+        float shear = 0.10f;
+        seg7(r, x, y, dw, dh, th, digs[0], on, off, shear); x += dw + gap;
+        seg7(r, x, y, dw, dh, th, digs[1], on, off, shear); x += dw + gap;
+        for (int k = 0; k < 2; k++) {
+            float cy = y + dh * (k == 0 ? 0.30f : 0.70f);
+            float px = x + colonW / 2 + (y + dh - cy) * shear;
+            poly(r, new float[]{px - th / 2, px + th / 2, px + th / 2, px - th / 2}, new float[]{cy - th / 2, cy - th / 2, cy + th / 2, cy + th / 2}, on);
+        }
+        x += colonW + gap;
+        seg7(r, x, y, dw, dh, th, digs[2], on, off, shear); x += dw + gap;
+        seg7(r, x, y, dw, dh, th, digs[3], on, off, shear);
+        r.text(dateText(d, d.tzOffset).toUpperCase(java.util.Locale.ROOT), padX, h - 11, 11, Gfx.FONT_BOLD, Gfx.LEFT, ink2);
+        if (!is24) r.text(t[0] < 12 ? "AM" : "PM", w - padX, h - 11, 11, Gfx.FONT_BOLD, Gfx.RIGHT, ink2);
+    }
+
+    // ---- neon clock ----
+    private static void neonLine(R r, float x1, float y1, float x2, float y2, float wd, int color) {
+        r.g.line(x1 * r.u, y1 * r.u, x2 * r.u, y2 * r.u, wd * 2.6f * r.u, withAlpha(color & 0xFFFFFF, 0.16f));
+        r.g.line(x1 * r.u, y1 * r.u, x2 * r.u, y2 * r.u, wd * r.u, color);
+    }
+
+    private static void neonText(R r, String s, float x, float base, float fs, int align, int color) {
+        for (int i = 0; i < 8; i++) {
+            double a = Math.PI / 4 * i;
+            r.text(s, x + (float) Math.cos(a) * 1.8f, base + (float) Math.sin(a) * 1.8f, fs, Gfx.FONT_MEDIUM, align, withAlpha(color & 0xFFFFFF, 0.20f));
+        }
+        r.text(s, x, base, fs, Gfx.FONT_MEDIUM, align, mix(color, 0xFFFFFFFF, 0.55f));
+    }
+
+    /** A neon sign: glowing time and a little neon cat head. Always on a dark card. */
+    private static void clockNeon(R r, Data d) {
+        float w = r.w, h = r.h;
+        if (r.clear) {
+            r.g.strokeRoundRect(0.5f * r.u, 0.5f * r.u, (w - 0.5f) * r.u, (h - 0.5f) * r.u, RAD * r.u, 1f * r.u, 0x29FFFFFF);
+        } else {
+            r.g.fillRoundRect(0, 0, w * r.u, h * r.u, RAD * r.u, fade(0xFF07070B, r.fill));
+            r.g.strokeRoundRect(0.5f * r.u, 0.5f * r.u, (w - 0.5f) * r.u, (h - 0.5f) * r.u, RAD * r.u, 1f * r.u, 0x26FFFFFF);
+        }
+        int pink = 0xFFFF3DCB, cyan = 0xFF2EF2E8;
+        int[] t = hms(d, d.tzOffset);
         boolean is24 = d.units.h24;
         String time = hourText(t[0], is24) + ":" + minText(t[1]);
-        float fs = clamp(R0 * 0.40f, 14, 30);
-        r.text(time, cx, cy + fs * 0.35f, fs, Gfx.FONT_MEDIUM, Gfx.CENTER, ink);
-        r.text(is24 ? DAY_NAMES[Fmt.dow(d.nowSec, d.tzOffset)] : (t[0] < 12 ? "AM" : "PM"), cx, cy + fs * 0.35f + 14, 11, Gfx.FONT_MEDIUM, Gfx.CENTER, ink2);
-        r.text(dateText(d, d.tzOffset), cx, h - 7, 11, Gfx.FONT_MEDIUM, Gfx.CENTER, ink2);
+        float pad = clamp(w * 0.07f, 14, 20);
+        float ts = clamp(h * 0.62f, 40, 88);
+        while (ts > 30 && r.tw(time, ts, Gfx.FONT_MEDIUM) > w * 0.52f) ts -= 2;
+        r.g.glow(w * 0.30f * r.u, h * 0.46f * r.u, w * 0.34f * r.u, withAlpha(0xFF3DCB, 0.16f));
+        neonText(r, time, pad - 2, pad + ts * 0.80f + 4, ts, Gfx.LEFT, pink);
+        if (!is24) neonText(r, t[0] < 12 ? "AM" : "PM", w - pad, h - pad + 4, 13, Gfx.RIGHT, cyan);
+        r.text(dateText(d, d.tzOffset), pad, h - pad + 4, 13, Gfx.FONT_MEDIUM, Gfx.LEFT, 0xB3FFFFFF);
+        // the neon cat head
+        float cx = w - pad - 38, cy = h * 0.42f, R = clamp(h * 0.23f, 20, 28);
+        r.g.glow(cx * r.u, cy * r.u, R * 2.1f * r.u, withAlpha(0x2EF2E8, 0.14f));
+        int seg = 30;
+        float px = cx + R, py = cy;
+        for (int i = 1; i <= seg; i++) {
+            double a = 2 * Math.PI * i / seg;
+            float x = cx + (float) Math.cos(a) * R, y = cy + (float) Math.sin(a) * R;
+            double ar = 2 * Math.PI * (i - 1) / seg;
+            double ang = Math.toDegrees(ar);
+            boolean gapEars = (ang > 218 && ang < 256) || (ang > 284 && ang < 322);
+            if (!gapEars) neonLine(r, px, py, x, y, 2f, cyan);
+            px = x;
+            py = y;
+        }
+        for (int side = -1; side <= 1; side += 2) {
+            neonLine(r, cx + side * R * 0.74f, cy - R * 0.66f, cx + side * R * 0.86f, cy - R * 1.32f, 2f, cyan);
+            neonLine(r, cx + side * R * 0.86f, cy - R * 1.32f, cx + side * R * 0.22f, cy - R * 0.97f, 2f, cyan);
+            r.g.fillCircle((cx + side * R * 0.36f) * r.u, (cy - R * 0.10f) * r.u, 2.2f * r.u, pink);
+            for (int i = -1; i <= 1; i += 2) neonLine(r, cx + side * R * 0.30f, cy + R * 0.34f + i * 2, cx + side * R * 0.98f, cy + R * 0.28f + i * 6, 1.4f, pink);
+        }
+        neonLine(r, cx - R * 0.10f, cy + R * 0.22f, cx + R * 0.10f, cy + R * 0.22f, 1.8f, pink);
+        neonLine(r, cx, cy + R * 0.22f, cx, cy + R * 0.38f, 1.6f, pink);
     }
+
+    // ---- poster clock ----
+    /** Loud typographic clock: a solid colour card with enormous black-weight digits. */
+    private static void clockPoster(R r, Data d) {
+        float w = r.w, h = r.h;
+        int card = 0xFFFFC62E, inkOn = 0xFF1F1F1F;
+        int bg = r.dark ? 0xFF000000 : card, ink = r.dark ? card : inkOn, soft = r.dark ? 0xB3FFC62E : 0xB31F1F1F;
+        if (r.skin != null) {
+            card = r.skin.top;
+            bg = r.dark ? 0xFF000000 : card;
+            ink = r.dark ? mix(card, 0xFFFFFFFF, 0.5f) : WHITE;
+            soft = r.dark ? ink : 0xCCFFFFFF;
+        }
+        if (r.clear) {
+            r.g.strokeRoundRect(0.5f * r.u, 0.5f * r.u, (w - 0.5f) * r.u, (h - 0.5f) * r.u, RAD * r.u, 1f * r.u, 0x29FFFFFF);
+        } else {
+            r.g.fillRoundRect(0, 0, w * r.u, h * r.u, RAD * r.u, fade(bg, r.fill));
+            if (r.dark) r.g.strokeRoundRect(0.5f * r.u, 0.5f * r.u, (w - 0.5f) * r.u, (h - 0.5f) * r.u, RAD * r.u, 1f * r.u, 0x26FFFFFF);
+        }
+        int[] t = hms(d, d.tzOffset);
+        boolean is24 = d.units.h24;
+        float pad = clamp(w * 0.08f, 10, 16);
+        String hs = hourText(t[0], is24), ms = minText(t[1]);
+        String day = DAY_NAMES[Fmt.dow(d.nowSec, d.tzOffset)].toUpperCase(java.util.Locale.ROOT) + " " + Fmt.civil(Math.floorDiv(d.nowSec + d.tzOffset, 86400L))[2];
+        if (w < 160) {
+            float ts = clamp(h * 0.43f, 36, 60);
+            r.text(hs, pad - 3, pad + ts * 0.74f, ts, Gfx.FONT_BLACK, Gfx.LEFT, ink);
+            r.text(ms, pad - 3, pad + ts * 0.74f + ts * 0.80f, ts, Gfx.FONT_BLACK, Gfx.LEFT, ink);
+            r.text(day, w - pad, h - pad + 3, 11.5f, Gfx.FONT_BOLD, Gfx.RIGHT, soft);
+            if (!is24) r.text(t[0] < 12 ? "AM" : "PM", w - pad, pad + 12, 11.5f, Gfx.FONT_BOLD, Gfx.RIGHT, soft);
+        } else {
+            String time = hs + ":" + ms;
+            float ts = clamp(h * 0.80f, 56, 120);
+            while (ts > 36 && r.tw(time, ts, Gfx.FONT_BLACK) > w - 2 * pad) ts -= 2;
+            r.text(time, w / 2, h / 2 + ts * 0.36f + 6, ts, Gfx.FONT_BLACK, Gfx.CENTER, ink);
+            r.text(day, pad, pad + 10, 12, Gfx.FONT_BOLD, Gfx.LEFT, soft);
+            if (!is24) r.text(t[0] < 12 ? "AM" : "PM", w - pad, pad + 10, 12, Gfx.FONT_BOLD, Gfx.RIGHT, soft);
+            if (d.ready()) r.text(d.units.t(d.weather.now(d.nowSec).temp), w - pad, h - pad + 3, 12, Gfx.FONT_BOLD, Gfx.RIGHT, soft);
+        }
+    }
+
 
     // ---- cat schedule clock ----
     /** What is the cat doing right now? Time plus the cat's daily routine. */
