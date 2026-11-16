@@ -38,6 +38,9 @@ public interface Gfx {
     /** Draws a bundled Noto Emoji image (cat_<name>.png) into the square (x, y, size). */
     void emoji(String name, float x, float y, float size);
 
+    /** Fills a polygon with straight edges. */
+    void fillPolygon(float[] xs, float[] ys, int argb);
+
     /** A crescent moon: a disc of radius r with a second, offset disc cut out of it. */
     void crescent(float cx, float cy, float r, int argb);
 

@@ -178,6 +178,18 @@ final class AndroidGfx implements Gfx {
         c.drawBitmap(b, src, rf, emojiPaint);
     }
 
+    @Override public void fillPolygon(float[] xs, float[] ys, int argb) {
+        if (xs.length < 3) return;
+        path.reset();
+        path.moveTo(xs[0], ys[0]);
+        for (int i = 1; i < xs.length; i++) path.lineTo(xs[i], ys[i]);
+        path.close();
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(argb);
+        c.drawPath(path, p);
+    }
+
     @Override public void crescent(float cx, float cy, float r, int argb) {
         Path a = new Path(), b = new Path();
         a.addCircle(cx, cy, r, Path.Direction.CW);

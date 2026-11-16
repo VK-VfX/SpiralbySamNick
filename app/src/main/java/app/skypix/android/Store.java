@@ -193,6 +193,7 @@ final class Store {
         d.place = loadPlace(c);
         d.units = units(c);
         d.nowSec = System.currentTimeMillis() / 1000L;
+        d.tzOffset = java.util.TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 1000;
         loadOfficial(c);
         applyColors(c, d);
         return d;

@@ -37,6 +37,9 @@ final class Samples {
         d.place = place();
         d.units = new Units(fahrenheit, fahrenheit, h24);
         d.nowSec = now;
+        d.tzOffset = OFF;
+        d.zoneNames = new String[]{"London", "New York"};
+        d.zoneOffsets = new int[]{0, -5 * 3600};
         return d;
     }
 

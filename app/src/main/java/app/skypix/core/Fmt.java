@@ -29,6 +29,21 @@ public final class Fmt {
         return daysFromCivil(y, mo, d) * 86400L + h * 3600L + mi * 60L - offsetSec;
     }
 
+    /** {year, month 1-12, day} for a day count since 1970-01-01. */
+    public static int[] civil(long days) {
+        long z = days + 719468;
+        long era = (z >= 0 ? z : z - 146096) / 146097;
+        long doe = z - era * 146097;
+        long yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+        long y = yoe + era * 400;
+        long doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        long mp = (5 * doy + 2) / 153;
+        long d = doy - (153 * mp + 2) / 5 + 1;
+        long m = mp < 10 ? mp + 3 : mp - 9;
+        if (m <= 2) y++;
+        return new int[]{(int) y, (int) m, (int) d};
+    }
+
     public static long epochDay(long epochSec, int off) {
         return Math.floorDiv(epochSec + off, 86400L);
     }

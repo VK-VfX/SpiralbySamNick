@@ -99,6 +99,15 @@ final class AwtGfx implements Gfx {
         g.drawImage(b, Math.round(x), Math.round(y), Math.round(size), Math.round(size), null);
     }
 
+    @Override public void fillPolygon(float[] xs, float[] ys, int argb) {
+        java.awt.geom.Path2D.Float pp = new java.awt.geom.Path2D.Float();
+        pp.moveTo(xs[0], ys[0]);
+        for (int i = 1; i < xs.length; i++) pp.lineTo(xs[i], ys[i]);
+        pp.closePath();
+        g.setPaint(c(argb));
+        g.fill(pp);
+    }
+
     @Override public void crescent(float cx, float cy, float r, int argb) {
         java.awt.geom.Area a = new java.awt.geom.Area(new java.awt.geom.Ellipse2D.Float(cx - r, cy - r, 2 * r, 2 * r));
         float r2 = r * 0.82f, cx2 = cx + r * 0.52f, cy2 = cy - r * 0.26f;
