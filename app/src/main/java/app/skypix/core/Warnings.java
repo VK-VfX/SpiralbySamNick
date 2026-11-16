@@ -15,7 +15,8 @@ public final class Warnings {
     private Warnings() {}
 
     public static final class Warning {
-        public String title = "", text = "", instruction = "";
+        public String title = "", text = "", instruction = "", detail = "";
+        public boolean marine;
         public long from, to;
         public boolean forYou;
         public boolean emergency;
@@ -24,6 +25,14 @@ public final class Warnings {
 
     /** Active warnings for {@code p} (and only those whose wording mentions the place or its state). */
     public static List<Warning> parse(String json, Place p, long nowSec) {
+        return parse(json, p, nowSec, false);
+    }
+
+    /**
+     * @param includeMarine also keep sea / coastal warnings that only name the state (off by default: an inland city
+     *                      doesn't need "rough seas" alerts).
+     */
+    public static List<Warning> parse(String json, Place p, long nowSec, boolean includeMarine) {
         List<Warning> out = new ArrayList<Warning>();
         if (json == null || json.trim().length() == 0) return out;
         try {
@@ -38,7 +47,7 @@ public final class Warnings {
                 if (arr == null) arr = o.optJSONArray("warnings");
                 if (arr == null) arr = new JSONArray();
             }
-            List<String> keys = keywords(p);
+            List<String> cityKeys = cityKeywords(p), stateKeys = stateKeywords(p);
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject o = arr.optJSONObject(i);
                 if (o == null) continue;
@@ -52,10 +61,13 @@ public final class Warnings {
                 if (w.title.length() == 0 && w.text.length() == 0) continue;
                 if (w.to != 0 && w.to < nowSec) continue;
                 if (w.from != 0 && w.from > nowSec + 6 * 3600L) continue;
-                String hay = (w.title + " " + w.text + " " + w.instruction).toLowerCase(Locale.ROOT);
-                for (String k : keys) {
-                    if (hay.contains(k)) { w.forYou = true; break; }
-                }
+                w.detail = bestDetail(o, w);
+                String hay = (w.title + " " + w.text + " " + w.instruction + " " + w.detail).toLowerCase(Locale.ROOT);
+                boolean city = false, state = false;
+                for (String k : cityKeys) if (hay.contains(k)) { city = true; break; }
+                for (String k : stateKeys) if (hay.contains(k)) { state = true; break; }
+                w.marine = isMarine(hay);
+                w.forYou = city || (state && (includeMarine || !w.marine));
                 w.emergency = hay.contains("danger") || hay.contains("bahaya") || hay.contains("flood") || hay.contains("banjir")
                         || hay.contains("tsunami") || hay.contains("typhoon") || hay.contains("cyclone");
                 out.add(w);
@@ -65,15 +77,29 @@ public final class Warnings {
         return out;
     }
 
-    private static List<String> keywords(Place p) {
+    private static List<String> cityKeywords(Place p) {
         List<String> k = new ArrayList<String>();
         if (p == null) return k;
         add(k, p.city);
         add(k, p.neighborhood);
+        return k;
+    }
+
+    private static List<String> stateKeywords(Place p) {
+        List<String> k = new ArrayList<String>();
+        if (p == null) return k;
         add(k, p.region);
         String r = p.region == null ? "" : p.region.toLowerCase(Locale.ROOT);
         if (r.contains("kuala lumpur") || r.contains("wilayah persekutuan")) add(k, "kuala lumpur");
         return k;
+    }
+
+    private static final java.util.regex.Pattern MARINE = java.util.regex.Pattern.compile(
+            "\\b(rough seas?|seas|waters|marine|coastal|waves|perairan|laut|ombak|maritime)\\b");
+
+    /** Whole words only, so "Gombak" is not mistaken for "ombak" (waves). */
+    private static boolean isMarine(String hay) {
+        return MARINE.matcher(hay).find();
     }
 
     private static void add(List<String> k, String s) {
@@ -96,13 +122,62 @@ public final class Warnings {
                     : hay.contains("haze") || hay.contains("jerebu") ? Icon.MASK : Icon.ALERT;
             String title = w.title.length() > 0 ? w.title : "Weather warning";
             if (title.length() > 70) title = title.substring(0, 69).trim() + "…";
-            String body = sentence(w.text.length() > 0 ? w.text : w.instruction, 150);
-            if (w.instruction.length() > 0 && w.text.length() > 0) body += " · " + sentence(w.instruction, 90);
+            String main = w.detail.length() > 0 ? w.detail : (norm(w.text).equals(norm(w.title)) ? "" : w.text);
+            if (main.length() == 0 && norm(w.instruction).length() > 0 && !norm(w.instruction).equals(norm(w.title))) main = w.instruction;
+            String body = sentence(main, 140);
+            if (w.instruction.length() > 0 && !norm(w.instruction).equals(norm(main)) && !norm(w.instruction).equals(norm(w.title))) {
+                body += (body.length() > 0 ? " \u00b7 " : "") + sentence(w.instruction, 80);
+            }
+            if (w.to > 0) body += (body.length() > 0 ? " \u00b7 " : "") + "until " + Fmt.time(w.to, 8 * 3600, false, true);
+            if (body.length() == 0) body = "Issued by MET Malaysia";
             out.add(new Insights.Insight("official:" + Integer.toHexString((w.title + w.from).hashCode()),
                     w.emergency ? Insights.WARNING : Insights.NOTICE, icon,
                     "Official: " + title, body, "MET alert", title, 0L));
         }
         return out;
+    }
+
+    private static String norm(String s) {
+        return s == null ? "" : s.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", " ").trim();
+    }
+
+    /** The most informative English sentence in the record that isn't just the title again. */
+    private static String bestDetail(JSONObject o, Warning w) {
+        List<String[]> found = new ArrayList<String[]>();
+        collect(o, "", found);
+        String title = norm(w.title);
+        String best = "";
+        int bestScore = -1;
+        for (String[] f : found) {
+            String path = f[0].toLowerCase(Locale.ROOT), v = f[1].trim();
+            String nv = norm(v);
+            if (nv.length() < 25 || nv.equals(title) || (nv.startsWith(title) && nv.length() < title.length() + 12)) continue;
+            if (v.indexOf(' ') < 0 || v.matches("^\\d{4}-\\d{2}.*")) continue;
+            int score = v.length() / 8;
+            if (path.contains("text") || path.contains("desc") || path.contains("content") || path.contains("message") || path.contains("detail")) score += 30;
+            if (path.contains("instruction")) score += 18;
+            if (score > bestScore) { bestScore = score; best = v; }
+        }
+        return best;
+    }
+
+    private static void collect(Object node, String path, List<String[]> out) {
+        if (node instanceof JSONObject) {
+            JSONObject o = (JSONObject) node;
+            java.util.Iterator<String> it = o.keys();
+            while (it.hasNext()) {
+                String k = it.next();
+                String lk = k.toLowerCase(Locale.ROOT);
+                // skip Malay duplicates
+                if (lk.equals("bm") || lk.equals("ms") || lk.endsWith("_bm") || lk.endsWith("_ms") || lk.startsWith("bm_")) continue;
+                collect(o.opt(k), path + "." + k, out);
+            }
+        } else if (node instanceof JSONArray) {
+            JSONArray a = (JSONArray) node;
+            for (int i = 0; i < a.length() && i < 20; i++) collect(a.opt(i), path + "[]", out);
+        } else if (node instanceof String) {
+            out.add(new String[]{path, (String) node});
+        }
     }
 
     private static String sentence(String s, int max) {

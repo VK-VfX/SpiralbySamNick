@@ -98,13 +98,13 @@ final class Updater {
             }
             String raw = Net.get("https://api.data.gov.my/weather/warning");
             long nowSec = now / 1000L;
-            java.util.List<Warnings.Warning> all = Warnings.parse(raw, place, nowSec);
+            java.util.List<Warnings.Warning> all = Warnings.parse(raw, place, nowSec, Store.officialMarine(app));
             org.json.JSONArray keep = new org.json.JSONArray();
             int mine = 0;
+            // keep every active record so the sea/coastal switch can take effect without another download
             for (Warnings.Warning w : all) {
-                if (!w.forYou) continue;
-                mine++;
-                keep.put(new org.json.JSONObject(w.raw));
+                if (w.forYou) mine++;
+                if (keep.length() < 200) keep.put(new org.json.JSONObject(w.raw));
             }
             String when = android.text.format.DateFormat.format("h:mm a", now).toString();
             String status = "MET Malaysia: " + all.size() + " active, " + mine + " for your area (checked " + when + ")";

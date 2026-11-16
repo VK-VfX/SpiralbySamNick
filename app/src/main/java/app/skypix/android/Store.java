@@ -83,6 +83,8 @@ final class Store {
     // ---- official warnings ----
     static boolean official(Context c) { return sp(c).getBoolean("official", true); }
     static void setOfficial(Context c, boolean v) { sp(c).edit().putBoolean("official", v).apply(); }
+    static boolean officialMarine(Context c) { return sp(c).getBoolean("official_marine", false); }
+    static void setOfficialMarine(Context c, boolean v) { sp(c).edit().putBoolean("official_marine", v).apply(); }
     static String officialStatus(Context c) { return sp(c).getString("official_status", "Not checked yet"); }
 
     /** Re-reads the stored official warnings into {@link Insights#official} for the current place. */
@@ -94,7 +96,7 @@ final class Store {
             }
             Place p = loadPlace(c);
             long now = System.currentTimeMillis() / 1000L;
-            Insights.official = Warnings.toInsights(Warnings.parse(sp(c).getString("official_json", ""), p, now));
+            Insights.official = Warnings.toInsights(Warnings.parse(sp(c).getString("official_json", ""), p, now, officialMarine(c)));
         } catch (Throwable t) {
             Insights.official = new java.util.ArrayList<Insights.Insight>();
         }

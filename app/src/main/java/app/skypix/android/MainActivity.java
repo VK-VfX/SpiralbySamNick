@@ -552,6 +552,15 @@ public class MainActivity extends Activity {
                     }
                 }));
 
+        row(box, "Sea and coastal warnings", "Rough seas and waves. Off by default; turn on if you live by the coast",
+                toggle(Store.officialMarine(this), new CompoundButton.OnCheckedChangeListener() {
+                    @Override public void onCheckedChanged(CompoundButton b, boolean on) {
+                        Store.setOfficialMarine(MainActivity.this, on);
+                        Store.loadOfficial(MainActivity.this);
+                        rebuild();
+                    }
+                }));
+
         row(box, "Cat weather news", "A bulletin from the cats every 2 hours, written from the live forecast",
                 toggle(Store.hourly(this), new CompoundButton.OnCheckedChangeListener() {
                     @Override public void onCheckedChanged(CompoundButton b, boolean on) {
