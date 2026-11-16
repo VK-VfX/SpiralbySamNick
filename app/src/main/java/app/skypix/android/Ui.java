@@ -100,7 +100,7 @@ final class Ui {
     }
     static int container(Context c) {
         if (you(c)) return isDark(c) ? mixColor(sys(c, android.R.color.system_neutral1_900, 0xFF1B1B1F), 0xFF000000, 0.35f) : sys(c, android.R.color.system_neutral1_0, 0xFFFFFFFF);
-        return isDark(c) ? 0xFF131416 : 0xFFFFFFFF;
+        return isDark(c) ? 0xFF0D0D10 : 0xFFFFFFFF;
     }
     static int onSurface(Context c) {
         if (you(c)) return sys(c, isDark(c) ? android.R.color.system_neutral1_100 : android.R.color.system_neutral1_900, 0xFF1F1F1F);
@@ -112,27 +112,27 @@ final class Ui {
     }
     static int primary(Context c) {
         if (you(c)) return sys(c, isDark(c) ? android.R.color.system_accent1_200 : android.R.color.system_accent1_600, 0xFF0B57D0);
-        return isDark(c) ? 0xFFA8C7FA : 0xFF0B57D0;
+        return isDark(c) ? 0xFF3DF5D0 : 0xFF00796B;
     }
     static int onPrimary(Context c) {
         if (you(c)) return sys(c, isDark(c) ? android.R.color.system_accent1_800 : android.R.color.system_accent1_0, 0xFFFFFFFF);
-        return isDark(c) ? 0xFF062E6F : 0xFFFFFFFF;
+        return isDark(c) ? 0xFF00110D : 0xFFFFFFFF;
     }
     static int primaryContainer(Context c) {
         if (you(c)) return sys(c, isDark(c) ? android.R.color.system_accent1_900 : android.R.color.system_accent1_100, 0xFFD3E3FD);
-        return isDark(c) ? 0xFF0B2A57 : 0xFFD3E3FD;
+        return isDark(c) ? 0xFF0A4A3F : 0xFFB2F0E3;
     }
     static int onPrimaryContainer(Context c) {
         if (you(c)) return sys(c, isDark(c) ? android.R.color.system_accent1_100 : android.R.color.system_accent1_900, 0xFF041E49);
-        return isDark(c) ? 0xFFD3E3FD : 0xFF041E49;
+        return isDark(c) ? 0xFFBFFFF0 : 0xFF00201B;
     }
     static int tonal(Context c) {
         if (you(c)) return sys(c, isDark(c) ? android.R.color.system_accent2_800 : android.R.color.system_accent2_100, 0xFFD3E3FD);
-        return isDark(c) ? 0xFF1B3157 : 0xFFD3E3FD;
+        return isDark(c) ? 0xFF16312C : 0xFFB2F0E3;
     }
     static int onTonal(Context c) {
         if (you(c)) return sys(c, isDark(c) ? android.R.color.system_accent2_100 : android.R.color.system_accent2_900, 0xFF041E49);
-        return isDark(c) ? 0xFFD3E3FD : 0xFF041E49;
+        return isDark(c) ? 0xFFBFFFF0 : 0xFF00201B;
     }
     static int divider(Context c) {
         if (you(c)) return sys(c, isDark(c) ? android.R.color.system_neutral1_800 : android.R.color.system_neutral2_100, 0xFFE3E7EC);
@@ -149,7 +149,8 @@ final class Ui {
         t.setText(s);
         t.setTextSize(sp);
         t.setTextColor(color);
-        t.setTypeface(AndroidGfx.typeface(weight));
+        // the family type: condensed bold for headings, the system face for reading
+        t.setTypeface(weight >= 500 && sp >= 15 ? android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.BOLD) : AndroidGfx.typeface(weight));
         t.setIncludeFontPadding(false);
         return t;
     }

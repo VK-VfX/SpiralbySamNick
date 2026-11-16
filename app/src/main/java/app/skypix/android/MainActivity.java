@@ -406,7 +406,7 @@ public class MainActivity extends Activity {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(Ui.dp(this, 20), Ui.dp(this, 6), Ui.dp(this, 14), Ui.dp(this, 6));
-        box.setBackground(Ui.surface(this, Ui.container(this), 28));
+        box.setBackground(Ui.surface(this, Ui.container(this), 24));
         content.addView(box, lp(-1, -2, 12));
         return box;
     }
@@ -843,11 +843,11 @@ public class MainActivity extends Activity {
         card.setOrientation(LinearLayout.VERTICAL);
         card.setGravity(Gravity.CENTER_HORIZONTAL);
         card.setPadding(Ui.dp(this, 20), Ui.dp(this, 26), Ui.dp(this, 20), Ui.dp(this, 22));
-        card.setBackground(Ui.surface(this, Ui.container(this), 28));
+        card.setBackground(Ui.surface(this, Ui.container(this), 24));
         content.addView(card, lp(-1, -2, 12));
 
         ImageView icon = new ImageView(this);
-        icon.setImageResource(R.mipmap.ic_launcher);
+        icon.setImageResource(R.drawable.profile);
         icon.setScaleType(ImageView.ScaleType.CENTER_CROP);
         icon.setClipToOutline(true);
         icon.setOutlineProvider(new android.view.ViewOutlineProvider() {
@@ -1000,7 +1000,7 @@ public class MainActivity extends Activity {
             LinearLayout card = new LinearLayout(this);
             card.setOrientation(LinearLayout.VERTICAL);
             card.setPadding(Ui.dp(this, 20), Ui.dp(this, 16), Ui.dp(this, 14), Ui.dp(this, 14));
-            card.setBackground(Ui.surface(this, Ui.container(this), 28));
+            card.setBackground(Ui.surface(this, Ui.container(this), 24));
 
             int res = getResources().getIdentifier("preview_" + Variants.KEY[v], "drawable", getPackageName());
             if (res != 0) {
