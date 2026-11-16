@@ -225,6 +225,49 @@ public final class Preview {
                 dir.mkdirs();
                 ImageIO.write(img, "png", new File(dir, dark ? "clocks-dark.png" : "clocks-light.png"));
             }
+        } else if (mode.equals("allclocks")) {
+            Object[][] items = {
+                    {Cards.CLOCK_BIG, 250, 110, "1  Big Clock 4x2"}, {Cards.CLOCK_BIG, 110, 110, "1  Big Clock 2x2"},
+                    {Cards.CLOCK_FLIP, 250, 110, "2  Flip Clock 4x2"}, {Cards.CLOCK_FLIP, 110, 110, "2  Flip Clock 2x2"},
+                    {Cards.CLOCK_NEON, 250, 110, "3  Neon Clock 4x2"}, {Cards.CLOCK_POSTER, 250, 110, "4  Poster Clock 4x2"},
+                    {Cards.CLOCK_POSTER, 110, 110, "4  Poster Clock 2x2"}, {Cards.CLOCK_SEG, 250, 110, "5  LCD Clock 4x2"},
+                    {Cards.CLOCK_DOTS, 250, 110, "6  Dot Clock 4x2"}, {Cards.CLOCK_PILL, 250, 110, "7  Pill Clock 4x2"},
+                    {Cards.CLOCK_PILL, 110, 110, "7  Pill Clock 2x2"}, {Cards.CLOCK_SKY, 250, 110, "8  Sky Clock 4x2"},
+                    {Cards.CLOCK_SKY, 110, 110, "8  Sky Clock 2x2"}, {Cards.CLOCK_SCHEDULE, 250, 110, "9  Cat Schedule 4x2"},
+                    {Cards.CLOCK_DAY, 250, 110, "10  Day Clock 4x2"}, {Cards.CLOCK_WORD, 250, 180, "11  Word Clock 4x3"},
+                    {Cards.CLOCK_WORLD, 250, 180, "12  World Clock 4x3"}};
+            float u = 1.6f;
+            int rowW = 3 * 264 + 14;
+            for (int side = 0; side < 2; side++) {
+                boolean dark = side == 1;
+                // lay out in rows of at most rowW
+                java.util.List<int[]> pos = new java.util.ArrayList<int[]>();
+                int x = 14, y = 14, rowH = 0;
+                for (int i = 0; i < items.length; i++) {
+                    int iw = (Integer) items[i][1], ih = (Integer) items[i][2];
+                    if (x + iw > rowW) { x = 14; y += rowH + 36; rowH = 0; }
+                    pos.add(new int[]{x, y});
+                    x += iw + 14;
+                    rowH = Math.max(rowH, ih);
+                }
+                int H = y + rowH + 36;
+                BufferedImage img = new BufferedImage(Math.round(rowW * u), Math.round(H * u), BufferedImage.TYPE_INT_ARGB);
+                Graphics2D g = img.createGraphics();
+                g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                g.drawImage(backdrop(img.getWidth(), img.getHeight(), dark, dark), 0, 0, null);
+                for (int i = 0; i < items.length; i++) {
+                    Cards.Data d = Samples.data(dark ? "night" : "clear", false, false);
+                    d.nowSec = Fmt.parseLocal(dark ? "2026-11-16T21:40" : "2026-11-16T10:10", 8 * 3600);
+                    int iw = (Integer) items[i][1], ih = (Integer) items[i][2];
+                    g.drawImage(render((Integer) items[i][0], iw, ih, u, dark, d), Math.round(pos.get(i)[0] * u), Math.round(pos.get(i)[1] * u), null);
+                    g.setColor(dark ? new Color(255, 255, 255, 230) : new Color(20, 20, 30, 230));
+                    g.setFont(new java.awt.Font("SansSerif", java.awt.Font.BOLD, Math.round(13 * u)));
+                    g.drawString((String) items[i][3], Math.round(pos.get(i)[0] * u), Math.round((pos.get(i)[1] + ih + 16) * u));
+                }
+                g.dispose();
+                dir.mkdirs();
+                ImageIO.write(img, "png", new File(dir, dark ? "all-dark.png" : "all-light.png"));
+            }
         } else if (mode.equals("you")) {
             int[] kinds = {Cards.NOW, Cards.CLASSIC, Cards.BIG, Cards.HEADSUP, Cards.HOURLY};
             int[][] sz = {{110, 110}, {110, 110}, {110, 110}, {180, 110}, {250, 110}};

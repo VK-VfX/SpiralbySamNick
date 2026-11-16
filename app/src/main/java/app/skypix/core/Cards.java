@@ -1357,7 +1357,8 @@ public final class Cards {
         r.text(dateText(d, d.tzOffset), pad, h - pad + 3, 13, Gfx.FONT_MEDIUM, Gfx.LEFT, T2);
         float isz = clamp(h * 0.42f, 34, 56);
         r.icon(icon, w - pad - isz, pad - 2, isz);
-        r.text(r.fit(phrase, 15, Gfx.FONT_MEDIUM, w * 0.42f), w - pad, h - pad + 3, 15, Gfx.FONT_MEDIUM, Gfx.RIGHT, WHITE);
+        float dateW = r.tw(dateText(d, d.tzOffset), 13, Gfx.FONT_MEDIUM);
+        r.text(r.fit(phrase, 14.5f, Gfx.FONT_MEDIUM, w - 2 * pad - dateW - 10), w - pad, h - pad + 3, 14.5f, Gfx.FONT_MEDIUM, Gfx.RIGHT, WHITE);
     }
 
 
