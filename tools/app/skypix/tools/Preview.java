@@ -193,6 +193,34 @@ public final class Preview {
             g.dispose();
             dir.mkdirs();
             ImageIO.write(img, "png", new File(dir, "headsup.png"));
+        } else if (mode.equals("shadow")) {
+            int[] kinds = {Cards.CLOCK_BIG, Cards.HEADSUP, Cards.NOW, Cards.HOURLY};
+            int[][] sz = {{250, 110}, {180, 110}, {110, 110}, {250, 110}};
+            float u = 2.0f;
+            BufferedImage img = new BufferedImage(Math.round(840 * u), Math.round(250 * u), BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g = img.createGraphics();
+            // a busy, bright "code rain" style backdrop to judge legibility
+            g.setColor(Color.BLACK);
+            g.fillRect(0, 0, img.getWidth(), img.getHeight());
+            java.util.Random rnd = new java.util.Random(7);
+            g.setFont(new java.awt.Font("SansSerif", java.awt.Font.BOLD, Math.round(15 * u)));
+            for (int i = 0; i < 520; i++) {
+                g.setColor(new Color(60 + rnd.nextInt(190), 200 + rnd.nextInt(55), 60 + rnd.nextInt(60), 90 + rnd.nextInt(150)));
+                g.drawString(String.valueOf((char) (0x30A0 + rnd.nextInt(60))), rnd.nextInt(img.getWidth()), rnd.nextInt(img.getHeight()));
+            }
+            for (int row = 0; row < 2; row++) {
+                int x = 14;
+                for (int c = 0; c < kinds.length; c++) {
+                    Cards.Data d = Samples.data("clear", false, false);
+                    d.nowSec = Fmt.parseLocal("2026-11-16T09:47", 8 * 3600);
+                    d.transparentDark = true;
+                    g.drawImage(render(kinds[c], sz[c][0], sz[c][1], u, true, d), Math.round(x * u), Math.round((10 + row * 125) * u), null);
+                    x += sz[c][0] + 14;
+                }
+            }
+            g.dispose();
+            dir.mkdirs();
+            ImageIO.write(img, "png", new File(dir, "shadow.png"));
         } else if (mode.equals("sizes")) {
             int[][] kinds = {{Cards.NOW}, {Cards.HOURLY}, {Cards.FORECAST}, {Cards.DETAILS}, {Cards.LOCATION}, {Cards.SUN}, {Cards.HEADSUP}, {Cards.ICON},
                     {Cards.LINE_HOURLY}, {Cards.LINE_DAILY}, {Cards.BIG}, {Cards.CLASSIC}, {Cards.RAIN_SOON}, {Cards.CLOCK_BIG}, {Cards.CLOCK_DAY},

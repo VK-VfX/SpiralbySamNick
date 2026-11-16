@@ -124,7 +124,25 @@ public final class Cards {
             this.g = g; this.u = u; this.w = w; this.h = h; this.dark = dark; this.clear = dark && clear;
         }
 
+        /** True on see-through cards (clear or glass), where light text needs a soft shadow to stay readable. */
+        boolean shade;
+
+        private boolean lightInk(int color) {
+            int a = color >>> 24;
+            float lum = (0.299f * ((color >> 16) & 255) + 0.587f * ((color >> 8) & 255) + 0.114f * (color & 255)) / 255f;
+            return a > 90 && lum > 0.62f;
+        }
+
         void text(String s, float x, float base, float size, int font, int align, int color) {
+            if (shade && lightInk(color)) {
+                float o = 1.1f;
+                // a soft dark halo all round, plus a drop shadow, so letters stand out from whatever is behind
+                g.text(s, (x + o) * u, (base + o) * u, size * u, font, align, 0x50000000);
+                g.text(s, (x - o) * u, (base + o) * u, size * u, font, align, 0x50000000);
+                g.text(s, (x + o) * u, (base - o) * u, size * u, font, align, 0x50000000);
+                g.text(s, (x - o) * u, (base - o) * u, size * u, font, align, 0x50000000);
+                g.text(s, x * u, (base + o * 1.8f) * u, size * u, font, align, 0x80000000);
+            }
             g.text(s, x * u, base * u, size * u, font, align, color);
         }
 
@@ -141,6 +159,11 @@ public final class Cards {
         }
 
         void pix(String s, float x, float y, float cell, int align, int color) {
+            if (shade && lightInk(color)) {
+                PixelFont.draw(g, s, (x + 1f) * u, (y + 1f) * u, cell * u, align, 0x50000000);
+                PixelFont.draw(g, s, (x - 1f) * u, (y + 1f) * u, cell * u, align, 0x50000000);
+                PixelFont.draw(g, s, x * u, (y + 1.8f) * u, cell * u, align, 0x80000000);
+            }
             PixelFont.draw(g, s, x * u, y * u, cell * u, align, color);
         }
 
@@ -187,6 +210,7 @@ public final class Cards {
     public static void render(Gfx g, int kind, float wDp, float hDp, float u, boolean dark, Data d) {
         R r = new R(g, u, wDp, hDp, dark, d != null && d.transparentDark);
         r.fill = fillFor(d, dark);
+        r.shade = r.clear || r.fill < 0.95f;
         applySkin(r, d);
         r.t = d == null ? -1 : d.anim;
         if (kind == ICON) {
@@ -1657,6 +1681,7 @@ public final class Cards {
     public static void renderInsight(Gfx g, Insights.Insight in, float wDp, float hDp, float u, boolean dark, Data d) {
         R r = new R(g, u, wDp, hDp, dark, d != null && d.transparentDark);
         r.fill = fillFor(d, dark);
+        r.shade = r.clear || r.fill < 0.95f;
         applySkin(r, d);
         r.t = d == null ? -1 : d.anim;
         base(r, mood(d));
