@@ -7,9 +7,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # Bump both for every release; the in-app updater compares VERSION_CODE (it must always go up).
-VERSION_CODE=10
-VERSION_NAME=1.0.9
-RELEASE_NOTES="Five live clock widgets (Clock, Flip, Sky, Cat schedule, Day) with a redesigned flip clock."
+VERSION_CODE=11
+VERSION_NAME=1.0.10
+RELEASE_NOTES="Resizable widgets with Solid, Glass or Clear backgrounds, official warning fixes, softer text on clear widgets, and an About section."
 UPDATE_BASE=https://raw.githubusercontent.com/VK-VfX/Sam-s-Signal-Stabilizer/claude/signal-stabilizer-game-8le0y5/dist
 
 DEPS=build/deps

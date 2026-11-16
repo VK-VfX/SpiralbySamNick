@@ -1,7 +1,7 @@
 {
-  "versionCode": 10,
-  "versionName": "1.0.9",
+  "versionCode": 11,
+  "versionName": "1.0.10",
   "apkUrl": "https://raw.githubusercontent.com/VK-VfX/Sam-s-Signal-Stabilizer/claude/signal-stabilizer-game-8le0y5/dist/skypix.apk",
-  "sha256": "fd7bf9f561a71c44998cdeb813a664c6ff1d1d81ad8005796019847505747ae7",
-  "notes": "Five live clock widgets (Clock, Flip, Sky, Cat schedule, Day) with a redesigned flip clock."
+  "sha256": "d90ed5c1e88f3e573b443e391d274f40c05b4a460acbdd503d3f9e2e02c6ebd7",
+  "notes": "Resizable widgets with Solid, Glass or Clear backgrounds, official warning fixes, softer text on clear widgets, and an About section."
 }
