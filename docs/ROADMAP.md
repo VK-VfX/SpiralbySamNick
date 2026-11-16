@@ -78,3 +78,10 @@ Rules: no snow-only dependencies (owner is in Malaysia: rain, thunder, haze, hea
 - "What should I wear?" with a cat outfit suggestion.
 - OTA polish: changelog screen, Wi-Fi only installs, rollback. Translations, settings backup/restore.
 - Philippine (PAGASA) official warnings: no stable open API found yet.
+
+## The trinity: Purrcast, Zamoled, Maps and Cats
+Three apps by the same owner that open each other. Done: each app has a "The trio" list that opens the others when installed
+(package ids `app.skypix.weather`, `com.nikopick.zamoled`, `app.mapsandcats`, declared in `<queries>`) or falls back to their GitHub page.
+Maps and Cats side is NOT done yet: it needs push access to `VK-VfX/Not-An-Ordinary-Alarm-Clock` (a web app packaged with Capacitor, `android/` module, `app.js`).
+Ideas: Maps and Cats gets a weather chip and cat from Purrcast; Zamoled wallpapers from Maps and Cats trips; shared cat set across all three;
+deep links (`zamoled://w?k=...`, a future `purrcast://`, `mapsandcats://`).

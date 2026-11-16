@@ -879,6 +879,28 @@ public class MainActivity extends Activity {
             @Override public void onClick(View v) { open("https://github.com/VK-VfX/Sam-s-Signal-Stabilizer"); }
         });
         row(box, "Source and releases", "GitHub", g);
+
+        LinearLayout trio = section("The trio", 0);
+        trioRow(trio, "Zamoled", "AMOLED wallpapers that make room for your widgets", "com.nikopick.zamoled",
+                "https://github.com/VK-VfX/nikopickzamoledz/releases");
+        trioRow(trio, "Maps and Cats", "Maps, navigation and cats to catch", "app.mapsandcats",
+                "https://github.com/VK-VfX/not-an-ordinary-alarm-clock");
+    }
+
+    /** One sibling app: opens it when installed, otherwise its download page. */
+    private void trioRow(LinearLayout box, String name, String sub, final String pkg, final String url) {
+        boolean has = getPackageManager().getLaunchIntentForPackage(pkg) != null;
+        Ui.Btn b = new Ui.Btn(this, has ? "Open" : "Get", has);
+        b.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                Intent li = getPackageManager().getLaunchIntentForPackage(pkg);
+                if (li != null) {
+                    try { startActivity(li); return; } catch (Throwable ignored) { }
+                }
+                open(url);
+            }
+        });
+        row(box, name, sub, b);
     }
 
     private void addUpdates() {
