@@ -194,22 +194,32 @@ public final class Preview {
             dir.mkdirs();
             ImageIO.write(img, "png", new File(dir, "headsup.png"));
         } else if (mode.equals("clocks")) {
-            int[] kinds = {Cards.CLOCK_BIG, Cards.CLOCK_BIG, Cards.CLOCK_CAT, Cards.CLOCK_CAT, Cards.CLOCK_WORLD, Cards.CLOCK_DAY};
-            int[][] sz = {{110, 110}, {250, 110}, {110, 110}, {180, 180}, {250, 180}, {250, 110}};
-            float u = 1.9f;
-            int W = 14, maxH = 0;
-            for (int[] z : sz) { W += z[0] + 14; maxH = Math.max(maxH, z[1]); }
+            int[] kinds = {Cards.CLOCK_WORD, Cards.CLOCK_SKY, Cards.CLOCK_SKY, Cards.CLOCK_DOTS, Cards.CLOCK_PILL, Cards.CLOCK_PILL, Cards.CLOCK_RINGS, Cards.CLOCK_SCHEDULE, Cards.CLOCK_WORLD};
+            int[][] sz = {{250, 180}, {250, 110}, {110, 110}, {250, 110}, {250, 110}, {110, 110}, {110, 110}, {250, 110}, {250, 180}};
+            float u = 1.7f;
+            int perRow = 4;
+            String[] times = {"2026-11-16T10:10", "2026-11-16T18:05", "2026-11-16T22:10"};
             for (int side = 0; side < 2; side++) {
                 boolean dark = side == 1;
-                BufferedImage img = new BufferedImage(Math.round(W * u), Math.round((maxH + 28) * u), BufferedImage.TYPE_INT_ARGB);
+                int cols = 3, rowsN = (kinds.length + cols - 1) / cols;
+                int W = 14 + cols * (250 + 14), H = 14;
+                int[] rowH = new int[rowsN];
+                for (int i = 0; i < kinds.length; i++) rowH[i / cols] = Math.max(rowH[i / cols], sz[i][1]);
+                for (int hh : rowH) H += hh + 14;
+                BufferedImage img = new BufferedImage(Math.round(W * u), Math.round(H * u), BufferedImage.TYPE_INT_ARGB);
                 Graphics2D g = img.createGraphics();
                 g.drawImage(backdrop(img.getWidth(), img.getHeight(), dark, dark), 0, 0, null);
-                Cards.Data d = Samples.data(dark ? "night" : "clear", false, false);
-                d.nowSec = Fmt.parseLocal(dark ? "2026-11-16T22:10" : "2026-11-16T10:10", 8 * 3600);
-                int x = 14;
-                for (int c = 0; c < kinds.length; c++) {
-                    g.drawImage(render(kinds[c], sz[c][0], sz[c][1], u, dark, d), Math.round(x * u), Math.round(14 * u), null);
-                    x += sz[c][0] + 14;
+                int y = 14;
+                for (int rI = 0; rI < rowsN; rI++) {
+                    int x = 14;
+                    for (int c = 0; c < cols && rI * cols + c < kinds.length; c++) {
+                        int i = rI * cols + c;
+                        Cards.Data d = Samples.data(dark ? "night" : "clear", false, false);
+                        d.nowSec = Fmt.parseLocal(times[(i + side) % 3], 8 * 3600);
+                        g.drawImage(render(kinds[i], sz[i][0], sz[i][1], u, dark, d), Math.round(x * u), Math.round(y * u), null);
+                        x += 250 + 14;
+                    }
+                    y += rowH[rI] + 14;
                 }
                 g.dispose();
                 dir.mkdirs();
