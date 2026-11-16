@@ -100,7 +100,6 @@ final class WidgetUpdater {
     private static void push(Context ctx, AppWidgetManager m, int variant, int id, Cards.Data d, int onlyTheme, float scale) {
         int kind = Variants.KIND[variant];
         if (d == null) d = Places.dataForWidget(ctx, id);
-        Store.applyBackground(ctx, d);
         int[] wh = sizeFor(m, variant, id);
         int w = wh[0], h = wh[1];
 
@@ -122,7 +121,7 @@ final class WidgetUpdater {
         m.updateAppWidget(id, rv);
     }
 
-    private static int[] sizeFor(AppWidgetManager m, int variant, int id) {
+    static int[] sizeFor(AppWidgetManager m, int variant, int id) {
         int[] def = {Variants.widthDp(variant), Variants.heightDp(variant)};
         Bundle o = m.getAppWidgetOptions(id);
         int w = o == null ? 0 : o.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0);
@@ -160,7 +159,6 @@ final class WidgetUpdater {
     private static void pushFlipbook(Context ctx, AppWidgetManager m, int variant, int id, Cards.Data unused, boolean dark, long limit) {
         int kind = Variants.KIND[variant];
         Cards.Data d = Places.dataForWidget(ctx, id);
-        Store.applyBackground(ctx, d);
         int[] wh = sizeFor(m, variant, id);
         int w = wh[0], h = wh[1];
         float u0 = ctx.getResources().getDisplayMetrics().density;

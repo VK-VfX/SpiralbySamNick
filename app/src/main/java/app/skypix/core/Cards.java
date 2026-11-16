@@ -662,6 +662,18 @@ public final class Cards {
         fx(r, m, d);
         Weather.Now n = wx.now(d.nowSec);
         float pad = clamp(w * 0.09f, 10, 16);
+        if (w >= 170 && h < 135) {
+            // short and wide: place and temperature on the left, cat and condition on the right
+            float ls2 = 16;
+            r.text(r.fit(d.place.shortName(), ls2, Gfx.FONT_MEDIUM, w * 0.5f), pad, pad + ls2, ls2, Gfx.FONT_MEDIUM, Gfx.LEFT, WHITE);
+            float ts2 = clamp(h * 0.50f, 34, 56);
+            r.text(u.t(n.temp), pad - 1, pad + ls2 + 4 + ts2 * 0.82f, ts2, Gfx.FONT_LIGHT, Gfx.LEFT, WHITE);
+            float isz2 = clamp(h * 0.38f, 28, 44);
+            r.icon(Wmo.icon(n.code, n.isDay), w - pad - isz2, pad - 2, isz2);
+            r.text(r.fit(Wmo.label(n.code), 13, Gfx.FONT_MEDIUM, w * 0.4f), w - pad, h - pad - 12, 13, Gfx.FONT_MEDIUM, Gfx.RIGHT, WHITE);
+            r.text("L:" + u.t(wx.todayMin(d.nowSec)) + " H:" + u.t(wx.todayMax(d.nowSec)), w - pad, h - pad + 3, 13, Gfx.FONT_MEDIUM, Gfx.RIGHT, WHITE);
+            return;
+        }
         float ls = clamp(w * 0.15f, 15, 22);
         float locBase = pad + ls;
         r.text(r.fit(d.place.shortName(), ls, Gfx.FONT_MEDIUM, w - 2 * pad), pad, locBase, ls, Gfx.FONT_MEDIUM, Gfx.LEFT, WHITE);
@@ -1194,7 +1206,7 @@ public final class Cards {
             r.text(r.fit(Wmo.label(n.code), sub, Gfx.FONT_REGULAR, w - 2 * pad - tw - 10), pad, subBase, sub, Gfx.FONT_REGULAR, Gfx.LEFT, T2);
         }
 
-        int cols = (int) clamp((float) Math.floor((w - 2 * pad) / 44f), 4, 8);
+        int cols = (int) clamp((float) Math.floor((w - 2 * pad) / 44f), 2, 8);
         cols = Math.min(cols, wx.hTime.length - hi);
         if (cols < 1) return;
         float cw = (w - 2 * pad) / cols;
@@ -1464,7 +1476,7 @@ public final class Cards {
             r.icon(Icon.MOON, w / 2 - real / 2, horizonY - arcH * 0.7f - real / 2, isz);
         }
 
-        if (w >= 200 || h >= 120) r.text(r.fit(d.place.shortName(), 12.5f, Gfx.FONT_MEDIUM, w * (w < 200 ? 0.8f : 0.35f)), pad, pad + 11, 12.5f, Gfx.FONT_MEDIUM, Gfx.LEFT, T2);
+        if (w >= 200) r.text(r.fit(d.place.shortName(), 12.5f, Gfx.FONT_MEDIUM, w * (w < 200 ? 0.8f : 0.35f)), pad, pad + 11, 12.5f, Gfx.FONT_MEDIUM, Gfx.LEFT, T2);
         boolean narrow = w < 200;
         float ts = narrow ? 11.5f : 14;
         String srT = u.time(sr, wx.utcOffset, true), ssT = u.time(ss, wx.utcOffset, true);

@@ -13,4 +13,4 @@
     android:description="@string/d_lineh_2x3"
     android:configure="app.skypix.weather/app.skypix.android.PlaceConfigActivity"
     android:widgetFeatures="reconfigurable"
-    android:widgetCategory="home_screen" />
+    android:widgetCategory="keyguard" />

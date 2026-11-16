@@ -236,6 +236,78 @@
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_headsup_2x3" />
         </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Now" android:exported="false" android:label="@string/w_now">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_now" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Hourly" android:exported="false" android:label="@string/w_hourly">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_hourly" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Forecast" android:exported="false" android:label="@string/w_forecast">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_forecast" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Details" android:exported="false" android:label="@string/w_details">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_details" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Location" android:exported="false" android:label="@string/w_location">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_location" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Sun" android:exported="false" android:label="@string/w_sun">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_sun" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Headsup" android:exported="false" android:label="@string/w_headsup">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_headsup" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Icon" android:exported="false" android:label="@string/w_icon">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_icon" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Lineh" android:exported="false" android:label="@string/w_lineh">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_lineh" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Lined" android:exported="false" android:label="@string/w_lined">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_lined" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Big" android:exported="false" android:label="@string/w_big">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_big" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Classic" android:exported="false" android:label="@string/w_classic">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_classic" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Rain" android:exported="false" android:label="@string/w_rain">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_rain" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Clock" android:exported="false" android:label="@string/w_clock">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_clock" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Flip" android:exported="false" android:label="@string/w_flip">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_flip" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Sky" android:exported="false" android:label="@string/w_sky">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_sky" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Catclock" android:exported="false" android:label="@string/w_catclock">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_catclock" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Dayclock" android:exported="false" android:label="@string/w_dayclock">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_dayclock" />
+        </receiver>
         <!-- widgets:end -->
 
         <activity

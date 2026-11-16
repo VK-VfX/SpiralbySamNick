@@ -92,7 +92,27 @@ final class Places {
     }
 
     static void forgetWidget(Context c, int widgetId) {
-        sp(c).edit().remove("wp_" + widgetId).apply();
+        sp(c).edit().remove("wp_" + widgetId).remove("wbg_" + widgetId).apply();
+    }
+
+    /** Background for one widget: 0 solid, 1 glass, 2 clear; -1 = follow the app default. */
+    static int widgetBg(Context c, int widgetId) {
+        return sp(c).getInt("wbg_" + widgetId, -1);
+    }
+
+    static void setWidgetBg(Context c, int widgetId, int mode) {
+        sp(c).edit().putInt("wbg_" + widgetId, mode).apply();
+    }
+
+    static int effectiveBg(Context c, int widgetId) {
+        int m = widgetBg(c, widgetId);
+        return m >= 0 ? m : Store.bgMode(c);
+    }
+
+    /** Applies a background mode to card data. */
+    static void applyBg(Cards.Data d, int mode) {
+        d.transparentDark = mode == 2;
+        d.bgAlpha = mode == 1 ? 0.6f : 1f;
     }
 
     // ---- forecast cache per saved place ----
@@ -124,6 +144,7 @@ final class Places {
             d.place = s.place;
             d.weather = loadWeather(c, s.id);
         }
+        applyBg(d, effectiveBg(c, widgetId));
         return d;
     }
 }

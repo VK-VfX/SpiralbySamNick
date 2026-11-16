@@ -93,6 +93,24 @@ public final class Widgets {
     public static final class Headsup4x1 extends Base { @Override int variant() { return 45; } }
     public static final class Headsup2x2 extends Base { @Override int variant() { return 46; } }
     public static final class Headsup2x3 extends Base { @Override int variant() { return 47; } }
+    public static final class Now extends Base { @Override int variant() { return 48; } }
+    public static final class Hourly extends Base { @Override int variant() { return 49; } }
+    public static final class Forecast extends Base { @Override int variant() { return 50; } }
+    public static final class Details extends Base { @Override int variant() { return 51; } }
+    public static final class Location extends Base { @Override int variant() { return 52; } }
+    public static final class Sun extends Base { @Override int variant() { return 53; } }
+    public static final class Headsup extends Base { @Override int variant() { return 54; } }
+    public static final class Icon extends Base { @Override int variant() { return 55; } }
+    public static final class Lineh extends Base { @Override int variant() { return 56; } }
+    public static final class Lined extends Base { @Override int variant() { return 57; } }
+    public static final class Big extends Base { @Override int variant() { return 58; } }
+    public static final class Classic extends Base { @Override int variant() { return 59; } }
+    public static final class Rain extends Base { @Override int variant() { return 60; } }
+    public static final class Clock extends Base { @Override int variant() { return 61; } }
+    public static final class Flip extends Base { @Override int variant() { return 62; } }
+    public static final class Sky extends Base { @Override int variant() { return 63; } }
+    public static final class Catclock extends Base { @Override int variant() { return 64; } }
+    public static final class Dayclock extends Base { @Override int variant() { return 65; } }
 
     static final Class<?>[] ALL = {
         Now2x2.class,
@@ -142,6 +160,24 @@ public final class Widgets {
         Headsup3x1.class,
         Headsup4x1.class,
         Headsup2x2.class,
-        Headsup2x3.class
+        Headsup2x3.class,
+        Now.class,
+        Hourly.class,
+        Forecast.class,
+        Details.class,
+        Location.class,
+        Sun.class,
+        Headsup.class,
+        Icon.class,
+        Lineh.class,
+        Lined.class,
+        Big.class,
+        Classic.class,
+        Rain.class,
+        Clock.class,
+        Flip.class,
+        Sky.class,
+        Catclock.class,
+        Dayclock.class
     };
 }

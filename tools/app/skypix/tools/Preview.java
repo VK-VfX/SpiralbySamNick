@@ -193,6 +193,45 @@ public final class Preview {
             g.dispose();
             dir.mkdirs();
             ImageIO.write(img, "png", new File(dir, "headsup.png"));
+        } else if (mode.equals("sizes")) {
+            int[][] kinds = {{Cards.NOW}, {Cards.HOURLY}, {Cards.FORECAST}, {Cards.DETAILS}, {Cards.LOCATION}, {Cards.SUN}, {Cards.HEADSUP}, {Cards.ICON},
+                    {Cards.LINE_HOURLY}, {Cards.LINE_DAILY}, {Cards.BIG}, {Cards.CLASSIC}, {Cards.RAIN_SOON}, {Cards.CLOCK_BIG}, {Cards.CLOCK_DAY},
+                    {Cards.CLOCK_SKY}, {Cards.CLOCK_FLIP}, {Cards.CLOCK_SCHEDULE}};
+            String[] names = {"NOW", "HOURLY", "FORECAST", "DETAILS", "LOCATION", "SUN", "HEADSUP", "ICON", "LINE_HOURLY", "LINE_DAILY", "BIG", "CLASSIC", "RAIN_SOON", "CLOCK_BIG", "CLOCK_DAY", "CLOCK_SKY", "CLOCK_FLIP", "CLOCK_SCHEDULE"};
+            int[][] cells = {{1, 1}, {2, 1}, {3, 1}, {2, 2}, {3, 2}, {4, 2}, {2, 3}, {4, 3}, {2, 4}, {4, 4}};
+            float u = 1.2f;
+            String[] pick = System.getProperty("kinds", "").split(",");
+            for (int k = 0; k < kinds.length; k++) {
+                if (pick.length > 0 && pick[0].length() > 0 && !java.util.Arrays.asList(pick).contains(names[k])) continue;
+                int W = 14, rowH = 0, H = 14, x = 14;
+                int maxW = 4 * 280 + 60;
+                java.util.List<int[]> pos = new java.util.ArrayList<int[]>();
+                int y = 20;
+                for (int[] c : cells) {
+                    int iw = 70 * c[0] - 30, ih = 70 * c[1] - 30;
+                    if (x + iw > maxW) { x = 14; y += rowH + 30; rowH = 0; }
+                    pos.add(new int[]{x, y, iw, ih});
+                    x += iw + 18;
+                    rowH = Math.max(rowH, ih);
+                }
+                int totalH = y + rowH + 24;
+                BufferedImage img = new BufferedImage(Math.round(maxW * u), Math.round(totalH * u), BufferedImage.TYPE_INT_ARGB);
+                Graphics2D g = img.createGraphics();
+                g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                g.drawImage(backdrop(img.getWidth(), img.getHeight(), true, false), 0, 0, null);
+                for (int i = 0; i < cells.length; i++) {
+                    Cards.Data d = Samples.data("clear", false, false);
+                    d.nowSec = Fmt.parseLocal("2026-11-16T10:10", 8 * 3600);
+                    int[] q = pos.get(i);
+                    g.drawImage(render(kinds[k][0], q[2], q[3], u, false, d), Math.round(q[0] * u), Math.round(q[1] * u), null);
+                    g.setColor(new Color(20, 20, 30, 230));
+                    g.setFont(new java.awt.Font("SansSerif", java.awt.Font.BOLD, Math.round(11 * u)));
+                    g.drawString(names[k] + " " + cells[i][0] + "x" + cells[i][1], Math.round(q[0] * u), Math.round((q[1] - 5) * u));
+                }
+                g.dispose();
+                dir.mkdirs();
+                ImageIO.write(img, "png", new File(dir, "sizes-" + names[k] + ".png"));
+            }
         } else if (mode.equals("allclocks")) {
             Object[][] items = {
                     {Cards.CLOCK_BIG, 250, 110, "1  Big Clock 4x2"}, {Cards.CLOCK_BIG, 110, 110, "1  Big Clock 2x2"},

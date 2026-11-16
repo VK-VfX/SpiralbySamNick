@@ -476,7 +476,7 @@ public class MainActivity extends Activity {
             });
             style.addView(b, new LinearLayout.LayoutParams(-2, -2));
         }
-        row(box, "Widget background", "Solid, see-through glass, or fully clear (dark mode)", style);
+        row(box, "Default widget background", "Solid, glass or clear for new widgets. Touch and hold any widget, then Widget settings, to change just that one", style);
 
         if (Build.VERSION.SDK_INT >= 31) {
             LinearLayout colors = new LinearLayout(this);
@@ -886,6 +886,7 @@ public class MainActivity extends Activity {
         final AppWidgetManager awm = AppWidgetManager.getInstance(this);
         boolean canPin = Build.VERSION.SDK_INT >= 26 && awm.isRequestPinAppWidgetSupported();
         for (int v = 0; v < Variants.COUNT; v++) {
+            if (Variants.LEGACY[v]) continue; // sized widgets from older versions stay on home screens but aren't offered any more
             final int variant = v;
             LinearLayout card = new LinearLayout(this);
             card.setOrientation(LinearLayout.VERTICAL);
@@ -907,7 +908,7 @@ public class MainActivity extends Activity {
             line.setGravity(Gravity.CENTER_VERTICAL);
             LinearLayout text = new LinearLayout(this);
             text.setOrientation(LinearLayout.VERTICAL);
-            text.addView(Ui.text(this, Variants.TITLE[v] + "  \u00b7  " + Variants.size(v), 16.5f, 500, Ui.onSurface(this)));
+            text.addView(Ui.text(this, Variants.TITLE[v] + "  \u00b7  resizable", 16.5f, 500, Ui.onSurface(this)));
             TextView sub = Ui.text(this, Variants.BLURB[v], 13.5f, 400, Ui.onSurfaceVar(this));
             sub.setLineSpacing(0, 1.12f);
             text.addView(sub, lp(-1, -2, 2));

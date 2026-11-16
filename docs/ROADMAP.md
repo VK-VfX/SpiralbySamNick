@@ -41,6 +41,11 @@ Cat schedule (time + what the cat is doing), Flip clock (redesigned: glossy tile
 They tick every minute through ACTION_TIME_TICK in the foreground service (no exact-alarm permission needed); the service now also runs when any clock widget exists.
 Rejected / archived designs (code still in git history, commits 4ada700 .. 61fee6e): analogue cat clock, rings, word, dot-matrix, pill, neon, poster, LCD, world clock.
 
+## Widgets are now one resizable widget per design (v1.0.10)
+- 18 resizable widgets (see UNIFIED in scripts/gen_widgets.py) with min/max sizes decided by a size stress test (`java -Dkinds=NOW,... Preview sizes <dir>`).
+- The old fixed-size widgets are kept as hidden "legacy" providers (widgetCategory=keyguard) so widgets already on home screens keep working; the in-app picker skips them (Variants.LEGACY).
+- Touch and hold a widget -> "Widget settings" (reconfigurable config activity PlaceConfigActivity): per-widget background Solid / Glass / Clear with a live preview, plus the place it shows. The Settings screen background choice is only the default.
+
 ## Other ideas not built yet
 - Commute alerts (user sets leaving times; "rain at 5:30, leave early").
 - Pollen / allergy levels, UV "safe sun time" timeline, moon phase widget.

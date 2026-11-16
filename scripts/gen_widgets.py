@@ -62,8 +62,39 @@ VARIANTS = [
     ('headsup_2x3', 'HEADSUP', 2, 3, 'Heads-up', 'The one thing worth knowing, with room to read.'),
 ]
 
+# Sized widgets from earlier releases. They keep working on home screens that already have them, but are hidden from the picker.
+LEGACY_KEYS = set(v[0] for v in VARIANTS)
+
+# One resizable widget per design: (key, kind, default cells w, h, title, description, min cells (w, h), max cells (w, h))
+UNIFIED = [
+    ('now', 'NOW', 2, 2, 'Now', 'Temperature, condition and high/low. Grows into hourly lists as you resize it.', (2, 2), (4, 4)),
+    ('hourly', 'HOURLY', 4, 2, 'Hourly', 'The next hours with rain chances.', (2, 2), (4, 4)),
+    ('forecast', 'FORECAST', 4, 3, 'Forecast', 'Multi-day outlook with range bars.', (2, 2), (4, 4)),
+    ('details', 'DETAILS', 4, 2, 'Details', 'Feels like, humidity, wind, UV, air and pressure.', (2, 2), (4, 4)),
+    ('location', 'LOCATION', 2, 2, 'Location', 'Your exact place, coordinates and accuracy.', (2, 2), (4, 4)),
+    ('sun', 'SUN', 4, 2, 'Sun', 'Sun arc with sunrise and sunset.', (2, 2), (4, 4)),
+    ('headsup', 'HEADSUP', 4, 1, 'Heads-up', 'The one thing worth knowing right now.', (2, 1), (4, 4)),
+    ('icon', 'ICON', 1, 1, 'Weather icon', 'Just the weather cat and temperature, no background.', (1, 1), (4, 4)),
+    ('lineh', 'LINE_HOURLY', 4, 2, 'Line hourly', 'Temperature curve with a weather cat on every hour.', (2, 2), (4, 4)),
+    ('lined', 'LINE_DAILY', 4, 2, 'Line daily', 'Daily highs as a smooth curve.', (2, 2), (4, 4)),
+    ('big', 'BIG', 2, 2, 'Big number', 'A giant, light temperature on a soft gradient.', (2, 2), (4, 4)),
+    ('classic', 'CLASSIC', 2, 2, 'Classic', 'Place, light temperature and low/high.', (2, 2), (4, 4)),
+    ('rain', 'RAIN_SOON', 4, 2, 'Rain soon', 'Will it rain in the next minutes? A 15-minute rain outlook.', (2, 2), (4, 4)),
+    ('clock', 'CLOCK_BIG', 4, 2, 'Clock', 'Big thin time with the date and the weather.', (2, 2), (4, 4)),
+    ('flip', 'CLOCK_FLIP', 4, 2, 'Flip clock', 'Split-flap tiles with a cat peeking over the minutes.', (2, 2), (4, 4)),
+    ('sky', 'CLOCK_SKY', 4, 2, 'Sky clock', 'A sky that follows the real time of day, with the sun or moon.', (2, 2), (4, 4)),
+    ('catclock', 'CLOCK_SCHEDULE', 4, 2, 'Cat schedule', 'The time, and what the cat is up to right now.', (4, 2), (4, 4)),
+    ('dayclock', 'CLOCK_DAY', 4, 2, 'Day clock', 'A cat walking along the day, with a sunrise or sunset countdown.', (4, 2), (4, 4)),
+]
+EXTRA = {}
+for u in UNIFIED:
+    VARIANTS.append(u[:6])
+    EXTRA[u[0]] = (u[6], u[7])
+
 def dp(n): return 70 * n - 30
 def cls(key):
+    if '_' not in key:
+        return key.capitalize()
     head, size = key.rsplit('_', 1)
     return ''.join(w.capitalize() for w in head.split('_')) + size
 def w(path, txt):
@@ -79,6 +110,7 @@ j.append('    public static final int[] KIND = {%s};' % ', '.join('Cards.' + v[1
 j.append('    public static final int[] CELLS_W = {%s};' % ', '.join(str(v[2]) for v in VARIANTS))
 j.append('    public static final int[] CELLS_H = {%s};' % ', '.join(str(v[3]) for v in VARIANTS))
 j.append('    public static final String[] TITLE = {%s};' % ', '.join('"%s"' % v[4] for v in VARIANTS))
+j.append('    public static final boolean[] LEGACY = {%s};' % ', '.join('true' if v[0] in LEGACY_KEYS else 'false' for v in VARIANTS))
 j.append('    public static final String[] BLURB = {%s};' % ', '.join('"%s"' % v[5] for v in VARIANTS))
 j += ['', '    public static int widthDp(int i) { return 70 * CELLS_W[i] - 30; }', '    public static int heightDp(int i) { return 70 * CELLS_H[i] - 30; }',
       '    public static String size(int i) { return CELLS_W[i] + "\\u00d7" + CELLS_H[i]; }', '}', '']
@@ -108,28 +140,29 @@ w(P('app/src/main/java/app/skypix/android/Widgets.java'), '\n'.join(k))
 for f in glob.glob(P('app/src/main/res/xml/widget_*.xml')): os.remove(f)
 for f in glob.glob(P('app/src/main/res/drawable-nodpi/preview_*.png')): os.remove(f)
 for key, kind, cw, ch, title, desc in VARIANTS:
-    w(P('app/src/main/res/xml/widget_%s.xml' % key), '''<?xml version="1.0" encoding="utf-8"?>
-<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
-    android:minWidth="%ddp"
-    android:minHeight="%ddp"
-    android:minResizeWidth="%ddp"
-    android:minResizeHeight="%ddp"
-    android:targetCellWidth="%d"
-    android:targetCellHeight="%d"
-    android:resizeMode="horizontal|vertical"
-    android:updatePeriodMillis="1800000"
-    android:initialLayout="@layout/widget_frame"
-    android:previewImage="@drawable/preview_%s"
-    android:description="@string/d_%s"
-    android:configure="app.skypix.weather/app.skypix.android.PlaceConfigActivity"
-    android:widgetFeatures="reconfigurable"
-    android:widgetCategory="home_screen" />
-''' % (dp(cw), dp(ch), dp(cw), dp(ch), cw, ch, key, key))
+    legacy = key in LEGACY_KEYS
+    if legacy:
+        mn, mx = (cw, ch), None
+    else:
+        mn, mx = EXTRA[key]
+    lines = ['<?xml version="1.0" encoding="utf-8"?>', '<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"',
+             '    android:minWidth="%ddp"' % dp(cw), '    android:minHeight="%ddp"' % dp(ch),
+             '    android:minResizeWidth="%ddp"' % dp(mn[0]), '    android:minResizeHeight="%ddp"' % dp(mn[1])]
+    if mx:
+        lines += ['    android:maxResizeWidth="%ddp"' % dp(mx[0]), '    android:maxResizeHeight="%ddp"' % dp(mx[1])]
+    lines += ['    android:targetCellWidth="%d"' % cw, '    android:targetCellHeight="%d"' % ch,
+              '    android:resizeMode="horizontal|vertical"', '    android:updatePeriodMillis="1800000"',
+              '    android:initialLayout="@layout/widget_frame"', '    android:previewImage="@drawable/preview_%s"' % key,
+              '    android:description="@string/d_%s"' % key,
+              '    android:configure="app.skypix.weather/app.skypix.android.PlaceConfigActivity"',
+              '    android:widgetFeatures="reconfigurable"',
+              '    android:widgetCategory="%s" />' % ('keyguard' if legacy else 'home_screen'), '']
+    w(P('app/src/main/res/xml/widget_%s.xml' % key), '\n'.join(lines))
 
 # ---- strings ----
 s = ['<?xml version="1.0" encoding="utf-8"?>', '<resources>', '    <string name="app_name">Purrcast</string>']
 for key, kind, cw, ch, title, desc in VARIANTS:
-    s.append('    <string name="w_%s">Purrcast · %s %d×%d</string>' % (key, title, cw, ch))
+    s.append('    <string name="w_%s">Purrcast · %s %d×%d</string>' % (key, title, cw, ch) if key in LEGACY_KEYS else '    <string name="w_%s">Purrcast · %s</string>' % (key, title))
     s.append('    <string name="d_%s">%s</string>' % (key, desc.replace("'", "\\'")))
 s += ['</resources>', '']
 w(P('app/src/main/res/values/strings.xml'), '\n'.join(s))
