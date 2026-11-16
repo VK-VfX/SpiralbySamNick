@@ -83,6 +83,7 @@ public final class PlaceConfigActivity extends Activity {
     private void choose(String placeId) {
         Places.setWidgetPlace(this, widgetId, placeId);
         WidgetUpdater.updateOne(this, widgetId);
+        Jobs.syncAnimService(getApplicationContext());
         Jobs.kick(this);
         setResult(RESULT_OK, new Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId));
         finish();

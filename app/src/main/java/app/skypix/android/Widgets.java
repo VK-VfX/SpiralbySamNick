@@ -81,10 +81,18 @@ public final class Widgets {
     public static final class Classic2x3 extends Base { @Override int variant() { return 33; } }
     public static final class Rain2x2 extends Base { @Override int variant() { return 34; } }
     public static final class Rain4x2 extends Base { @Override int variant() { return 35; } }
-    public static final class Headsup3x1 extends Base { @Override int variant() { return 36; } }
-    public static final class Headsup4x1 extends Base { @Override int variant() { return 37; } }
-    public static final class Headsup2x2 extends Base { @Override int variant() { return 38; } }
-    public static final class Headsup2x3 extends Base { @Override int variant() { return 39; } }
+    public static final class Clock4x2 extends Base { @Override int variant() { return 36; } }
+    public static final class Clock2x2 extends Base { @Override int variant() { return 37; } }
+    public static final class Flip4x2 extends Base { @Override int variant() { return 38; } }
+    public static final class Flip2x2 extends Base { @Override int variant() { return 39; } }
+    public static final class Sky4x2 extends Base { @Override int variant() { return 40; } }
+    public static final class Sky2x2 extends Base { @Override int variant() { return 41; } }
+    public static final class Catclock4x2 extends Base { @Override int variant() { return 42; } }
+    public static final class Dayclock4x2 extends Base { @Override int variant() { return 43; } }
+    public static final class Headsup3x1 extends Base { @Override int variant() { return 44; } }
+    public static final class Headsup4x1 extends Base { @Override int variant() { return 45; } }
+    public static final class Headsup2x2 extends Base { @Override int variant() { return 46; } }
+    public static final class Headsup2x3 extends Base { @Override int variant() { return 47; } }
 
     static final Class<?>[] ALL = {
         Now2x2.class,
@@ -123,6 +131,14 @@ public final class Widgets {
         Classic2x3.class,
         Rain2x2.class,
         Rain4x2.class,
+        Clock4x2.class,
+        Clock2x2.class,
+        Flip4x2.class,
+        Flip2x2.class,
+        Sky4x2.class,
+        Sky2x2.class,
+        Catclock4x2.class,
+        Dayclock4x2.class,
         Headsup3x1.class,
         Headsup4x1.class,
         Headsup2x2.class,

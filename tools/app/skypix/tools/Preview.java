@@ -193,50 +193,13 @@ public final class Preview {
             g.dispose();
             dir.mkdirs();
             ImageIO.write(img, "png", new File(dir, "headsup.png"));
-        } else if (mode.equals("clocks")) {
-            int[] kinds = {Cards.CLOCK_FLIP, Cards.CLOCK_FLIP, Cards.CLOCK_SEG, Cards.CLOCK_NEON, Cards.CLOCK_POSTER, Cards.CLOCK_POSTER};
-            int[][] sz = {{250, 110}, {110, 110}, {250, 110}, {250, 110}, {250, 110}, {110, 110}};
-            float u = 1.7f;
-            int perRow = 4;
-            String[] times = {"2026-11-16T10:10", "2026-11-16T18:05", "2026-11-16T22:10"};
-            for (int side = 0; side < 2; side++) {
-                boolean dark = side == 1;
-                int cols = 3, rowsN = (kinds.length + cols - 1) / cols;
-                int W = 14 + cols * (250 + 14), H = 14;
-                int[] rowH = new int[rowsN];
-                for (int i = 0; i < kinds.length; i++) rowH[i / cols] = Math.max(rowH[i / cols], sz[i][1]);
-                for (int hh : rowH) H += hh + 14;
-                BufferedImage img = new BufferedImage(Math.round(W * u), Math.round(H * u), BufferedImage.TYPE_INT_ARGB);
-                Graphics2D g = img.createGraphics();
-                g.drawImage(backdrop(img.getWidth(), img.getHeight(), dark, dark), 0, 0, null);
-                int y = 14;
-                for (int rI = 0; rI < rowsN; rI++) {
-                    int x = 14;
-                    for (int c = 0; c < cols && rI * cols + c < kinds.length; c++) {
-                        int i = rI * cols + c;
-                        Cards.Data d = Samples.data(dark ? "night" : "clear", false, false);
-                        d.nowSec = Fmt.parseLocal(times[(i + side) % 3], 8 * 3600);
-                        g.drawImage(render(kinds[i], sz[i][0], sz[i][1], u, dark, d), Math.round(x * u), Math.round(y * u), null);
-                        x += 250 + 14;
-                    }
-                    y += rowH[rI] + 14;
-                }
-                g.dispose();
-                dir.mkdirs();
-                ImageIO.write(img, "png", new File(dir, dark ? "clocks-dark.png" : "clocks-light.png"));
-            }
         } else if (mode.equals("allclocks")) {
             Object[][] items = {
                     {Cards.CLOCK_BIG, 250, 110, "1  Big Clock 4x2"}, {Cards.CLOCK_BIG, 110, 110, "1  Big Clock 2x2"},
-                    {Cards.CLOCK_FLIP, 250, 110, "2  Flip Clock 4x2"}, {Cards.CLOCK_FLIP, 110, 110, "2  Flip Clock 2x2"},
-                    {Cards.CLOCK_NEON, 250, 110, "3  Neon Clock 4x2"}, {Cards.CLOCK_POSTER, 250, 110, "4  Poster Clock 4x2"},
-                    {Cards.CLOCK_POSTER, 110, 110, "4  Poster Clock 2x2"}, {Cards.CLOCK_SEG, 250, 110, "5  LCD Clock 4x2"},
-                    {Cards.CLOCK_DOTS, 250, 110, "6  Dot Clock 4x2"}, {Cards.CLOCK_PILL, 250, 110, "7  Pill Clock 4x2"},
-                    {Cards.CLOCK_PILL, 110, 110, "7  Pill Clock 2x2"}, {Cards.CLOCK_SKY, 250, 110, "8  Sky Clock 4x2"},
-                    {Cards.CLOCK_SKY, 110, 110, "8  Sky Clock 2x2"}, {Cards.CLOCK_SCHEDULE, 250, 110, "9  Cat Schedule 4x2"},
-                    {Cards.CLOCK_DAY, 250, 110, "10  Day Clock 4x2"}, {Cards.CLOCK_WORD, 250, 180, "11  Word Clock 4x3"},
-                    {Cards.CLOCK_WORLD, 250, 180, "12  World Clock 4x3"}};
-            float u = 1.6f;
+                    {Cards.CLOCK_FLIP, 250, 110, "2  Flip Clock 4x2 (redesigned)"}, {Cards.CLOCK_FLIP, 110, 110, "2  Flip Clock 2x2"},
+                    {Cards.CLOCK_SKY, 250, 110, "3  Sky Clock 4x2"}, {Cards.CLOCK_SKY, 110, 110, "3  Sky Clock 2x2"},
+                    {Cards.CLOCK_SCHEDULE, 250, 110, "4  Cat Schedule 4x2"}, {Cards.CLOCK_DAY, 250, 110, "5  Day Clock 4x2"}};
+            float u = 1.9f;
             int rowW = 3 * 264 + 14;
             for (int side = 0; side < 2; side++) {
                 boolean dark = side == 1;

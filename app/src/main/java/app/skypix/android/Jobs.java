@@ -83,7 +83,7 @@ public final class Jobs {
     /** Runs the unlock-animation listener only while it's enabled and there is a widget to animate. */
     static void syncAnimService(Context app) {
         Intent i = new Intent(app, AnimService.class);
-        if (Store.animate(app) && WidgetUpdater.count(app) > 0) {
+        if ((Store.animate(app) && WidgetUpdater.count(app) > 0) || WidgetUpdater.clockCount(app) > 0) {
             try {
                 app.startForegroundService(i);
             } catch (RuntimeException e) {
@@ -229,10 +229,32 @@ public final class Jobs {
             }, "skypix-anim").start();
         }
 
+        private static final java.util.concurrent.ExecutorService TICKER = java.util.concurrent.Executors.newSingleThreadExecutor();
+
+        /** Redraw the clock widgets off the main thread. */
+        static void tickClocks(final Context c) {
+            final Context app = c.getApplicationContext();
+            TICKER.execute(new Runnable() {
+                @Override public void run() {
+                    try {
+                        if (WidgetUpdater.clockCount(app) > 0) WidgetUpdater.updateClocks(app);
+                    } catch (Throwable t) {
+                        Ui.report("clock tick", t);
+                    }
+                }
+            });
+        }
+
         private final BroadcastReceiver screen = new BroadcastReceiver() {
             @Override public void onReceive(Context c, Intent i) {
-                String why = Intent.ACTION_SCREEN_ON.equals(i.getAction()) ? "screen on" : "unlock";
-                if (Intent.ACTION_SCREEN_ON.equals(i.getAction())) {
+                String act = i.getAction();
+                if (Intent.ACTION_TIME_TICK.equals(act)) {
+                    tickClocks(c);
+                    return;
+                }
+                tickClocks(c);
+                String why = Intent.ACTION_SCREEN_ON.equals(act) ? "screen on" : "unlock";
+                if (Intent.ACTION_SCREEN_ON.equals(act)) {
                     // phones with no lock screen never send USER_PRESENT-after-unlock, so start right away
                     KeyguardManager km = (KeyguardManager) c.getSystemService(Context.KEYGUARD_SERVICE);
                     if (km != null && km.isKeyguardLocked()) return;
@@ -249,8 +271,8 @@ public final class Jobs {
             Intent open = new Intent(this, MainActivity.class).setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
             Notification n = new Notification.Builder(this, "anim")
                     .setSmallIcon(R.drawable.ic_stat_weather)
-                    .setContentTitle("Purrcast is ready to animate your widgets")
-                    .setContentText("Turn this off in Purrcast settings")
+                    .setContentTitle("Purrcast keeps your widgets live")
+                    .setContentText("Clocks, animations and weather. Manage in Purrcast settings")
                     .setContentIntent(PendingIntent.getActivity(this, 21, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT))
                     .setOngoing(true)
                     .build();
@@ -259,6 +281,9 @@ public final class Jobs {
             IntentFilter f = new IntentFilter();
             f.addAction(Intent.ACTION_USER_PRESENT);
             f.addAction(Intent.ACTION_SCREEN_ON);
+            f.addAction(Intent.ACTION_TIME_TICK);
+            f.addAction(Intent.ACTION_TIMEZONE_CHANGED);
+            f.addAction(Intent.ACTION_TIME_CHANGED);
             if (Build.VERSION.SDK_INT >= 33) registerReceiver(screen, f, Context.RECEIVER_NOT_EXPORTED);
             else registerReceiver(screen, f);
             running = true;

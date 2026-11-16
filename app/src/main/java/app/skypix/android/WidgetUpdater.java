@@ -53,6 +53,35 @@ final class WidgetUpdater {
         return out;
     }
 
+    static boolean isClock(int variant) {
+        return Variants.KIND[variant] >= Cards.CLOCK_BIG;
+    }
+
+    static int clockCount(Context ctx) {
+        AppWidgetManager m = AppWidgetManager.getInstance(ctx);
+        int n = 0;
+        for (int v = 0; v < Widgets.ALL.length; v++) {
+            if (isClock(v)) n += m.getAppWidgetIds(new ComponentName(ctx, Widgets.ALL[v])).length;
+        }
+        return n;
+    }
+
+    /** Redraws only the clock widgets (called every minute while the phone is awake). */
+    static void updateClocks(Context ctx) {
+        Context app = ctx.getApplicationContext();
+        AppWidgetManager m = AppWidgetManager.getInstance(app);
+        for (int v = 0; v < Widgets.ALL.length; v++) {
+            if (!isClock(v)) continue;
+            for (int id : m.getAppWidgetIds(new ComponentName(app, Widgets.ALL[v]))) {
+                try {
+                    update(app, m, v, id, null);
+                } catch (Throwable t) {
+                    Ui.report("clock widget", t);
+                }
+            }
+        }
+    }
+
     static int count(Context ctx) {
         AppWidgetManager m = AppWidgetManager.getInstance(ctx);
         int n = 0;
@@ -116,6 +145,7 @@ final class WidgetUpdater {
         android.util.DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
         long limit = (long) (dm.widthPixels * (long) dm.heightPixels * 4L * 1.5);
         for (int v = 0; v < Widgets.ALL.length; v++) {
+            if (isClock(v)) continue; // clocks keep ticking instead of playing the weather animation
             int[] ids = m.getAppWidgetIds(new ComponentName(ctx, Widgets.ALL[v]));
             for (int id : ids) {
                 try {

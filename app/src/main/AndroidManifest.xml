@@ -188,6 +188,38 @@
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_rain_4x2" />
         </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Clock4x2" android:exported="false" android:label="@string/w_clock_4x2">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_clock_4x2" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Clock2x2" android:exported="false" android:label="@string/w_clock_2x2">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_clock_2x2" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Flip4x2" android:exported="false" android:label="@string/w_flip_4x2">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_flip_4x2" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Flip2x2" android:exported="false" android:label="@string/w_flip_2x2">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_flip_2x2" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Sky4x2" android:exported="false" android:label="@string/w_sky_4x2">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_sky_4x2" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Sky2x2" android:exported="false" android:label="@string/w_sky_2x2">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_sky_2x2" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Catclock4x2" android:exported="false" android:label="@string/w_catclock_4x2">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_catclock_4x2" />
+        </receiver>
+        <receiver android:name="app.skypix.android.Widgets$Dayclock4x2" android:exported="false" android:label="@string/w_dayclock_4x2">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_dayclock_4x2" />
+        </receiver>
         <receiver android:name="app.skypix.android.Widgets$Headsup3x1" android:exported="false" android:label="@string/w_headsup_3x1">
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_headsup_3x1" />

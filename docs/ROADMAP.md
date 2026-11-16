@@ -35,6 +35,12 @@ Locked cats show as silhouettes with a hint ("Somewhere it's snowing..."), a pro
 - Saved places (search via Open-Meteo geocoding, or "save where I am"), and a per-widget place chooser that shows when a widget is added and on long-press reconfigure.
 - Material You colours (Android 12+, opt-in in Settings): app palette and widget backgrounds follow the wallpaper.
 
+## Clock widgets (decided by the owner)
+Included as widgets: Clock (big thin time + weather), Day clock (cat walking along the day), Sky clock (live sky, sun/moon, stars),
+Cat schedule (time + what the cat is doing), Flip clock (redesigned: glossy tiles, bevelled hinge with pins, colon dots, cat peeking over the minutes).
+They tick every minute through ACTION_TIME_TICK in the foreground service (no exact-alarm permission needed); the service now also runs when any clock widget exists.
+Rejected / archived designs (code still in git history, commits 4ada700 .. 61fee6e): analogue cat clock, rings, word, dot-matrix, pill, neon, poster, LCD, world clock.
+
 ## Other ideas not built yet
 - Commute alerts (user sets leaving times; "rain at 5:30, leave early").
 - Pollen / allergy levels, UV "safe sun time" timeline, moon phase widget.
