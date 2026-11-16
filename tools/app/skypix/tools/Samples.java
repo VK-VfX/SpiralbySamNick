@@ -10,20 +10,20 @@ import app.skypix.core.Weather;
 final class Samples {
     private Samples() {}
 
-    static final int OFF = 8 * 3600;
+    static final int OFF = -5 * 3600;
 
     static Place place() {
         Place p = new Place();
-        p.lat = 14.6507;
-        p.lon = 121.1029;
+        p.lat = 40.7128;
+        p.lon = -74.0060;
         p.accuracyM = 8;
         p.altitudeM = 42;
         p.precise = true;
         p.provider = "gps";
-        p.neighborhood = "Concepcion Uno";
-        p.city = "Marikina";
-        p.region = "Metro Manila";
-        p.country = "Philippines";
+        p.neighborhood = "";
+        p.city = "New York";
+        p.region = "New York";
+        p.country = "United States";
         p.fixTimeMs = (Fmt.parseLocal("2026-11-15T15:28", OFF)) * 1000;
         return p;
     }
@@ -45,8 +45,8 @@ final class Samples {
         Weather w = new Weather();
         w.utcOffset = OFF;
         w.fetchedAtMs = now * 1000;
-        w.lat = 14.6507;
-        w.lon = 121.1029;
+        w.lat = 40.7128;
+        w.lon = -74.0060;
         w.elevation = 42;
         long day0 = Fmt.parseLocal("2026-11-15", OFF);
         int n = 7 * 24;

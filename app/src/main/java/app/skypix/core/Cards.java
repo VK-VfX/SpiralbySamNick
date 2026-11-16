@@ -880,10 +880,22 @@ public final class Cards {
         boolean is24 = d.units.h24;
         float pad = clamp(w * 0.06f, 12, 16);
         String time = hourText(t[0], is24) + ":" + minText(t[1]);
-        float ts = clamp(h * 0.37f, 32, 60);
-        r.text(time, pad - 2, pad + ts * 0.80f, ts, Gfx.FONT_LIGHT, Gfx.LEFT, WHITE);
-        if (!is24) r.text(t[0] < 12 ? "AM" : "PM", pad - 2 + r.tw(time, ts, Gfx.FONT_LIGHT) + 4, pad + ts * 0.80f, 13, Gfx.FONT_MEDIUM, Gfx.LEFT, T2);
-        r.text(dateText(d, d.tzOffset), w - pad, pad + 16, 14, Gfx.FONT_MEDIUM, Gfx.RIGHT, WHITE);
+        float ts = clamp(h * 0.37f, 18, 60);
+        float ampmW = is24 ? 0 : 20;
+        while (ts > 20 && r.tw(time, ts, Gfx.FONT_LIGHT) + ampmW + 4 > w - 2 * pad + 2) ts -= 2;
+        float timeW = r.tw(time, ts, Gfx.FONT_LIGHT);
+        float base = pad + ts * 0.80f;
+        r.text(time, pad - 2, base, ts, Gfx.FONT_LIGHT, Gfx.LEFT, WHITE);
+        if (!is24) r.text(t[0] < 12 ? "AM" : "PM", pad - 2 + timeW + 4, base, 13, Gfx.FONT_MEDIUM, Gfx.LEFT, T2);
+        String date = dateText(d, d.tzOffset);
+        float dateW = r.tw(date, 14, Gfx.FONT_MEDIUM);
+        if (pad - 2 + timeW + ampmW + 12 + dateW <= w - pad) {
+            r.text(date, w - pad, pad + 16, 14, Gfx.FONT_MEDIUM, Gfx.RIGHT, WHITE);
+        } else if (h >= 100) {
+            // narrow card: the date goes under the time instead of beside it
+            r.text(r.fit(date, 14, Gfx.FONT_MEDIUM, w - 2 * pad), pad, base + 20, 14, Gfx.FONT_MEDIUM, Gfx.LEFT, WHITE);
+        }
+        if (h < 90) return; // a strip: just the time, the sun track needs more room
 
         float f = (t[0] * 3600 + t[1] * 60 + t[2]) / 86400f;
         float trackY = h - pad - 22, trackL = pad + 6, trackR = w - pad - 6, th = 8;
@@ -909,8 +921,10 @@ public final class Cards {
         r.rect(trackL, trackY, Math.max(trackL + th, cx), trackY + th, th / 2, day ? 0xFFFFD54F : 0xFF9FA8DA);
         float cs = clamp(h * 0.24f, 22, 30);
         r.icon(day ? Icon.SUN : Icon.SLEEPY, cx - cs / 2, trackY + th / 2 - cs + 5, cs);
-        if (note.length() > 0) r.text(note, pad, h - pad + 3, 12, Gfx.FONT_MEDIUM, Gfx.LEFT, T2);
-        r.text("12 AM", w - pad, h - pad + 3, 11, Gfx.FONT_REGULAR, Gfx.RIGHT, T3);
+        float avail = w - 2 * pad;
+        boolean room = r.tw(note, 12, Gfx.FONT_MEDIUM) + r.tw("12 AM", 11, Gfx.FONT_REGULAR) + 12 <= avail;
+        if (note.length() > 0) r.text(room ? note : r.fit(note, 12, Gfx.FONT_MEDIUM, avail), pad, h - pad + 3, 12, Gfx.FONT_MEDIUM, Gfx.LEFT, T2);
+        if (room || note.length() == 0) r.text("12 AM", w - pad, h - pad + 3, 11, Gfx.FONT_REGULAR, Gfx.RIGHT, T3);
     }
 
 
@@ -1120,10 +1134,9 @@ public final class Cards {
             r.pix(Fmt.hourTag(wx.hTime[j], wx.utcOffset, u.h24), pad, cy - r.pixH(1.2f) / 2, 1.2f, Gfx.LEFT, T2);
             float ix = pad + (w < 150 ? 38 : 56);
             r.icon(Wmo.icon(wx.hCode[j], wx.hDay[j]), ix, cy - r.iconSize(20) / 2, 20);
-            r.text(u.t(wx.hTemp[j]), w - pad, cy + 5, 14, Gfx.FONT_BOLD, Gfx.RIGHT, WHITE);
-            if (w >= 150 && wx.hPop[j] >= 20) {
-                r.pix(Math.round(wx.hPop[j]) + "%", w - pad - 40, cy - r.pixH(1.2f) / 2, 1.2f, Gfx.RIGHT, POP);
-            }
+            String tt = u.t(wx.hTemp[j]);
+            r.text(tt, w - pad, cy + 5, 14, Gfx.FONT_BOLD, Gfx.RIGHT, WHITE);
+            popBetween(r, wx.hPop[j], ix + 22, w - pad - r.tw(tt, 14, Gfx.FONT_BOLD) - 8, cy);
         }
     }
 
@@ -1155,11 +1168,18 @@ public final class Cards {
             r.pix(tag, pad + 3, cy - r.pixH(1.2f) / 2, 1.2f, Gfx.LEFT, k == 0 ? WHITE : T2);
             float ix = pad + (w < 150 ? 36 : 54);
             r.icon(Wmo.icon(wx.hCode[j], wx.hDay[j]), ix, cy - r.iconSize(20) / 2, 20);
-            r.text(u.t(wx.hTemp[j]), w - pad - 3, cy + 5, 14, Gfx.FONT_BOLD, Gfx.RIGHT, WHITE);
-            if (w >= 150 && wx.hPop[j] >= 20) {
-                r.pix(Math.round(wx.hPop[j]) + "%", w - pad - 48, cy - r.pixH(1.2f) / 2, 1.2f, Gfx.RIGHT, POP);
-            }
+            String tt = u.t(wx.hTemp[j]);
+            r.text(tt, w - pad - 3, cy + 5, 14, Gfx.FONT_BOLD, Gfx.RIGHT, WHITE);
+            popBetween(r, wx.hPop[j], ix + 22, w - pad - 3 - r.tw(tt, 14, Gfx.FONT_BOLD) - 8, cy);
         }
+    }
+
+    /** Chance of rain in a list row: drawn only where it fits between the icon and the temperature, never on top of them. */
+    private static void popBetween(R r, double pop, float left, float right, float cy) {
+        if (Double.isNaN(pop) || pop < 20) return;
+        String t = Math.round(pop) + "%";
+        if (right - r.pixW(t, 1.2f) < left) return;
+        r.pix(t, right, cy - r.pixH(1.2f) / 2, 1.2f, Gfx.RIGHT, POP);
     }
 
     /** The first wording that fits on one line; if none do, the last one, ellipsised. */
