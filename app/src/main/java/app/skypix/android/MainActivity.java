@@ -21,6 +21,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.CompoundButton;
+import android.widget.ImageView;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -270,6 +271,7 @@ public class MainActivity extends Activity {
         addPlaces();
         addUpdates();
         addWidgetPicker(ink, ink2);
+        addAbout();
 
         TextView foot = new TextView(this);
         foot.setText("Weather & air quality: Open-Meteo.com (CC BY 4.0)\nPlace names: © OpenStreetMap contributors\nCat emoji: Google Noto Emoji (Apache 2.0)\nNo accounts, no analytics, no Google services.");
@@ -793,6 +795,59 @@ public class MainActivity extends Activity {
     // ---- app updates ----------------------------------------------------------------------------------------------
 
     private TextView updateSub;
+
+    private void open(String url) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+        } catch (Throwable t) {
+            Ui.report("open link", t);
+        }
+    }
+
+    /** "About Purrcast": the maker, the version and where to find them. */
+    private void addAbout() {
+        content.addView(Ui.text(this, "About Purrcast", 15, 500, Ui.primary(this)), lp(-2, -2, 32));
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setGravity(Gravity.CENTER_HORIZONTAL);
+        card.setPadding(Ui.dp(this, 20), Ui.dp(this, 26), Ui.dp(this, 20), Ui.dp(this, 22));
+        card.setBackground(Ui.surface(this, Ui.container(this), 28));
+        content.addView(card, lp(-1, -2, 12));
+
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(R.mipmap.ic_launcher);
+        icon.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        icon.setClipToOutline(true);
+        icon.setOutlineProvider(new android.view.ViewOutlineProvider() {
+            @Override public void getOutline(View v, android.graphics.Outline o) { o.setOval(0, 0, v.getWidth(), v.getHeight()); }
+        });
+        int is = Ui.dp(this, 96);
+        card.addView(icon, new LinearLayout.LayoutParams(is, is));
+
+        TextView name = Ui.text(this, "Nikezvera", 24, 500, Ui.onSurface(this));
+        name.setGravity(Gravity.CENTER);
+        card.addView(name, lp(-2, -2, 16));
+        TextView role = Ui.text(this, "Developer of Purrcast", 15, 400, Ui.onSurfaceVar(this));
+        role.setGravity(Gravity.CENTER);
+        card.addView(role, lp(-2, -2, 2));
+        TextView ver = Ui.text(this, "Version " + AppUpdate.installedName(this), 13.5f, 500, Ui.onTonal(this));
+        ver.setPadding(Ui.dp(this, 14), Ui.dp(this, 6), Ui.dp(this, 14), Ui.dp(this, 6));
+        ver.setBackground(Ui.surface(this, Ui.tonal(this), 20));
+        card.addView(ver, lp(-2, -2, 14));
+
+        LinearLayout box = section("Find me", 0);
+        View.OnClickListener tg = new View.OnClickListener() {
+            @Override public void onClick(View v) { open("https://t.me/xnzvix"); }
+        };
+        Ui.Btn t = new Ui.Btn(this, "Open", true);
+        t.setOnClickListener(tg);
+        row(box, "Telegram", "@xnzvix", t);
+        Ui.Btn g = new Ui.Btn(this, "Open", false);
+        g.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { open("https://github.com/VK-VfX/Sam-s-Signal-Stabilizer"); }
+        });
+        row(box, "Source and releases", "GitHub", g);
+    }
 
     private void addUpdates() {
         LinearLayout box = section("App updates", 0);
