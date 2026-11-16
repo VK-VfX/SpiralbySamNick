@@ -1,7 +1,7 @@
 {
-  "versionCode": 9,
-  "versionName": "1.0.8",
+  "versionCode": 10,
+  "versionName": "1.0.9",
   "apkUrl": "https://raw.githubusercontent.com/VK-VfX/Sam-s-Signal-Stabilizer/claude/signal-stabilizer-game-8le0y5/dist/skypix.apk",
-  "sha256": "1879329d19748bacc57f77df50c39bf931892f131bc393698be17f124c9b75a1",
-  "notes": "Rain-in-minutes alerts and widget, MET Malaysia warnings, saved places, Material You colours, day streak, and expressive cat moods."
+  "sha256": "fd7bf9f561a71c44998cdeb813a664c6ff1d1d81ad8005796019847505747ae7",
+  "notes": "Five live clock widgets (Clock, Flip, Sky, Cat schedule, Day) with a redesigned flip clock."
 }
