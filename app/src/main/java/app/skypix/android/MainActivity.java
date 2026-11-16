@@ -271,6 +271,7 @@ public class MainActivity extends Activity {
         addPlaces();
         addUpdates();
         addWidgetPicker(ink, ink2);
+        addPlacedWidgets();
         addAbout();
 
         TextView foot = new TextView(this);
@@ -795,6 +796,37 @@ public class MainActivity extends Activity {
     // ---- app updates ----------------------------------------------------------------------------------------------
 
     private TextView updateSub;
+
+    /**
+     * "Your widgets": every resizable widget on the home screen with a Settings button. This works with any launcher,
+     * including ones that don't show "Widget settings" when you touch and hold a widget.
+     */
+    private void addPlacedWidgets() {
+        android.appwidget.AppWidgetManager m = android.appwidget.AppWidgetManager.getInstance(this);
+        LinearLayout box = null;
+        for (int v = 0; v < Widgets.ALL.length; v++) {
+            if (Variants.LEGACY[v]) continue;
+            int[] ids;
+            try {
+                ids = m.getAppWidgetIds(new android.content.ComponentName(this, Widgets.ALL[v]));
+            } catch (Throwable t) {
+                continue;
+            }
+            for (final int id : ids) {
+                if (box == null) box = section("Your widgets", 0);
+                int bg = Places.effectiveBg(this, id);
+                String sub = new String[]{"Solid", "Glass", "Clear"}[Math.max(0, Math.min(2, bg))];
+                Ui.Btn b = new Ui.Btn(this, "Settings", false);
+                b.setOnClickListener(new View.OnClickListener() {
+                    @Override public void onClick(View x) {
+                        startActivity(new Intent(MainActivity.this, PlaceConfigActivity.class)
+                                .putExtra(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_ID, id));
+                    }
+                });
+                row(box, Variants.TITLE[v], sub + " background", b);
+            }
+        }
+    }
 
     private void open(String url) {
         try {

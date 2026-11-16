@@ -122,13 +122,26 @@ final class WidgetUpdater {
     }
 
     static int[] sizeFor(AppWidgetManager m, int variant, int id) {
+        return sizeFor(m, variant, id, false);
+    }
+
+    /**
+     * The widget's size in dp as this launcher reports it. Launchers differ: most give portrait width in MIN_WIDTH and
+     * height in MAX_HEIGHT (landscape swaps them); some report nothing or zeros, so fall back to the provider's own size.
+     */
+    static int[] sizeFor(AppWidgetManager m, int variant, int id, boolean landscape) {
         int[] def = {Variants.widthDp(variant), Variants.heightDp(variant)};
         Bundle o = m.getAppWidgetOptions(id);
-        int w = o == null ? 0 : o.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0);
-        int h = o == null ? 0 : o.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 0);
+        int w = 0, h = 0;
+        if (o != null) {
+            w = o.getInt(landscape ? AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH : AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0);
+            h = o.getInt(landscape ? AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT : AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 0);
+            if (w < 40) w = Math.max(o.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0), o.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, 0));
+            if (h < 30) h = Math.max(o.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0), o.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 0));
+        }
         if (w < 40) w = def[0];
         if (h < 30) h = def[1];
-        return new int[]{w, h};
+        return new int[]{Math.min(w, 700), Math.min(h, 700)};
     }
 
     static final int ANIM_FRAMES = 33;
