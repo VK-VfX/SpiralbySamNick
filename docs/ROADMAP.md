@@ -46,6 +46,21 @@ Rejected / archived designs (code still in git history, commits 4ada700 .. 61fee
 - The old fixed-size widgets are kept as hidden "legacy" providers (widgetCategory=keyguard) so widgets already on home screens keep working; the in-app picker skips them (Variants.LEGACY).
 - Touch and hold a widget -> "Widget settings" (reconfigurable config activity PlaceConfigActivity): per-widget background Solid / Glass / Clear with a live preview, plus the place it shows. The Settings screen background choice is only the default.
 
+## Purrcast x Zamoled (owner's idea: the weather app and the wallpaper app work together)
+Zamoled = github.com/VK-VfX/nikopickzamoledz (Kotlin/Compose, package com.nikopick.zamoled, default branch claude/hopeful-noether-lcc0fj,
+a push to that branch publishes a release, so use a feature branch). It makes seeded AMOLED wallpapers, has a daily-wallpaper worker (AutoWallpaper.kt),
+a Material You palette, a "widget-safe" toggle, a Cat Club (12 breeds) and the deep link zamoled://w?k=<recipe>. It only talks to GitHub and has no location.
+Plan, in phases:
+1. Define a tiny "mood" contract: CLEAR_DAY, CLEAR_NIGHT, DAWN, DUSK, CLOUDY, RAIN, HEAVY_RAIN, STORM, HAZE/FOG, HOT. Only these buckets cross between the apps, never location.
+2. Simplest link: Purrcast opens a new Zamoled deep link such as zamoled://weather?mood=RAIN&day=0 (Zamoled picks style + palette, the user taps Apply). Add an action
+   "Wallpaper for today" to the morning briefing notification. No permissions between the apps.
+3. Automatic: Zamoled "Follow the weather" source for its daily worker, reading a read-only Purrcast ContentProvider (mood only), changing the wallpaper only when the
+   mood changes and at most a few times a day.
+4. Cat Club link: Purrcast streak / unlocked cats unlock matching Zamoled cat wallpapers (fits the Cat Club collection idea above).
+5. "Purrcast x Zamoled look" preset: pitch-black wallpaper + Purrcast Clear widgets + Material You colours.
+Rules: no snow-only dependencies (owner is in Malaysia: rain, thunder, haze, heat, night, sunrise/sunset are the common moods); do not add install permissions
+(Zamoled was flagged by Play Protect for that); only change wallpapers on a mood change to protect battery.
+
 ## Other ideas not built yet
 - Commute alerts (user sets leaving times; "rain at 5:30, leave early").
 - Pollen / allergy levels, UV "safe sun time" timeline, moon phase widget.
