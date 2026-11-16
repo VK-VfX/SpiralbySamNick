@@ -77,7 +77,7 @@ public final class Cards {
 
     // ---- palette -------------------------------------------------------------------------------------------------
 
-    private static final int WHITE = 0xFFFFFFFF, T2 = 0xBFFFFFFF, T3 = 0x85FFFFFF, TILE = 0x1CFFFFFF;
+    private static final int WHITE = 0xFFFFFFFF, T2 = 0xE0FFFFFF, T3 = 0xB0FFFFFF, TILE = 0x1CFFFFFF;
     private static final int HI = 0xFFFFB86B, LO = 0xFF7CC4FF, POP = 0xFF6FC1FF, SUNY = 0xFFFFD23F;
 
     private static final class Mood {
@@ -158,22 +158,23 @@ public final class Cards {
             return t.trim() + "…";
         }
 
+        /** Small caps label (hours, percentages, day names). Smooth vector type, sized from the old pixel cell. */
+        private float pixSize(float cell) {
+            return Math.max(11.5f, PixelFont.H * cell * 1.42f);
+        }
+
         void pix(String s, float x, float y, float cell, int align, int color) {
-            if (shade && lightInk(color)) {
-                PixelFont.draw(g, s, (x + 1f) * u, (y + 1f) * u, cell * u, align, 0x50000000);
-                PixelFont.draw(g, s, (x - 1f) * u, (y + 1f) * u, cell * u, align, 0x50000000);
-                PixelFont.draw(g, s, x * u, (y + 1.8f) * u, cell * u, align, 0x80000000);
-            }
-            PixelFont.draw(g, s, x * u, y * u, cell * u, align, color);
+            float size = pixSize(cell);
+            text(s, x, y + size * 0.74f, size, Gfx.FONT_MEDIUM, align, color);
         }
 
         float pixW(String s, float cell) {
-            return PixelFont.width(g, s, cell * u) / u;
+            return tw(s, pixSize(cell), Gfx.FONT_MEDIUM);
         }
 
         /** Label cap height in dp. */
         float pixH(float cell) {
-            return PixelFont.H * cell;
+            return pixSize(cell) * 0.74f;
         }
 
         /** Draws a smooth vector weather glyph and returns its size in dp. */
@@ -1403,7 +1404,9 @@ public final class Cards {
             int col = i % cols, row = i / cols;
             float x = pad + col * (tw + gap), y = pad + row * (th + gap);
             r.rect(x, y, x + tw, y + th, 13, TILE);
-            r.pix(t[i][0], x + 8, y + 6, 1.1f, Gfx.LEFT, T3);
+            float ls = 11f;
+            while (ls > 8.5f && r.tw(t[i][0], ls, Gfx.FONT_MEDIUM) > tw - 14) ls -= 0.5f;
+            r.text(r.fit(t[i][0], ls, Gfx.FONT_MEDIUM, tw - 12), x + 8, y + 6 + ls * 0.8f, ls, Gfx.FONT_MEDIUM, Gfx.LEFT, T2);
             boolean showSub = tw >= 56;
             float vs = clamp(th * 0.36f, 13, 21);
             if (showSub && th < 48) vs = Math.min(vs, 14);
@@ -1411,7 +1414,7 @@ public final class Cards {
             while (vs > 11 && r.tw(raw, vs, Gfx.FONT_BOLD) > tw - 12) vs -= 0.5f;
             String val = r.fit(raw, vs, Gfx.FONT_BOLD, tw - 12);
             r.text(val, x + 8, y + th - (showSub ? (th < 48 ? 14.5f : 16) : 8), vs, Gfx.FONT_BOLD, Gfx.LEFT, WHITE);
-            if (showSub) r.text(r.fit(t[i][2], 9.5f, Gfx.FONT_REGULAR, tw - 12), x + 8, y + th - 5, 9.5f, Gfx.FONT_REGULAR, Gfx.LEFT, subCol[i]);
+            if (showSub) r.text(r.fit(t[i][2], 10.5f, Gfx.FONT_REGULAR, tw - 12), x + 8, y + th - 5, 10.5f, Gfx.FONT_REGULAR, Gfx.LEFT, subCol[i]);
         }
     }
 

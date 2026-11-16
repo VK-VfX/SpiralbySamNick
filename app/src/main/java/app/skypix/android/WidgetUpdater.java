@@ -18,7 +18,11 @@ import app.skypix.weather.R;
 final class WidgetUpdater {
     private WidgetUpdater() {}
 
-    private static final int MAX_PIXELS = 900000;
+    /** Sharpest size we may draw one bitmap at: the launcher caps a widget's bitmaps near 1.5 screens, and we send two (light and dark). */
+    private static int maxPixels(Context ctx) {
+        android.util.DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
+        return (int) Math.min(2600000L, Math.max(900000L, (long) (dm.widthPixels * (long) dm.heightPixels * 0.55)));
+    }
 
     static void updateAll(Context ctx) {
         Context app = ctx.getApplicationContext();
@@ -104,7 +108,8 @@ final class WidgetUpdater {
         int w = wh[0], h = wh[1];
 
         float u = ctx.getResources().getDisplayMetrics().density * scale;
-        while (w * u * h * u > MAX_PIXELS && u > 1f) u *= 0.9f;
+        int cap = maxPixels(ctx);
+        while (w * u * h * u > cap && u > 1f) u *= 0.95f;
         int pw = Math.max(1, Math.round(w * u)), ph = Math.max(1, Math.round(h * u));
 
         RemoteViews rv = new RemoteViews(ctx.getPackageName(), R.layout.widget_frame);
