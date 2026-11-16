@@ -58,6 +58,14 @@ Plan, in phases:
    mood changes and at most a few times a day.
 4. Cat Club link: Purrcast streak / unlocked cats unlock matching Zamoled cat wallpapers (fits the Cat Club collection idea above).
 5. "Purrcast x Zamoled look" preset: pitch-black wallpaper + Purrcast Clear widgets + Material You colours.
+Refinement (owner, from their real home screen: Zamoled Data Rain wallpaper + Purrcast clear widgets): a dedicated **Purrcast section in Zamoled**.
+- "Make room for Purrcast": generalise Zamoled's widget-safe (Core.kt Renderer, SAFE_TOP = 0.2, option letter 's' in the recipe key) from one top band to quiet zones
+  (dim the art to about 15% inside rectangles instead of blanking it), so any style, including Data Rain, stays readable behind clear widgets. New option letters keep old keys valid.
+- "Match my home screen": in Zamoled's preview, drag boxes showing the real Purrcast widgets (their preview images) to where they sit; the zones are saved with the recipe.
+  Owner's layout for reference: clock 4x2 on top (y 8-30%), icon 2x2 mid-left (y 37-50%), heads-up mid-right (y 32-54%).
+- Purrcast palettes (cat orange, Google blue, amber) and cat scenes placed to peek over the clock widget.
+- Purrcast side: a soft text shadow in Clear/Glass widgets for legibility over busy wallpapers.
+Zamoled is Gradle/Compose and may not build in the sandbox: use a feature branch and let its CI compile it.
 Rules: no snow-only dependencies (owner is in Malaysia: rain, thunder, haze, heat, night, sunrise/sunset are the common moods); do not add install permissions
 (Zamoled was flagged by Play Protect for that); only change wallpapers on a mood change to protect battery.
 
