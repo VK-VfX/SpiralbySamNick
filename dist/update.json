@@ -1,7 +1,7 @@
 {
-  "versionCode": 11,
-  "versionName": "1.0.10",
+  "versionCode": 12,
+  "versionName": "1.0.11",
   "apkUrl": "https://raw.githubusercontent.com/VK-VfX/Sam-s-Signal-Stabilizer/claude/signal-stabilizer-game-8le0y5/dist/skypix.apk",
-  "sha256": "d90ed5c1e88f3e573b443e391d274f40c05b4a460acbdd503d3f9e2e02c6ebd7",
-  "notes": "Resizable widgets with Solid, Glass or Clear backgrounds, official warning fixes, softer text on clear widgets, and an About section."
+  "sha256": "02c6e9fd3fec625beb5ef604bc8e8b45ca5ed359b15bdfb131bbc7775892d3f5",
+  "notes": "Fixes the sized widgets missing from the launcher and home screen. They are back as normal home-screen widgets."
 }
